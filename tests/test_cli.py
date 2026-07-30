@@ -3,11 +3,12 @@
 import json
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner, Result
 
-from formtuitous.cli import app
+from formtuitous.cli import app, main
 
 # regex to strip ANSI SGR escape sequences that Rich embeds in captured output
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
@@ -138,13 +139,11 @@ class TestCheckCommand:
 class TestStubCommands:
     """Tests that stub commands exist and execute their bodies."""
 
-    def test_display_with_file(self, tmp_path: Path) -> None:
-        """Display command executes its stub body."""
-        form = _write_form(
-            tmp_path / "form.json", {"name": "T", "questions": []}
-        )
-        result = runner.invoke(app, ["display", str(form)])
+    def test_display_help(self) -> None:
+        """Display command accepts --help."""
+        result = runner.invoke(app, ["display", "--help"])
         assert result.exit_code == 0
+        assert "Display a form" in _plain(result)
 
     def test_serve_with_file(self, tmp_path: Path) -> None:
         """Serve command executes its stub body."""
@@ -249,3 +248,34 @@ class TestMainFunction:
         result = runner.invoke(app, ["grade", "--help"])
         assert result.exit_code == 0
         assert "Grade responses" in _plain(result)
+
+
+class TestDisplayCommand:
+    """Tests for the display command body using mocking."""
+
+    def test_display_valid_form_mocks_run(self, tmp_path: Path) -> None:
+        """Display validates form and calls FormtuitousApp.run."""
+        form = _write_form(
+            tmp_path / "form.json",
+            {"name": "T", "description": "d", "questions": []},
+        )
+        with patch("formtuitous.tui.app.FormtuitousApp") as mock_app_cls:
+            mock_instance = mock_app_cls.return_value
+            result = runner.invoke(app, ["display", str(form)])
+            assert result.exit_code == 0
+            mock_app_cls.assert_called_once_with(form, Path("responses.db"))
+            mock_instance.run.assert_called_once()
+
+    def test_display_invalid_form_exits(self, tmp_path: Path) -> None:
+        """Display exits 1 for an invalid form."""
+        path = _write_form(tmp_path / "bad.json", {"bad": "data"})
+        with patch("formtuitous.tui.app.FormtuitousApp") as mock_app_cls:
+            result = runner.invoke(app, ["display", str(path)])
+            assert result.exit_code == 1
+            mock_app_cls.assert_not_called()
+
+    def test_main_calls_app(self) -> None:
+        """main() invokes the typer app."""
+        with patch("formtuitous.cli.app") as mock_app:
+            main()
+            mock_app.assert_called_once()

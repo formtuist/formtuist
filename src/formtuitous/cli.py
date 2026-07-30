@@ -88,6 +88,10 @@ def check(
     raise typer.Exit(code=0)
 
 
+DEFAULT_DB_PATH = "responses.db"
+DB_PATH_HELP = "Path to the SQLite database for storing responses."
+
+
 @app.command()
 def display(
     form_path: Path = typer.Argument(
@@ -97,9 +101,22 @@ def display(
         dir_okay=False,
         readable=True,
     ),
+    db: Path = typer.Option(
+        DEFAULT_DB_PATH,
+        help=DB_PATH_HELP,
+    ),
 ) -> None:
     """Display a form in the TUI and collect responses."""
-    raise typer.Exit(code=0)
+    # imported here to avoid loading Textual unless needed
+    from formtuitous.tui.app import FormtuitousApp  # noqa: PLC0415
+
+    # validate the form before launching the TUI
+    try:
+        parse_form(form_path)
+    except ValidationError:
+        raise typer.Exit(code=1)
+    app_ui = FormtuitousApp(form_path, db)
+    app_ui.run()
 
 
 @app.command()
