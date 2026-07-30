@@ -1,13 +1,28 @@
 """Tests for the formtuitous CLI commands."""
 
 import json
+import re
 from pathlib import Path
 
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from formtuitous.cli import app
 
+# regex to strip ANSI SGR escape sequences that Rich embeds in captured output
+ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+
+
 runner = CliRunner()
+
+
+def _plain(result: Result) -> str:
+    """Return captured stdout with Rich markup and ANSI codes removed."""
+    return ANSI_ESCAPE_PATTERN.sub("", result.stdout)
+
+
+def _plain_stderr(result: Result) -> str:
+    """Return captured stderr with Rich markup and ANSI codes removed."""
+    return ANSI_ESCAPE_PATTERN.sub("", result.stderr)
 
 
 def _write_form(path: Path, data: dict) -> Path:
@@ -30,8 +45,8 @@ class TestCheckCommand:
         path = _write_form(tmp_path / "form.json", form)
         result = runner.invoke(app, ["check", str(path)])
         assert result.exit_code == 0
-        assert "Form: Test Form" in result.stdout
-        assert "Status: valid" in result.stdout
+        assert "Form: Test Form" in _plain(result)
+        assert "Status: valid" in _plain(result)
 
     def test_check_shows_required_count(self, tmp_path: Path) -> None:
         """Check reports correct required and optional counts."""
@@ -50,7 +65,7 @@ class TestCheckCommand:
         path = _write_form(tmp_path / "form.json", form)
         result = runner.invoke(app, ["check", str(path)])
         assert result.exit_code == 0
-        assert "Questions: 2 (1 required, 1 optional)" in result.stdout
+        assert "Questions: 2 (1 required, 1 optional)" in _plain(result)
 
     def test_check_shows_graded(self, tmp_path: Path) -> None:
         """Check reports graded questions and auto-grade status."""
@@ -70,8 +85,8 @@ class TestCheckCommand:
         path = _write_form(tmp_path / "form.json", form)
         result = runner.invoke(app, ["check", str(path)])
         assert result.exit_code == 0
-        assert "Graded: 1 question(s)" in result.stdout
-        assert "auto-grade is on" in result.stdout
+        assert "Graded: 1 question(s)" in _plain(result)
+        assert "auto-grade is on" in _plain(result)
 
     def test_check_shows_no_grading(self, tmp_path: Path) -> None:
         """Check reports none when no questions have correct_answer."""
@@ -84,7 +99,7 @@ class TestCheckCommand:
         path = _write_form(tmp_path / "form.json", form)
         result = runner.invoke(app, ["check", str(path)])
         assert result.exit_code == 0
-        assert "Graded: none" in result.stdout
+        assert "Graded: none" in _plain(result)
 
     def test_check_invalid_form_exits_nonzero(self, tmp_path: Path) -> None:
         """Check exits non-zero with errors for invalid form JSON."""
@@ -97,7 +112,7 @@ class TestCheckCommand:
         path = _write_form(tmp_path / "form.json", form)
         result = runner.invoke(app, ["check", str(path)])
         assert result.exit_code == 1
-        assert "Form definition contains errors" in result.stderr
+        assert "Form definition contains errors" in _plain_stderr(result)
 
     def test_check_missing_file(self) -> None:
         """Check exits non-zero for a nonexistent file."""
@@ -116,7 +131,7 @@ class TestCheckCommand:
         path = _write_form(tmp_path / "form.json", form)
         result = runner.invoke(app, ["check", str(path)])
         assert result.exit_code == 0
-        assert "Description: A form with a description." in result.stdout
+        assert "Description: A form with a description." in _plain(result)
 
 
 class TestStubCommands:
@@ -167,28 +182,28 @@ class TestMainFunction:
         """Running formtuitous --help shows usage."""
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "formtuitous" in result.stdout
+        assert "formtuitous" in _plain(result)
 
     def test_serve_help(self) -> None:
         """Serve command accepts --help."""
         result = runner.invoke(app, ["serve", "--help"])
         assert result.exit_code == 0
-        assert "Serve a form" in result.stdout
+        assert "Serve a form" in _plain(result)
 
     def test_export_help(self) -> None:
         """Export command accepts --help."""
         result = runner.invoke(app, ["export", "--help"])
         assert result.exit_code == 0
-        assert "Export responses" in result.stdout
+        assert "Export responses" in _plain(result)
 
     def test_view_help(self) -> None:
         """View command accepts --help."""
         result = runner.invoke(app, ["view", "--help"])
         assert result.exit_code == 0
-        assert "View responses" in result.stdout
+        assert "View responses" in _plain(result)
 
     def test_grade_help(self) -> None:
         """Grade command accepts --help."""
         result = runner.invoke(app, ["grade", "--help"])
         assert result.exit_code == 0
-        assert "Grade responses" in result.stdout
+        assert "Grade responses" in _plain(result)
