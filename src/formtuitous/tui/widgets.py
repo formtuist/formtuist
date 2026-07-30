@@ -4,11 +4,22 @@
 
 from typing import Any
 
-from textual.validation import Integer
+from rich.syntax import Syntax
+from textual.validation import Integer, Regex
 from textual.widget import Widget
-from textual.widgets import Input, RadioSet, SelectionList, Switch, TextArea
+from textual.widgets import (
+    Input,
+    RadioSet,
+    SelectionList,
+    Static,
+    Switch,
+    TextArea,
+)
 
 from formtuitous.schema import Question
+
+# regex pattern for ISO 8601 date (YYYY-MM-DD)
+DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
 
 
 def make_input_widget(question: Question) -> Widget:
@@ -22,14 +33,32 @@ def make_input_widget(question: Question) -> Widget:
     if question.type == "checkbox":
         return SelectionList(*[(c, c, False) for c in question.choices])
     if question.type == "numeric":
-        return Input(placeholder="Type a number...", validators=[Integer()])
+        return Input(
+            placeholder="Type a number...",
+            validators=[Integer()],
+        )
     if question.type == "rating":
         return RadioSet(*question.labels)
     if question.type == "date":
-        return Input(placeholder="YYYY-MM-DD")
+        return Input(
+            placeholder="YYYY-MM-DD",
+            validators=[Regex(DATE_PATTERN)],
+        )
     if question.type == "yes_no":
         return Switch()
     raise ValueError(f"Unknown question type: {question.type}")
+
+
+def make_code_widget(question: Question) -> Static | None:
+    """Return a Static widget with syntax-highlighted code, or None."""
+    if question.code is None:
+        return None
+    syntax = Syntax(
+        question.code.content,
+        question.code.language,
+        line_numbers=True,
+    )
+    return Static(syntax)
 
 
 def get_widget_value(widget: Widget) -> Any:
@@ -61,4 +90,11 @@ def is_widget_empty(widget: Widget) -> bool:
         return len(widget.selected) == 0
     if isinstance(widget, Switch):
         return False
+    return True
+
+
+def is_widget_valid(widget: Widget) -> bool:
+    """Check whether an Input widget passes its validators."""
+    if isinstance(widget, Input):
+        return widget.is_valid
     return True

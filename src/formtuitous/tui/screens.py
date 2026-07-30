@@ -15,6 +15,8 @@ from formtuitous.schema import FormDefinition
 from formtuitous.tui.widgets import (
     get_widget_value,
     is_widget_empty,
+    is_widget_valid,
+    make_code_widget,
     make_input_widget,
 )
 
@@ -87,13 +89,10 @@ class FormScreen(Screen):
                 for question in self.form.questions:
                     required = " *" if question.required else ""
                     yield Label(f"{question.text}{required}")
-                    # optional code block
-                    if question.code is not None:
-                        code_text = (
-                            f"```{question.code.language}"
-                            f"\n{question.code.content}\n```"
-                        )
-                        yield Static(code_text)
+                    # optional syntax-highlighted code block
+                    code_widget = make_code_widget(question)
+                    if code_widget is not None:
+                        yield code_widget
                     # optional url
                     if question.url is not None:
                         yield Static(f"URL: {question.url}")
@@ -173,6 +172,12 @@ class FormScreen(Screen):
             if question.required and is_widget_empty(widget):
                 self.notify(
                     f"Please answer question: {question.text}",
+                    severity="error",
+                )
+                valid = False
+            elif not is_widget_empty(widget) and not is_widget_valid(widget):
+                self.notify(
+                    f"Invalid value for: {question.text}",
                     severity="error",
                 )
                 valid = False

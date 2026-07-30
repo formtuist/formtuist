@@ -4,10 +4,18 @@ from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
-from textual.widgets import Input, RadioSet, SelectionList, Switch, TextArea
+from textual.widgets import (
+    Input,
+    RadioSet,
+    SelectionList,
+    Static,
+    Switch,
+    TextArea,
+)
 
 from formtuitous.schema import (
     CheckboxQuestion,
+    CodeBlock,
     DateQuestion,
     FormDefinition,
     MultipleChoiceQuestion,
@@ -22,6 +30,8 @@ from formtuitous.tui.screens import FormScreen, SubmitScreen, WelcomeScreen
 from formtuitous.tui.widgets import (
     get_widget_value,
     is_widget_empty,
+    is_widget_valid,
+    make_code_widget,
     make_input_widget,
 )
 
@@ -147,6 +157,7 @@ class TestFormScreen:
         mock_app = MagicMock()
         mock_input = MagicMock(spec=Input)
         mock_input.value = "Alice"
+        mock_input.is_valid = True
         screen.inputs["q1"] = mock_input
         with patch.object(
             FormScreen, "app", new_callable=PropertyMock
@@ -174,6 +185,7 @@ class TestFormScreen:
         mock_app = MagicMock()
         mock_input = MagicMock(spec=Input)
         mock_input.value = ""
+        mock_input.is_valid = True
         screen.inputs["q1"] = mock_input
         with patch.object(
             FormScreen, "app", new_callable=PropertyMock
@@ -602,6 +614,39 @@ class TestWidgetFactory:
     def test_is_widget_empty_unknown(self) -> None:
         """is_widget_empty returns True for unknown widget types."""
         assert is_widget_empty(MagicMock())
+
+    def test_make_code_widget_with_code(self) -> None:
+        """make_code_widget returns a Static for questions with code."""
+        q = ShortTextQuestion(
+            id="t",
+            text="T",
+            type="short_text",
+            code=CodeBlock(language="python", content="x = 1"),
+        )
+        result = make_code_widget(q)
+        assert isinstance(result, Static)
+
+    def test_make_code_widget_without_code(self) -> None:
+        """make_code_widget returns None for questions without code."""
+        q = ShortTextQuestion(id="t", text="T", type="short_text")
+        assert make_code_widget(q) is None
+
+    def test_is_widget_valid_input_valid(self) -> None:
+        """is_widget_valid returns True for valid Input."""
+        mock = MagicMock(spec=Input)
+        mock.is_valid = True
+        assert is_widget_valid(mock) is True
+
+    def test_is_widget_valid_input_invalid(self) -> None:
+        """is_widget_valid returns False for invalid Input."""
+        mock = MagicMock(spec=Input)
+        mock.is_valid = False
+        assert is_widget_valid(mock) is False
+
+    def test_is_widget_valid_non_input(self) -> None:
+        """is_widget_valid returns True for non-Input widgets."""
+        mock = MagicMock(spec=Switch)
+        assert is_widget_valid(mock) is True
 
 
 class TestSubmitScreen:
