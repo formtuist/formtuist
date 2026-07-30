@@ -49,13 +49,20 @@ def make_input_widget(question: Question) -> Widget:
     raise ValueError(f"Unknown question type: {question.type}")
 
 
-def make_code_widget(question: Question) -> Static | None:
-    """Return a Static widget with syntax-highlighted code, or None."""
+def make_code_widget(
+    question: Question,
+    theme: str = "ansi-dark",
+) -> Static | None:
+    """Return a Static widget with syntax-highlighted code, or None.
+
+    The *theme* is a Pygments theme name.  Defaults to ``"ansi-dark"``.
+    """
     if question.code is None:
         return None
     syntax = Syntax(
         question.code.content,
         question.code.language,
+        theme=theme,
         line_numbers=True,
     )
     return Static(syntax)

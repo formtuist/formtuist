@@ -62,10 +62,16 @@ class FormScreen(Screen):
         Binding("ctrl+k", "focus_previous", "Prev Q", priority=True),
     ]
 
-    def __init__(self, form: FormDefinition, db_path: Path) -> None:
+    def __init__(
+        self,
+        form: FormDefinition,
+        db_path: Path,
+        code_theme: str = "ansi-dark",
+    ) -> None:
         """Store the form definition, database path, and initialise input map."""
         self.form = form
         self.db_path = db_path
+        self.code_theme = code_theme
         self.inputs: dict[str, Widget] = {}
         self.sidebar_items: list[Static] = []
         self.current_index = 0
@@ -89,8 +95,7 @@ class FormScreen(Screen):
                 for question in self.form.questions:
                     required = " *" if question.required else ""
                     yield Label(f"{question.text}{required}")
-                    # optional syntax-highlighted code block
-                    code_widget = make_code_widget(question)
+                    code_widget = make_code_widget(question, self.code_theme)
                     if code_widget is not None:
                         yield code_widget
                     # optional url
