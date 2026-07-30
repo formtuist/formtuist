@@ -18,7 +18,7 @@ This is a plan for building Formtuitous, a tool that lets you:
   Formtuitous.)
 - Once the form has been filled out and submitted, the program will save the
   responses in a JSON file. The program will also provide an option to export the
-  responses in CSV or, if possible, sqlite format.
+  responses in CSV or the sqlite database format.
 - The tool will also have a mode that uses datasette to make it possible for
   someone to view the responses in a web browser. This will be done by using
   datasette to serve the responses as a web application.
@@ -43,7 +43,8 @@ outlined in this plan. The purpose of Formtuitous is not to ultimately upload
 data to a Google Sheet or to create a Google Form. It is its own stand-alone
 system that you can use as a simple and fun replacement for Google Forms.
 
-There are the technologies employed in Formtuitous:
+There are the technologies employed in Formtuitous, which is a Python-based
+application:
 
 - Application dependencies:
   - Python
@@ -57,3 +58,21 @@ There are the technologies employed in Formtuitous:
   - hypothesis for property-based testing
   - rumdl for markdown linting
   - pytest-cov for test coverage monitoring
+
+Here are some details about the JSON format for specifying a form:
+
+- Name of the form
+- Configuration details about the display of the form:
+  - Whether or not questions are displayed in a random order
+  - Whether or not the questions are automatically graded
+  - Other configuration details that you deem to be important
+- A list of the questions for the form, with details about:
+  - Unique identifier for the question
+  - The text of the actual question
+  - The data type of the answer
+  - Whether or not the answer is required
+  - The choices for the answer (if applicable)
+- Extra information to display along with the question:
+  - A source code segment to be displayed with syntax highlighting
+  - An image to be displayed with the question
+  - A reference to a URL for the question
