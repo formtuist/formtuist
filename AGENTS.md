@@ -27,6 +27,9 @@ This document provides guidelines for AI agents contributing to the
 - **Create and follow a TODO list:** Always create a TODO list and then follow
   it. Do not stop until the tools you call confirm that all tasks in the list
   are completed.
+- **Do not close the TODO:** Only the user closes the TODO. The agent must
+  never mark a TODO as closed or call update_goal with status complete. The
+  agent reports completion and waits for the user to confirm and close.
 
 ## Notification Instructions
 
@@ -150,5 +153,8 @@ All tests must follow these standards:
    compliance.
 5. **Commit:** The human developer commits the changes.
 6. **Rules:** Follow all rules in this file and in `BUILD.md`.
-7. **Completion:** When finished, summarize completed tasks, how you completed
-   them, challenges faced, how you overcame them, and the rules you followed.
+7. **Report, don't close the TODO:** When finished, summarize completed
+   tasks, how you completed them, challenges faced, how you overcame them,
+   and the rules you followed. Leave the TODO open — only the user closes it.
+8. **Wait for confirmation:** After reporting completion, wait for the user to
+   confirm before starting the next TODO.
