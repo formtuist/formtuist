@@ -1,1 +1,319 @@
 """Tests for the form JSON schema validation."""
+
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from formtuitous.schema import (
+    CheckboxQuestion,
+    DateQuestion,
+    FormConfig,
+    FormDefinition,
+    MultipleChoiceQuestion,
+    NumericQuestion,
+    NumericRange,
+    ParagraphQuestion,
+    RatingQuestion,
+    ShortTextQuestion,
+    YesNoQuestion,
+)
+
+VALID_MINIMAL = {
+    "name": "Minimal Form",
+    "questions": [
+        {"id": "q1", "text": "Test?", "type": "short_text"},
+    ],
+}
+
+EXPECTED_CHOICE_COUNT_MULTIPLE = 3
+EXPECTED_CHOICE_COUNT_CHECKBOX = 2
+EXPECTED_POINTS = 10
+EXPECTED_RANGE_MAX = 120
+EXPECTED_RATING_MAX = 5
+EXPECTED_ALL_TYPES_COUNT = 8
+
+VALID_ALL_TYPES = {
+    "name": "All Types Form",
+    "questions": [
+        {"id": "s", "text": "Short?", "type": "short_text"},
+        {"id": "p", "text": "Paragraph?", "type": "paragraph"},
+        {
+            "id": "m",
+            "text": "Choice?",
+            "type": "multiple_choice",
+            "choices": ["A", "B", "C"],
+        },
+        {
+            "id": "c",
+            "text": "Check?",
+            "type": "checkbox",
+            "choices": ["X", "Y"],
+        },
+        {"id": "n", "text": "Number?", "type": "numeric"},
+        {
+            "id": "r",
+            "text": "Rate?",
+            "type": "rating",
+            "min": 1,
+            "max": 5,
+            "labels": ["Bad", "Good"],
+        },
+        {"id": "d", "text": "Date?", "type": "date"},
+        {"id": "y", "text": "YesNo?", "type": "yes_no"},
+    ],
+}
+
+
+class TestFormConfig:
+    """Tests for the FormConfig model."""
+
+    def test_default_config(self) -> None:
+        """Config uses sensible defaults when not provided."""
+        config = FormConfig()
+        assert config.randomize_questions is False
+        assert config.auto_grade is False
+        assert config.allow_multiple_submissions is True
+        assert config.show_progress_bar is True
+        assert config.anonymous is False
+
+    def test_anonymous_config(self) -> None:
+        """Anonymous flag can be set to true."""
+        config = FormConfig(anonymous=True)
+        assert config.anonymous is True
+
+
+class TestQuestionModels:
+    """Tests for individual question type models."""
+
+    def test_short_text_defaults(self) -> None:
+        """ShortTextQuestion has sensible defaults."""
+        q = ShortTextQuestion(id="q", text="Name?", type="short_text")
+        assert q.required is False
+        assert q.correct_answer is None
+        assert q.points == 0
+        assert q.grading_type is None
+
+    def test_paragraph_with_grading(self) -> None:
+        """ParagraphQuestion accepts grading fields."""
+        q = ParagraphQuestion(
+            id="q",
+            text="Essay?",
+            type="paragraph",
+            correct_answer="answer",
+            points=10,
+            grading_type="contains",
+        )
+        assert q.correct_answer == "answer"
+        assert q.points == EXPECTED_POINTS
+        assert q.grading_type == "contains"
+
+    def test_multiple_choice_valid(self) -> None:
+        """MultipleChoiceQuestion accepts valid choices."""
+        q = MultipleChoiceQuestion(
+            id="q",
+            text="Pick one?",
+            type="multiple_choice",
+            choices=["Alpha", "Beta", "Gamma"],
+        )
+        assert len(q.choices) == EXPECTED_CHOICE_COUNT_MULTIPLE
+
+    def test_multiple_choice_too_few_choices(self) -> None:
+        """MultipleChoiceQuestion rejects fewer than 2 choices."""
+        with pytest.raises(ValidationError):
+            MultipleChoiceQuestion(
+                id="q",
+                text="Pick?",
+                type="multiple_choice",
+                choices=["Only"],
+            )
+
+    def test_checkbox_valid(self) -> None:
+        """CheckboxQuestion accepts valid choices."""
+        q = CheckboxQuestion(
+            id="q",
+            text="Select?",
+            type="checkbox",
+            choices=["A", "B"],
+        )
+        assert len(q.choices) == EXPECTED_CHOICE_COUNT_CHECKBOX
+
+    def test_checkbox_empty_choices(self) -> None:
+        """CheckboxQuestion rejects empty choices list."""
+        with pytest.raises(ValidationError):
+            CheckboxQuestion(
+                id="q",
+                text="Select?",
+                type="checkbox",
+                choices=[],
+            )
+
+    def test_numeric_with_range_answer(self) -> None:
+        """NumericQuestion accepts a range dict as correct_answer."""
+        q = NumericQuestion(
+            id="q",
+            text="Age?",
+            type="numeric",
+            correct_answer=NumericRange(min=0, max=120),
+        )
+        assert q.correct_answer is not None
+        assert isinstance(q.correct_answer, NumericRange)
+        assert q.correct_answer.min == 0
+        assert q.correct_answer.max == EXPECTED_RANGE_MAX
+
+    def test_rating_valid(self) -> None:
+        """RatingQuestion accepts valid min/max/labels."""
+        q = RatingQuestion(
+            id="q",
+            text="Rate?",
+            type="rating",
+            min=1,
+            max=5,
+            labels=["Poor", "Fair", "Good", "Very Good", "Excellent"],
+        )
+        assert q.min == 1
+        assert q.max == EXPECTED_RATING_MAX
+
+    def test_rating_min_equals_max(self) -> None:
+        """RatingQuestion rejects min equal to max."""
+        with pytest.raises(ValidationError):
+            RatingQuestion(
+                id="q",
+                text="Rate?",
+                type="rating",
+                min=3,
+                max=3,
+                labels=["A", "B", "C"],
+            )
+
+    def test_date_defaults(self) -> None:
+        """DateQuestion requires only id, text, and type."""
+        q = DateQuestion(id="q", text="Date?", type="date")
+        assert q.required is False
+
+    def test_yes_no_defaults(self) -> None:
+        """YesNoQuestion requires only id, text, and type."""
+        q = YesNoQuestion(id="q", text="Yes?", type="yes_no")
+        assert q.required is False
+
+
+class TestFormDefinition:
+    """Tests for the top-level FormDefinition model."""
+
+    def test_valid_minimal(self) -> None:
+        """Minimal valid form parses correctly."""
+        form = FormDefinition.model_validate(VALID_MINIMAL)
+        assert form.name == "Minimal Form"
+        assert form.description == ""
+        assert len(form.questions) == 1
+
+    def test_valid_all_types(self) -> None:
+        """Form with all 8 question types parses correctly."""
+        form = FormDefinition.model_validate(VALID_ALL_TYPES)
+        assert len(form.questions) == EXPECTED_ALL_TYPES_COUNT
+
+    def test_duplicate_question_ids(self) -> None:
+        """Duplicate question ids raise ValidationError."""
+        data = {
+            "name": "Duplicates",
+            "questions": [
+                {"id": "dup", "text": "First?", "type": "short_text"},
+                {"id": "dup", "text": "Second?", "type": "short_text"},
+            ],
+        }
+        with pytest.raises(
+            ValidationError, match="question ids must be unique"
+        ):
+            FormDefinition.model_validate(data)
+
+    def test_invalid_question_type(self) -> None:
+        """Unknown question type raises ValidationError."""
+        data = {
+            "name": "Bad",
+            "questions": [
+                {"id": "q", "text": "?", "type": "slider"},
+            ],
+        }
+        with pytest.raises(ValidationError):
+            FormDefinition.model_validate(data)
+
+    def test_missing_name(self) -> None:
+        """Missing required name field raises ValidationError."""
+        data = {
+            "questions": [
+                {"id": "q", "text": "?", "type": "short_text"},
+            ],
+        }
+        with pytest.raises(ValidationError):
+            FormDefinition.model_validate(data)
+
+    def test_empty_questions(self) -> None:
+        """Empty questions list is valid but unusual."""
+        form = FormDefinition.model_validate(
+            {"name": "Empty", "questions": []}
+        )
+        assert len(form.questions) == 0
+
+    def test_json_round_trip(self) -> None:
+        """A FormDefinition serializes and deserializes losslessly."""
+        form = FormDefinition.model_validate(VALID_MINIMAL)
+        raw = form.model_dump_json()
+        restored = FormDefinition.model_validate_json(raw)
+        assert restored.name == form.name
+        assert len(restored.questions) == len(form.questions)
+
+
+class TestFormConfigInForm:
+    """Tests for FormConfig embedded in FormDefinition."""
+
+    def test_custom_config(self) -> None:
+        """Form accepts a custom config."""
+        data = {
+            "name": "Custom",
+            "config": {
+                "randomize_questions": True,
+                "auto_grade": True,
+                "allow_multiple_submissions": False,
+                "show_progress_bar": False,
+                "anonymous": True,
+            },
+            "questions": [
+                {"id": "q", "text": "?", "type": "short_text"},
+            ],
+        }
+        form = FormDefinition.model_validate(data)
+        assert form.config.randomize_questions is True
+        assert form.config.auto_grade is True
+        assert form.config.allow_multiple_submissions is False
+        assert form.config.show_progress_bar is False
+        assert form.config.anonymous is True
+
+    def test_default_config_in_form(self) -> None:
+        """Form uses default config when none is provided."""
+        form = FormDefinition.model_validate(VALID_MINIMAL)
+        assert form.config.randomize_questions is False
+
+
+class TestExampleForms:
+    """Tests that all example JSON files validate correctly."""
+
+    EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "examples"
+
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "all_types.json",
+            "anonymous_poll.json",
+            "attendance.json",
+            "minimal.json",
+            "quiz.json",
+            "survey.json",
+        ],
+    )
+    def test_example_validates(self, filename: str) -> None:
+        """Each example form file validates without errors."""
+        path = self.EXAMPLE_DIR / filename
+        raw = path.read_text(encoding="utf-8")
+        form = FormDefinition.model_validate_json(raw)
+        assert form.name
+        assert len(form.questions) > 0
