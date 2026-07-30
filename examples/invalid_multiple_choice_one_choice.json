@@ -1,0 +1,21 @@
+{
+  "name": "Multiple Choice With One Choice",
+  "description": "A multiple_choice question must have at least 2 choices.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": false,
+    "allow_multiple_submissions": true,
+    "show_progress_bar": false
+  },
+  "questions": [
+    {
+      "id": "only_one",
+      "text": "Which option do you prefer?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "Only this one"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "Checkbox With No Choices",
+  "description": "A checkbox question must have at least 1 choice.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": false,
+    "allow_multiple_submissions": true,
+    "show_progress_bar": false
+  },
+  "questions": [
+    {
+      "id": "empty_checkbox",
+      "text": "Select all that apply.",
+      "type": "checkbox",
+      "required": false,
+      "choices": []
+    }
+  ]
+}

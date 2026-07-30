@@ -1,0 +1,24 @@
+{
+  "name": "Duplicate IDs Test",
+  "description": "Two questions share the same id, which should fail validation.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": false,
+    "allow_multiple_submissions": true,
+    "show_progress_bar": false
+  },
+  "questions": [
+    {
+      "id": "name",
+      "text": "What is your full name?",
+      "type": "short_text",
+      "required": true
+    },
+    {
+      "id": "name",
+      "text": "What is your email?",
+      "type": "short_text",
+      "required": false
+    }
+  ]
+}

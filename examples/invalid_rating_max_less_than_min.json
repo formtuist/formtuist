@@ -1,0 +1,27 @@
+{
+  "name": "Rating With Bad Range",
+  "description": "A rating question must have max strictly greater than min.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": false,
+    "allow_multiple_submissions": true,
+    "show_progress_bar": false
+  },
+  "questions": [
+    {
+      "id": "bad_rating",
+      "text": "Rate your experience.",
+      "type": "rating",
+      "required": true,
+      "min": 5,
+      "max": 3,
+      "labels": [
+        "Bad",
+        "Okay",
+        "Good",
+        "Great",
+        "Excellent"
+      ]
+    }
+  ]
+}

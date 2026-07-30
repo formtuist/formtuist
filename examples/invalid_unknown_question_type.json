@@ -1,0 +1,18 @@
+{
+  "name": "Unknown Question Type",
+  "description": "A question uses a type not defined in the schema discriminated union.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": false,
+    "allow_multiple_submissions": true,
+    "show_progress_bar": false
+  },
+  "questions": [
+    {
+      "id": "weird",
+      "text": "What is your favorite color?",
+      "type": "color_picker",
+      "required": true
+    }
+  ]
+}
