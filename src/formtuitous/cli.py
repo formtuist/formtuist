@@ -90,6 +90,9 @@ def check(
 
 
 DB_DIR_HELP = "Directory for the responses database (default: platformdirs user_data_dir)."
+SERVE_HELP = "Serve the form in a web browser instead of the local TUI."
+HOST_HELP = "Host address for the web server."
+PORT_HELP = "Port for the web server."
 
 
 @app.command()
@@ -107,19 +110,52 @@ def display(
         file_okay=False,
         dir_okay=True,
     ),
+    serve: bool = typer.Option(
+        False,
+        "--serve",
+        help=SERVE_HELP,
+    ),
+    host: str = typer.Option(
+        "0.0.0.0",
+        "--host",
+        help=HOST_HELP,
+    ),
+    port: int = typer.Option(
+        8000,
+        "--port",
+        help=PORT_HELP,
+    ),
 ) -> None:
     """Display a form in the TUI and collect responses."""
-    # imported here to avoid loading Textual unless needed
-    from formtuitous.tui.app import FormtuitousApp  # noqa: PLC0415
-
-    # validate the form before launching the TUI
+    # validate the form before launching the TUI or server
     try:
-        parse_form(form_path)
+        form = parse_form(form_path)
     except ValidationError:
         raise typer.Exit(code=1)
+
     db_path = resolve_db_path(db_dir)
-    app_ui = FormtuitousApp(form_path, db_path)
-    app_ui.run()
+
+    if serve:
+        from textual_serve.server import Server  # noqa: PLC0415
+
+        cmd = f"formtuitous display {form_path}"
+        if db_dir is not None:
+            cmd += f" --db-dir {db_dir}"
+        server = Server(
+            cmd,
+            host=host,
+            port=port,
+            title=form.name,
+        )
+        console.print(
+            f"Serving [bold]{form.name}[/bold] at http://{host}:{port}"
+        )
+        server.serve()
+    else:
+        from formtuitous.tui.app import FormtuitousApp  # noqa: PLC0415
+
+        app_ui = FormtuitousApp(form_path, db_path)
+        app_ui.run()
 
 
 @app.command()
@@ -159,9 +195,29 @@ def view(
         dir_okay=False,
         readable=True,
     ),
+    port: int = typer.Option(8001, "--port", help="Port for datasette."),
 ) -> None:
-    """View responses in a web browser via datasette."""
-    raise typer.Exit(code=0)
+    """Browse responses in a web browser via datasette."""
+    import subprocess  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    console.print(
+        f"Starting datasette for [bold]{responses_path}[/bold]"
+        f" at http://127.0.0.1:{port}"
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "datasette",
+            "serve",
+            str(responses_path),
+            "--port",
+            str(port),
+            "--open-browser",
+        ],
+        check=False,
+    )
 
 
 @app.command()

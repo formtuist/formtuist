@@ -221,45 +221,23 @@ class TestSubmitScreen:
     """Tests for the submit screen construction."""
 
     def test_construct(self) -> None:
-        """SubmitScreen can be constructed."""
-        screen = SubmitScreen()
-        assert screen is not None
+        """SubmitScreen can be constructed with a db path."""
+        screen = SubmitScreen(Path("/tmp/test.db"))
+        assert screen.db_path == Path("/tmp/test.db")
 
     def test_compose_yields_widgets(self) -> None:
         """SubmitScreen compose produces at least 3 children."""
-        screen = SubmitScreen()
+        screen = SubmitScreen(Path("/tmp/test.db"))
         children = list(screen.compose())
         assert len(children) >= MIN_SUBMIT_CHILDREN
 
-    def test_on_button_pressed_exit(self) -> None:
-        """Pressing exit exits the application."""
-        screen = SubmitScreen()
-        mock_app = MagicMock()
-        with patch.object(
-            SubmitScreen, "app", new_callable=PropertyMock
-        ) as mock_prop:
-            mock_prop.return_value = mock_app
-            button = MagicMock()
-            button.id = "exit"
-            event = MagicMock()
-            event.button = button
-            screen.on_button_pressed(event)
-        mock_app.exit.assert_called_once()
-
-    def test_on_button_pressed_other(self) -> None:
-        """Pressing a non-exit button does nothing."""
-        screen = SubmitScreen()
-        mock_app = MagicMock()
-        with patch.object(
-            SubmitScreen, "app", new_callable=PropertyMock
-        ) as mock_prop:
-            mock_prop.return_value = mock_app
-            button = MagicMock()
-            button.id = "other"
-            event = MagicMock()
-            event.button = button
-            screen.on_button_pressed(event)
-        mock_app.exit.assert_not_called()
+    def test_compose_shows_db_path(self) -> None:
+        """SubmitScreen includes the database path in the output."""
+        db_path = Path("/custom/path/responses.db")
+        screen = SubmitScreen(db_path)
+        children = list(screen.compose())
+        texts = [str(c.content) for c in children if hasattr(c, "content")]
+        assert any("/custom/path/responses.db" in t for t in texts)
 
 
 class TestFormtuitousApp:

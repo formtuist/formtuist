@@ -90,7 +90,7 @@ class FormScreen(Screen):
         conn = init_db(self.db_path)
         save_response(conn, self.form.name, answers)
         conn.close()
-        self.app.push_screen(SubmitScreen())
+        self.app.push_screen(SubmitScreen(self.db_path))
 
     def action_focus_first_input(self) -> None:
         """Focus the first input widget on the form."""
@@ -104,15 +104,18 @@ class FormScreen(Screen):
 class SubmitScreen(Screen):
     """Confirmation screen shown after a successful submission."""
 
+    def __init__(self, db_path: Path) -> None:
+        """Store the database path for display."""
+        self.db_path = db_path
+        super().__init__()
+
     def compose(self) -> ComposeResult:
-        """Render the confirmation message and exit button."""
+        """Render the confirmation message and database location."""
         yield Header(show_clock=True)
         yield Static("[bold]Response saved![/bold]", id="confirm-title")
         yield Static("Your answers have been recorded.", id="confirm-msg")
-        yield Button("Exit", id="exit", variant="primary")
+        yield Static(
+            f"Results saved to: [italic]{self.db_path}[/italic]",
+            id="confirm-db-path",
+        )
         yield Footer()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Exit the application."""
-        if event.button.id == "exit":
-            self.app.exit()

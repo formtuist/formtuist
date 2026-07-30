@@ -1,0 +1,21 @@
+#question-scroll {
+    padding: 1 2;
+}
+
+#form-header {
+    margin-bottom: 2;
+}
+
+Label {
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+Input {
+    margin-bottom: 2;
+}
+
+#submit {
+    margin-top: 1;
+    margin-bottom: 1;
+}

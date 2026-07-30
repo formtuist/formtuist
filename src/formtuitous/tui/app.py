@@ -7,18 +7,17 @@ from textual.app import App
 from textual.binding import Binding
 
 from formtuitous.parser import parse_form
-from formtuitous.tui.screens import WelcomeScreen
 
 
 class FormtuitousApp(App):
     """Textual application that runs the form-filling workflow."""
 
     TITLE = "formtuitous"
+    CSS_PATH = "styles.tcss"
 
     BINDINGS: ClassVar[
         list[Binding | tuple[str, str] | tuple[str, str, str]]
     ] = [
-        Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit"),
     ]
 
@@ -28,7 +27,10 @@ class FormtuitousApp(App):
         self.db_path = db_path
         self.form = parse_form(form_path)
         super().__init__()
+        self.theme = "ansi-dark"
 
     def on_mount(self) -> None:
-        """Push the welcome screen on startup."""
-        self.push_screen(WelcomeScreen(self.form, self.db_path))
+        """Push the form screen directly on startup, skipping the welcome screen."""
+        from formtuitous.tui.screens import FormScreen  # noqa: PLC0415
+
+        self.push_screen(FormScreen(self.form, self.db_path))

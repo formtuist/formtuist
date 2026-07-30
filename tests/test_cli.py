@@ -160,10 +160,14 @@ class TestStubCommands:
         assert result.exit_code == 0
 
     def test_view_with_file(self, tmp_path: Path) -> None:
-        """View command executes its stub body."""
+        """View command launches datasette."""
         db = _write_form(tmp_path / "resp.db", {"dummy": True})
-        result = runner.invoke(app, ["view", str(db)])
-        assert result.exit_code == 0
+        with patch("subprocess.run") as mock_run:
+            result = runner.invoke(app, ["view", str(db)])
+            assert result.exit_code == 0
+            mock_run.assert_called_once()
+            args = mock_run.call_args[0][0]
+            assert "datasette" in args
 
     def test_grade_with_files(self, tmp_path: Path) -> None:
         """Grade command executes its stub body."""
@@ -241,7 +245,7 @@ class TestMainFunction:
         """View command accepts --help."""
         result = runner.invoke(app, ["view", "--help"])
         assert result.exit_code == 0
-        assert "View responses" in _plain(result)
+        assert "Browse responses" in _plain(result)
 
     def test_grade_help(self) -> None:
         """Grade command accepts --help."""
@@ -283,3 +287,16 @@ class TestDisplayCommand:
         with patch("formtuitous.cli.app") as mock_app:
             main()
             mock_app.assert_called_once()
+
+    def test_display_serve_mocks_server(self, tmp_path: Path) -> None:
+        """Display with --serve parses the form and starts textual-serve."""
+        form = _write_form(
+            tmp_path / "form.json",
+            {"name": "ServedForm", "questions": []},
+        )
+        with patch("textual_serve.server.Server") as mock_server_cls:
+            mock_instance = mock_server_cls.return_value
+            result = runner.invoke(app, ["display", str(form), "--serve"])
+            assert result.exit_code == 0
+            mock_server_cls.assert_called_once()
+            mock_instance.serve.assert_called_once()
