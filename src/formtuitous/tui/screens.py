@@ -182,7 +182,7 @@ class FormScreen(Screen):
         conn = init_db(self.db_path)
         save_response(conn, self.form.name, answers)
         conn.close()
-        self.app.push_screen(SubmitScreen(self.db_path))
+        self.app.push_screen(SubmitScreen(self.form, self.db_path))
 
     def action_focus_first_input(self) -> None:
         """Focus the first input widget on the form."""
@@ -217,13 +217,20 @@ class FormScreen(Screen):
 class SubmitScreen(Screen):
     """Confirmation screen shown after a successful submission."""
 
-    def __init__(self, db_path: Path) -> None:
-        """Store the database path for display."""
+    BINDINGS: ClassVar[  # type: ignore[assignment]
+        list[Binding | tuple[str, str] | tuple[str, str, str]]
+    ] = [
+        Binding("ctrl+r", "restart", "Restart"),
+    ]
+
+    def __init__(self, form: FormDefinition, db_path: Path) -> None:
+        """Store the form definition and database path for restart."""
+        self.form = form
         self.db_path = db_path
         super().__init__()
 
     def compose(self) -> ComposeResult:
-        """Render the confirmation message and database location."""
+        """Render the confirmation message with actions."""
         yield Header(show_clock=True)
         yield Static("[bold]Response saved![/bold]", id="confirm-title")
         yield Static("Your answers have been recorded.", id="confirm-msg")
@@ -231,4 +238,21 @@ class SubmitScreen(Screen):
             f"Results saved to: [italic]{self.db_path}[/italic]",
             id="confirm-db-path",
         )
+        yield Static(
+            "[dim]Tip: Press Ctrl+P for the command palette.[/dim]",
+            id="confirm-tip",
+        )
+        yield Button("Restart", id="restart", variant="primary")
+        yield Button("Quit", id="quit", variant="default")
         yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle restart or quit."""
+        if event.button.id == "restart":
+            self.action_restart()
+        elif event.button.id == "quit":
+            self.app.exit()
+
+    def action_restart(self) -> None:
+        """Push a new form screen to fill out the form again."""
+        self.app.push_screen(FormScreen(self.form, self.db_path))

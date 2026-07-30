@@ -72,6 +72,11 @@ TextArea:focus {
     border: tall $accent;
 }
 
+#confirm-tip {
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
 /* Code block styling */
 Static > .code {
     background: $surface;

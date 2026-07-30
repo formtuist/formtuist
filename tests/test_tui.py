@@ -608,23 +608,96 @@ class TestSubmitScreen:
     """Tests for the submit screen construction."""
 
     def test_construct(self) -> None:
-        """SubmitScreen can be constructed with a db path."""
-        screen = SubmitScreen(Path("/tmp/test.db"))
+        """SubmitScreen can be constructed with a form and db path."""
+        form = FormDefinition(name="Test", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
         assert screen.db_path == Path("/tmp/test.db")
+        assert screen.form is form
 
     def test_compose_yields_widgets(self) -> None:
         """SubmitScreen compose produces at least 3 children."""
-        screen = SubmitScreen(Path("/tmp/test.db"))
+        form = FormDefinition(name="Test", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
         children = list(screen.compose())
         assert len(children) >= MIN_SUBMIT_CHILDREN
 
     def test_compose_shows_db_path(self) -> None:
         """SubmitScreen includes the database path in the output."""
         db_path = Path("/custom/path/responses.db")
-        screen = SubmitScreen(db_path)
+        form = FormDefinition(name="Test", questions=[])
+        screen = SubmitScreen(form, db_path)
         children = list(screen.compose())
         texts = [str(c.content) for c in children if hasattr(c, "content")]
         assert any("/custom/path/responses.db" in t for t in texts)
+
+    def test_compose_shows_tip(self) -> None:
+        """SubmitScreen includes the command palette tip."""
+        form = FormDefinition(name="Test", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        children = list(screen.compose())
+        texts = [str(c.content) for c in children if hasattr(c, "content")]
+        assert any("Ctrl+P" in t for t in texts)
+
+    def test_on_button_pressed_restart(self) -> None:
+        """Pressing restart pushes a new FormScreen."""
+        form = FormDefinition(name="Test", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        mock_app = MagicMock()
+        with patch.object(
+            SubmitScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            button = MagicMock()
+            button.id = "restart"
+            event = MagicMock()
+            event.button = button
+            screen.on_button_pressed(event)
+        mock_app.push_screen.assert_called_once()
+
+    def test_on_button_pressed_quit(self) -> None:
+        """Pressing quit exits the application."""
+        form = FormDefinition(name="Test", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        mock_app = MagicMock()
+        with patch.object(
+            SubmitScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            button = MagicMock()
+            button.id = "quit"
+            event = MagicMock()
+            event.button = button
+            screen.on_button_pressed(event)
+        mock_app.exit.assert_called_once()
+
+    def test_on_button_pressed_other(self) -> None:
+        """Pressing a non-action button does nothing."""
+        form = FormDefinition(name="Test", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        mock_app = MagicMock()
+        with patch.object(
+            SubmitScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            button = MagicMock()
+            button.id = "other"
+            event = MagicMock()
+            event.button = button
+            screen.on_button_pressed(event)
+        mock_app.push_screen.assert_not_called()
+        mock_app.exit.assert_not_called()
+
+    def test_action_restart(self) -> None:
+        """action_restart pushes a new FormScreen."""
+        form = FormDefinition(name="Test", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        mock_app = MagicMock()
+        with patch.object(
+            SubmitScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            screen.action_restart()
+        mock_app.push_screen.assert_called_once()
 
 
 class TestFormtuitousApp:
