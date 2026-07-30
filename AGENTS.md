@@ -1,153 +1,154 @@
 # AGENTS.md
 
-This document provides guidelines for AI agents contributing to this repository.
+This document provides guidelines for AI agents contributing to the
+**Formtuitous** repository.
 
 ## Overview of Instructions
 
 - **Always use `uv`:** This project uses `uv` for all dependency management,
-  virtual environments, and task running. Do not use `pip` or `venv` directly.
+  virtual environments, and task running. Do not use `pip`, `venv`, or
+  `poetry` directly. Commands like `uv sync`, `uv run`, and `uv add` are the
+  only correct workflow.
 - **Follow all guidelines:** This document contains the complete set of
-  guidelines from `AGENTS.md` and `docs/plan.md`. You must follow them strictly.
-- **Verify your changes:** Before committing any changes, you must run all
-  linters and tests to ensure your changes are correct and follow the project's
-  style. Use `uv run task all`.
-- **Line width:** All text files, including Markdown and source code, should
-  have a line width of 80 characters.
+  guidelines for this project. You must follow them strictly. For build
+  architecture and implementation details, consult `BUILD.md` and `PLAN.md` at
+  the repository root.
+- **Verify your changes:** Before declaring any task complete, you must run all
+  linters and tests to ensure correctness and style compliance. The canonical
+  verification command is `uv run task all`.
+- **Line width:** Python source code must respect **79 characters** (enforced
+  by `ruff`). Markdown and other prose files should wrap at **80 characters**.
 - **Permission to run commands:** You have permission to run all commands in
   this file to verify their functionality.
-- **Incremental changes:** Make small, incremental changes. This makes it easier
-  to review your work and catch errors early.
-- **Communicate clearly:** When you propose changes, explain what you've done
-  and why.
-- **Create and Follow a TODO List**: Always create a TODO list and then
-  follow that list. Do not stop until the tools that you call make it clear
-  that you have completed all the tasks in the TODO list.
+- **Incremental changes:** Make small, incremental changes. This makes review
+  easier and catches errors early.
+- **Communicate clearly:** When you propose changes, explain what you have
+  done and why.
+- **Create and follow a TODO list:** Always create a TODO list and then follow
+  it. Do not stop until the tools you call confirm that all tasks in the list
+  are completed.
 
 ## Notification Instructions
 
-- The user has given permission to use the `notify-send` command to signal task
-  completion. Here is an example of the command:
+- The user has given permission to use `notify-send` to signal task completion
+  or request feedback. Example:
 
   ```bash
   notify-send "Question from Coding Agent" \
     "Please clarify how to complete the testing task."
   ```
 
-- The user wants a `notify-send` notification whenever I ask a question.
-
 - Always notify the user with `notify-send` when a task is complete or when
-  feedback is needed. I have standing permission to use the notification tool.
+  feedback is needed.
 
-- You should also use the following command to notify the user when you are
-  finished with a task or need further help:
+- When working inside a Zellij session, use the `zjstatus::notify` pipe
+  protocol. The full two-step pattern is:
 
   ```bash
+  # Step 1: Send the notification (displays for show_interval seconds)
   timeout 2 zellij pipe -- \
-    "zjstatus::notify::󰵰 Agent finished. This is really fun. "
+    "zjstatus::notify::󰵰 Task complete. " 2>/dev/null
+
+  # Step 2: After the interval expires, force a re-render to clear it
+  timeout 8 bash -c \
+    "sleep 6 && zellij pipe -- 'zjstatus::pipe::clear:: '" 2>/dev/null || true
   ```
 
-- Note that this command will only display in the current Zellij session.
-  Please also note that you need to add a space at the end of the notification.
-
-- You should use both notification methods as appropriate, making sure that the
-  Zellij command is always prefaced with a timeout of 2 seconds.
+  The `sleep` duration must be at least `show_interval + 1` seconds.
+  The trailing space in the notify message is required.
 
 ## Build, Lint, and Test Commands
 
-- **Install dependencies:** `uv sync --dev`
-- **Run all tasks:** `uv run task all`
+These commands are defined via **taskipy** in `pyproject.toml` and executed
+through `uv run task <name>`:
+
+- **Run all verification:** `uv run task all`
 - **Run all linters:** `uv run task lint`
-- **Format code:** `uv run task format` (check), `uv run task format-fix` (fix)
-- **Lint code:** `uv run task check`
-- **Type check:** `uv run task typecheck` (runs mypy, ty, pyrefly, and zuban),
-  or individual checkers: `uv run task mypy`, `uv run task ty`,
-  `uv run task pyrefly`, `uv run task symbex`
-- **Test all:** `uv run task test`
+- **Format check:** `uv run task ruff-format`
+- **Format fix:** `uv run task format-fix`
+- **Lint check:** `uv run task ruff-check`
+- **Type check (all):** `uv run task typecheck`
+- **Individual type checkers:** `uv run task mypy`, `uv run task ty`,
+  `uv run task pyrefly`, `uv run task zuban`
+- **Test suite:** `uv run task test`
 - **Test with coverage:** `uv run task test-coverage`
-- **Test variants:** `uv run task test-not-property`,
-  `uv run task test-not-random`, `uv run task test-silent`
-- **Run a single test:** `pytest tests/test_file.py::test_function` or
-  `uv run pytest tests/test_file.py::test_function`
-- **Markdown lint:** `uv run task markdownlint`
-- **Comment check:** `uv run task comments-check` (check) or
-  `uv run comment-fix` (auto-fix)
+- **Test variants:** `uv run task test-silent`,
+  `uv run task test-not-propertybased`, `uv run task test-propertybased`
+- **Markdown lint:** `uv run task rumdl-check`
+- **Markdown fix:** `uv run task rumdl-fix`
+- **Run a single test:**
+  `uv run pytest tests/test_file.py::test_function -x -s -vv`
 
 ## Code Requirements
 
-All the Python code should follow these standards:
+All Python code must follow these standards:
 
-- **Function bodies:** No blank lines within function bodies - keep code
-  contiguous.
-- **Docstrings:** Single-line docstrings starting with a capital letter, ending
-  with a period. Follow this for new files. In existing files, preserve the
-  established docstring style even if it is multi-line with `Args` sections.
-- **Comments:** Other comments start with a lowercase letter; preserve existing
-  comments during refactoring. The only exception is when the first word of the
-  comment is a proper noun (e.g., `GatorGrader`, `GatorGrade`, `GitHub`) or an
-  identifier that must start with a capital letter (e.g., `GITHUB_ENV`).
-- **Sentences**: When writing sentences in the comments, only use one space
-  between the period and the following sentence.
+- **Function bodies:** No blank lines within function bodies. Keep code
+  contiguous from the function signature to the final `return`.
+- **Docstrings:** Single-line docstrings starting with a capital letter and
+  ending with a period. Follow this for new files. In existing files, preserve
+  the established docstring style.
+- **Comments:** Start with a lowercase letter. Preserve existing comments
+  during refactoring. The only exception is when the first word is a proper
+  noun (e.g., `Formtuitous`, `GitHub`) or an identifier that must be
+  capitalized (e.g., `GITHUB_ENV`).
+- **Sentences in comments:** Use exactly one space between the period and the
+  following sentence.
 - **No backticks in comments:** Do not use backticks in comments, docstrings,
-  or any other prose text within source code files. Backticks are reserved for
-  Markdown formatting in `.md` files only. If you need to refer to a code
-  identifier, write it plainly (e.g., "transformers" not "`transformers`").
-- **Imports:** Group imports in this order: standard library, third-party,
-  local imports. Use absolute imports (`from gatorgrade.module import <name>`).
-  Finally, make sure that all imports are placed at the top of the file. Do not
-  place imports into the middle of a file or even at the start of a function or
-  class.
-- **Formatting:** Use `ruff format` (line length 79 for lint, 88 for isort);
-  trailing commas enabled or the corresponding task called `uv run task ruff-format`.
+  or any prose inside source files. Backticks are reserved for Markdown
+  formatting in `.md` files only. Refer to identifiers plainly
+  (e.g., "transformers" not "`transformers`").
+- **Imports:** Group in this order: standard library, third-party, local.
+  Use absolute imports (`from formtuitous.module import <name>`). Place all
+  imports at the top of the file. Never place imports inside functions or
+  classes.
+- **Formatting:** `ruff format` enforces line length 79. Use trailing commas.
+  Run via `uv run task format-fix`.
 - **Types:** All functions must have type hints for parameters and return
   values.
-- **Naming:** snake_case for functions/variables, PascalCase for classes,
-  UPPER_SNAKE_CASE for constants.
+- **Naming:** `snake_case` for functions and variables, `PascalCase` for
+  classes, `UPPER_SNAKE_CASE` for constants.
 - **Constants over literals:** All hard-coded strings, integers, and floats
-  must be extracted into named constants (UPPER_SNAKE_CASE) at the top of
-  the module. Use the constant everywhere the value is needed, not the raw
-  literal.
-- **File operations:** Use `pathlib.Path` for all filesystem operations, never
-  string paths.
-- **Error handling:** Use specific exceptions, not generic `Exception`; provide
-  meaningful error messages.
+  must be extracted into named constants at the top of the module. Use the
+  constant everywhere, never the raw literal.
+- **File operations:** Use `pathlib.Path` for all filesystem operations. Never
+  use string paths.
+- **Error handling:** Raise specific exception types, not generic `Exception`.
+  Provide meaningful error messages.
 
 ## Project Structure Requirements
 
-- Source code in `gatorgrade/` directory.
-- Tests in `tests/` directory with matching structure to source.
+- Source code lives in `src/formtuitous/`.
+- Tests live in `tests/` with structure mirroring the source modules.
 - Use `uv` for dependency management, virtual environments, and task running.
-- Support Python 3.12, 3.12, 3.13, and 3.14 on MacOS, Linux, and Windows.
-- Use Pydantic models for data validation and JSON serialization.
+- Supports Python `>=3.10, <4.0` on macOS, Linux, and Windows.
+- Uses Pydantic models for data validation and JSON serialization.
 
 ## Testing Requirements
 
-All test cases should follow these standards:
+All tests must follow these standards:
 
-- Since a test case is a Python function, it should always follow the code
-  requirements above.
-- Test cases should have a descriptive name that starts with `test_`.
-- Test cases should be grouped by the function they are testing.
-- Test cases should be ordered in a way that makes sense to the reader.
-- Test cases should be independent of each other so that they can be run in a
-  random order without affecting the results or each other.
-- Test cases must work both on a local machine and in a CI environment.
-- Test cases should aim to achieve full function, statement, and branch
-  coverage.
-- Property-based tests, such as those that use the `hypothesis` package, must be
-  marked with `@pytest.mark.property`.
-- Test cases should not produce any console output.
+- Tests are Python functions and therefore follow all code requirements above.
+- Test names start with `test_` and are descriptive.
+- Group tests by the function or module they exercise.
+- Order tests logically for readability.
+- Tests must be independent — runnable in random order without side effects.
+- Tests must pass on local machines and in CI.
+- Aim for full function, statement, and branch coverage (minimum 95%).
+- Property-based tests using `hypothesis` must be marked with
+  `@pytest.mark.propertybased`.
+- Tests must not produce console output.
 
 ## Making Changes
 
-1. **Understand:** Thoroughly understand the request and the relevant codebase.
-   Use the available tools to explore the code.
-1. **Plan:** Formulate a clear plan before making any changes.
-1. **Implement:** Make small, incremental changes.
-1. **Verify:** Run `uv run task all` to ensure your changes are correct and
-   follow the project's style.
-1. **Commit:** The software developer will always commit the changes.
-1. **Rules**: Always follow the rules in this file and in the `docs/plan.md`
-   file.
-1. **Completion**: When you are finished with tasks, please summarize what tasks
-   you completed, how you completed them, the challenges you faced, how you
-   overcame them, and the rules that you followed during completion of the tasks.
+1. **Understand:** Thoroughly understand the request and the relevant
+   codebase. Use available tools to explore files.
+2. **Plan:** Formulate a clear plan before making changes. Consult `BUILD.md`
+   for architecture decisions.
+3. **Implement:** Make small, incremental changes.
+4. **Verify:** Run `uv run task all` to ensure correctness and style
+   compliance.
+5. **Commit:** The human developer commits the changes.
+6. **Rules:** Follow all rules in this file and in `BUILD.md`.
+7. **Completion:** When finished, summarize completed tasks, how you completed
+   them, challenges faced, how you overcame them, and the rules you followed.
