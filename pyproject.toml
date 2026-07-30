@@ -1,0 +1,109 @@
+[project]
+name = "formtuitous"
+version = "0.1.0"
+description = "Formtuitous: Help Programmers to Define and Complete Forms for Fortuitous Discoveries."
+authors = [
+    { name = "Gregory M. Kapfhammer", email = "gkapfham@allegheny.edu" }
+]
+requires-python = ">=3.10,<4.0"
+readme = "README.md"
+dependencies = [
+    "pydantic>=2.0.0",
+    "textual>=1.0.0",
+    "textual-serve>=1.1.0",
+    "rich>=13.0.0",
+    "datasette>=0.64.0",
+    "click>=8.0.0",
+]
+
+[project.scripts]
+formtuitous = "formtuitous.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.155.2",
+    "mypy>=1.11.2,<2",
+    "pydocstyle>=6.1.1,<7",
+    "pyrefly>=1.0.0",
+    "pytest>=8.0.0,<10",
+    "pytest-clarity>=1.0.1,<2",
+    "pytest-cov>=6.0.0,<7",
+    "pytest-randomly>=3.12.0,<4",
+    "pytest-sugar>=1.0.0,<2",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.15.15",
+    "rumdl>=0.2.4",
+    "taskipy>=1.10.1,<2",
+    "ty>=0.0.8",
+    "zuban>=0.7.2",
+]
+
+[tool.taskipy.settings]
+use_vars = true
+
+[tool.taskipy.variables]
+project = "src/formtuitous"
+tests = "tests"
+coveragefailunder = "95"
+
+[tool.taskipy.tasks]
+all = "task check && task test && task test-coverage"
+check = "task lint && task typecheck"
+lint = "task ruff-format && task ruff-check && task rumdl-check"
+typecheck = "task mypy && task ty && task pyrefly && task zuban"
+ruff-check = "ruff check {project} {tests}"
+ruff-format = "ruff format --check {project} {tests}"
+format-fix = "ruff format {project} {tests}"
+rumdl-check = "rumdl check"
+rumdl-fix = "rumdl fmt"
+mypy = "mypy {project}"
+ty = "ty check {project} {tests}"
+pyrefly = "pyrefly check {project} {tests}"
+zuban = "zuban check {project} {tests}"
+test = "pytest -x -s -vv"
+test-parallel = "pytest -x -s -vv -n auto -p no:sugar"
+test-silent = "pytest -x --show-capture=no -n auto"
+test-coverage = "pytest -s --cov=formtuitous --cov-branch --cov-fail-under={coveragefailunder} --cov-report=term-missing tests/"
+test-propertybased = "pytest -x -s -vv -m propertybased"
+test-not-propertybased = "pytest -x -s -vv -m 'not propertybased'"
+display = "uv run formtuitous display"
+serve = "uv run formtuitous serve"
+check-form = "uv run formtuitous check"
+
+[tool.ruff]
+line-length = 79
+
+[tool.ruff.lint]
+select = ["E", "D", "I", "F", "PL", "Q", "RUF", "W", "T201"]
+ignore = ["D203", "D213", "E501"]
+
+[tool.mypy]
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pyrefly]
+preset = "legacy"
+ignore-missing-imports = ["*"]
+
+[tool.coverage.run]
+source = ["formtuitous"]
+branch = true
+omit = ["tests/*", "**/__init__.py"]
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+precision = 2
+
+[tool.pytest.ini_options]
+markers = [
+    "propertybased: tests using Hypothesis for property-based testing",
+]
+
+
