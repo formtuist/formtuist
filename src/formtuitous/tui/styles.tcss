@@ -1,5 +1,35 @@
 #question-scroll {
-    padding: 1 2;
+    width: 4fr;
+    scrollbar-size: 0 0;
+}
+
+#sidebar {
+    width: 1fr;
+    height: 100%;
+    border-right: solid white;
+    overflow-y: auto;
+    padding: 1;
+    scrollbar-size: 0 0;
+}
+
+#sidebar-title {
+    text-style: bold;
+    padding-bottom: 1;
+    border-bottom: solid white;
+    margin-bottom: 1;
+}
+
+.sidebar-item {
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+.sidebar-item.current {
+    background: $accent 50%;
+}
+
+#sidebar.hidden {
+    display: none;
 }
 
 #form-header {
@@ -13,9 +43,83 @@ Label {
 
 Input {
     margin-bottom: 2;
+    border: tall white;
+}
+
+Input:focus {
+    border: tall $accent;
+}
+
+RadioSet {
+    margin-bottom: 2;
+}
+
+Switch {
+    margin-bottom: 2;
+}
+
+SelectionList {
+    margin-bottom: 2;
+}
+
+TextArea {
+    margin-bottom: 2;
+    border: tall white;
+    min-height: 3;
+}
+
+TextArea:focus {
+    border: tall $accent;
+}
+
+/* Code block styling */
+Static > .code {
+    background: $surface;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+/* URL hint styling */
+Static > .url {
+    color: $accent;
+    text-style: italic;
+    margin-bottom: 1;
+}
+
+#question-counter {
+    text-style: italic;
+    color: $text-muted;
+    margin-top: 1;
+    margin-bottom: 1;
 }
 
 #submit {
     margin-top: 1;
     margin-bottom: 1;
+    border: tall white;
+}
+
+/* Command palette styling for readability and contrast */
+
+CommandPalette > Vertical {
+    padding: 1;
+    background: $surface;
+}
+
+CommandPalette #--input {
+    border: hkey white;
+}
+
+CommandPalette CommandList {
+    color: $text;
+}
+
+CommandPalette CommandList > .option-list--option {
+    color: $text;
+    background: $surface;
+}
+
+CommandPalette CommandList > .option-list--option-highlighted {
+    color: $text;
+    background: $accent;
 }

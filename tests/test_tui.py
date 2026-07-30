@@ -3,9 +3,27 @@
 from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from formtuitous.schema import FormDefinition, ShortTextQuestion
+import pytest
+from textual.widgets import Input, RadioSet, SelectionList, Switch, TextArea
+
+from formtuitous.schema import (
+    CheckboxQuestion,
+    DateQuestion,
+    FormDefinition,
+    MultipleChoiceQuestion,
+    NumericQuestion,
+    ParagraphQuestion,
+    RatingQuestion,
+    ShortTextQuestion,
+    YesNoQuestion,
+)
 from formtuitous.tui.app import FormtuitousApp
 from formtuitous.tui.screens import FormScreen, SubmitScreen, WelcomeScreen
+from formtuitous.tui.widgets import (
+    get_widget_value,
+    is_widget_empty,
+    make_input_widget,
+)
 
 MIN_WELCOME_CHILDREN = 3
 MIN_SUBMIT_CHILDREN = 3
@@ -127,7 +145,7 @@ class TestFormScreen:
         """action_submit saves valid answers and pushes submit screen."""
         screen = FormScreen(minimal_form, Path(":memory:"))
         mock_app = MagicMock()
-        mock_input = MagicMock()
+        mock_input = MagicMock(spec=Input)
         mock_input.value = "Alice"
         screen.inputs["q1"] = mock_input
         with patch.object(
@@ -154,7 +172,7 @@ class TestFormScreen:
         """action_submit notifies when required fields are empty."""
         screen = FormScreen(minimal_form, Path(":memory:"))
         mock_app = MagicMock()
-        mock_input = MagicMock()
+        mock_input = MagicMock(spec=Input)
         mock_input.value = ""
         screen.inputs["q1"] = mock_input
         with patch.object(
@@ -183,7 +201,7 @@ class TestFormScreen:
         )
         screen = FormScreen(form, Path(":memory:"))
         mock_app = MagicMock()
-        mock_input = MagicMock()
+        mock_input = MagicMock(spec=Input)
         mock_input.value = ""
         screen.inputs["q1"] = mock_input
         with patch.object(
@@ -215,6 +233,375 @@ class TestFormScreen:
         with patch.object(FormScreen, "set_focus") as mock_set_focus:
             screen.action_focus_first_input()
         mock_set_focus.assert_called_once_with(mock_input)
+
+    def test_truncate_short_text(self) -> None:
+        """_truncate returns short text unchanged."""
+        screen = FormScreen(
+            FormDefinition(name="T", questions=[]), Path(":memory:")
+        )
+        assert screen._truncate("Short") == "Short"
+
+    def test_truncate_long_text(self) -> None:
+        """_truncate shortens long text with an ellipsis."""
+        screen = FormScreen(
+            FormDefinition(name="T", questions=[]), Path(":memory:")
+        )
+        long = "A" * 50
+        result = screen._truncate(long)
+        assert len(result) <= 25  # noqa: PLR2004
+        assert result.endswith("...")
+
+    def test_update_sidebar_and_counter(self) -> None:
+        """_update_sidebar_and_counter refreshes the label and highlights."""
+        screen = FormScreen(
+            FormDefinition(
+                name="F",
+                questions=[
+                    ShortTextQuestion(id="a", text="A?", type="short_text"),
+                    ShortTextQuestion(id="b", text="B?", type="short_text"),
+                ],
+            ),
+            Path(":memory:"),
+        )
+        mock_static = MagicMock()
+        mock_static.update = MagicMock()
+        mock_item0 = MagicMock()
+        mock_item1 = MagicMock()
+        screen.sidebar_items = [mock_item0, mock_item1]
+        with patch.object(FormScreen, "query_one") as mock_query:
+            mock_query.return_value = mock_static
+            screen.current_index = 0
+            screen._update_sidebar_and_counter()
+        mock_static.update.assert_called_once_with("Question 1 / 2")
+        mock_item0.set_class.assert_called_once_with(True, "current")
+        mock_item1.set_class.assert_called_once_with(False, "current")
+
+    def test_watch_focused_matches_input(
+        self, minimal_form: FormDefinition
+    ) -> None:
+        """watch_focused updates counter and sidebar for a matching input."""
+        screen = FormScreen(minimal_form, Path(":memory:"))
+        mock_widget = MagicMock()
+        mock_widget.id = "input-q1"
+        with patch.object(
+            FormScreen, "_update_sidebar_and_counter"
+        ) as mock_update:
+            screen.watch_focused(None, mock_widget)
+        assert screen.current_index == 0
+        mock_update.assert_called_once()
+
+    def test_watch_focused_no_match(
+        self, minimal_form: FormDefinition
+    ) -> None:
+        """watch_focused ignores focus on non-input widgets."""
+        screen = FormScreen(minimal_form, Path(":memory:"))
+        mock_widget = MagicMock()
+        mock_widget.id = "some-other-widget"
+        with patch.object(
+            FormScreen, "_update_sidebar_and_counter"
+        ) as mock_update:
+            screen.current_index = 99
+            screen.watch_focused(None, mock_widget)
+        assert screen.current_index == 99  # noqa: PLR2004
+        mock_update.assert_not_called()
+
+    def test_watch_focused_none(self, minimal_form: FormDefinition) -> None:
+        """watch_focused does nothing when new_val is None."""
+        screen = FormScreen(minimal_form, Path(":memory:"))
+        with patch.object(
+            FormScreen, "_update_sidebar_and_counter"
+        ) as mock_update:
+            screen.current_index = 99
+            screen.watch_focused(None, None)
+        assert screen.current_index == 99  # noqa: PLR2004
+        mock_update.assert_not_called()
+
+    def test_action_focus_next(self, minimal_form: FormDefinition) -> None:
+        """action_focus_next focuses the next question input."""
+        screen = FormScreen(minimal_form, Path(":memory:"))
+        mock_q1 = MagicMock()
+        mock_q1.id = "input-q1"
+        screen.inputs["q1"] = mock_q1
+        screen.current_index = 0
+        with patch.object(FormScreen, "set_focus") as mock_set_focus:
+            screen.action_focus_next()
+        mock_set_focus.assert_called_once_with(mock_q1)
+
+    def test_action_focus_next_wraparound(self) -> None:
+        """action_focus_next wraps from last question to first."""
+        form = FormDefinition(
+            name="F",
+            questions=[
+                ShortTextQuestion(id="a", text="A?", type="short_text"),
+                ShortTextQuestion(id="b", text="B?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_a = MagicMock()
+        mock_a.id = "input-a"
+        mock_b = MagicMock()
+        mock_b.id = "input-b"
+        screen.inputs = {"a": mock_a, "b": mock_b}
+        screen.current_index = 1
+        with patch.object(FormScreen, "set_focus") as mock_set_focus:
+            screen.action_focus_next()
+        mock_set_focus.assert_called_once_with(mock_a)
+
+    def test_action_focus_previous(self, minimal_form: FormDefinition) -> None:
+        """action_focus_previous focuses the previous question input."""
+        screen = FormScreen(minimal_form, Path(":memory:"))
+        mock_q1 = MagicMock()
+        mock_q1.id = "input-q1"
+        screen.inputs["q1"] = mock_q1
+        screen.current_index = 0
+        with patch.object(FormScreen, "set_focus") as mock_set_focus:
+            screen.action_focus_previous()
+        mock_set_focus.assert_called_once_with(mock_q1)
+
+    def test_action_focus_previous_wraparound(self) -> None:
+        """action_focus_previous wraps from first question to last."""
+        form = FormDefinition(
+            name="F",
+            questions=[
+                ShortTextQuestion(id="a", text="A?", type="short_text"),
+                ShortTextQuestion(id="b", text="B?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_a = MagicMock()
+        mock_a.id = "input-a"
+        mock_b = MagicMock()
+        mock_b.id = "input-b"
+        screen.inputs = {"a": mock_a, "b": mock_b}
+        screen.current_index = 0
+        with patch.object(FormScreen, "set_focus") as mock_set_focus:
+            screen.action_focus_previous()
+        mock_set_focus.assert_called_once_with(mock_b)
+
+    def test_action_toggle_sidebar(self, minimal_form: FormDefinition) -> None:
+        """action_toggle_sidebar toggles the hidden class."""
+        screen = FormScreen(minimal_form, Path(":memory:"))
+        mock_sidebar = MagicMock()
+        with patch.object(FormScreen, "query_one") as mock_query:
+            mock_query.return_value = mock_sidebar
+            screen.action_toggle_sidebar()
+        mock_query.assert_called_once_with("#sidebar")
+        mock_sidebar.toggle_class.assert_called_once_with("hidden")
+
+    def test_on_mount_focuses_first_input(
+        self, minimal_form: FormDefinition
+    ) -> None:
+        """on_mount calls action_focus_first_input."""
+        screen = FormScreen(minimal_form, Path(":memory:"))
+        with patch.object(
+            FormScreen, "action_focus_first_input"
+        ) as mock_focus:
+            screen.on_mount()
+        mock_focus.assert_called_once()
+
+    def test_focus_next_no_input_match(self) -> None:
+        """action_focus_next handles missing input gracefully."""
+        form = FormDefinition(
+            name="F",
+            questions=[
+                ShortTextQuestion(id="a", text="A?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        screen.inputs = {}
+        screen.current_index = 0
+        with patch.object(FormScreen, "set_focus") as mock_set_focus:
+            screen.action_focus_next()
+        mock_set_focus.assert_not_called()
+
+    def test_focus_previous_no_input_match(self) -> None:
+        """action_focus_previous handles missing input gracefully."""
+        form = FormDefinition(
+            name="F",
+            questions=[
+                ShortTextQuestion(id="a", text="A?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        screen.inputs = {}
+        screen.current_index = 0
+        with patch.object(FormScreen, "set_focus") as mock_set_focus:
+            screen.action_focus_previous()
+        mock_set_focus.assert_not_called()
+
+    def test_hide_scrollbars_sets_styles(
+        self, minimal_form: FormDefinition
+    ) -> None:
+        """_hide_scrollbars sets scrollbar sizes to zero."""
+        screen = FormScreen(minimal_form, Path(":memory:"))
+        mock_scroll = MagicMock()
+        mock_sidebar = MagicMock()
+        mock_scroll.styles = MagicMock()
+        mock_sidebar.styles = MagicMock()
+        with patch.object(
+            FormScreen,
+            "query_one",
+            side_effect=lambda id: (
+                mock_scroll if "scroll" in id else mock_sidebar
+            ),
+        ):
+            screen._hide_scrollbars()
+        mock_scroll.styles.scrollbar_size_horizontal = 0
+        mock_scroll.styles.scrollbar_size_vertical = 0
+        mock_sidebar.styles.scrollbar_size_horizontal = 0
+        mock_sidebar.styles.scrollbar_size_vertical = 0
+
+
+class TestWidgetFactory:
+    """Tests for the widget factory functions."""
+
+    def test_make_short_text_input(self) -> None:
+        """make_input_widget creates an Input for short_text."""
+        q = ShortTextQuestion(id="t", text="T", type="short_text")
+        widget = make_input_widget(q)
+        assert isinstance(widget, Input)
+
+    def test_make_paragraph_input(self) -> None:
+        """make_input_widget creates a TextArea for paragraph."""
+        q = ParagraphQuestion(id="t", text="T", type="paragraph")
+        widget = make_input_widget(q)
+        assert isinstance(widget, TextArea)
+
+    def test_make_multiple_choice_input(self) -> None:
+        """make_input_widget creates a RadioSet for multiple_choice."""
+        q = MultipleChoiceQuestion(
+            id="t", text="T", type="multiple_choice", choices=["A", "B"]
+        )
+        widget = make_input_widget(q)
+        assert isinstance(widget, RadioSet)
+
+    def test_make_checkbox_input(self) -> None:
+        """make_input_widget creates a SelectionList for checkbox."""
+        q = CheckboxQuestion(
+            id="t", text="T", type="checkbox", choices=["A", "B"]
+        )
+        widget = make_input_widget(q)
+        assert isinstance(widget, SelectionList)
+
+    def test_make_numeric_input(self) -> None:
+        """make_input_widget creates an Input for numeric."""
+        q = NumericQuestion(id="t", text="T", type="numeric")
+        widget = make_input_widget(q)
+        assert isinstance(widget, Input)
+
+    def test_make_rating_input(self) -> None:
+        """make_input_widget creates a RadioSet for rating."""
+        q = RatingQuestion(
+            id="t",
+            text="T",
+            type="rating",
+            min=1,
+            max=5,
+            labels=["Bad", "Good"],
+        )
+        widget = make_input_widget(q)
+        assert isinstance(widget, RadioSet)
+
+    def test_make_date_input(self) -> None:
+        """make_input_widget creates an Input for date."""
+        q = DateQuestion(id="t", text="T", type="date")
+        widget = make_input_widget(q)
+        assert isinstance(widget, Input)
+
+    def test_make_yes_no_input(self) -> None:
+        """make_input_widget creates a Switch for yes_no."""
+        q = YesNoQuestion(id="t", text="T", type="yes_no")
+        widget = make_input_widget(q)
+        assert isinstance(widget, Switch)
+
+    def test_make_unknown_type_raises(self) -> None:
+        """make_input_widget raises ValueError for unknown types."""
+        q = ShortTextQuestion.model_construct(
+            id="t",
+            text="T",
+            type="slider",  # type: ignore[arg-type]
+        )
+        with pytest.raises(ValueError, match="slider"):
+            make_input_widget(q)
+
+    def test_get_widget_value_input(self) -> None:
+        """get_widget_value returns Input.value."""
+        mock = MagicMock(spec=Input)
+        mock.value = "hello"
+        assert get_widget_value(mock) == "hello"
+
+    def test_get_widget_value_text_area(self) -> None:
+        """get_widget_value returns TextArea.text."""
+        mock = MagicMock(spec=TextArea)
+        mock.text = "paragraph"
+        assert get_widget_value(mock) == "paragraph"
+
+    def test_get_widget_value_radio_set(self) -> None:
+        """get_widget_value returns RadioSet pressed label."""
+        mock = MagicMock(spec=RadioSet)
+        mock.pressed_button.label = "Option A"
+        assert get_widget_value(mock) == "Option A"
+
+    def test_get_widget_value_radio_set_none(self) -> None:
+        """get_widget_value returns None when no button pressed."""
+        mock = MagicMock(spec=RadioSet)
+        mock.pressed_button = None
+        assert get_widget_value(mock) is None
+
+    def test_get_widget_value_selection_list(self) -> None:
+        """get_widget_value returns list of selected values."""
+        mock = MagicMock(spec=SelectionList)
+        mock.selected = ["a", "b"]
+        assert get_widget_value(mock) == ["a", "b"]
+
+    def test_get_widget_value_switch(self) -> None:
+        """get_widget_value returns Switch.value."""
+        mock = MagicMock(spec=Switch)
+        mock.value = True
+        assert get_widget_value(mock) is True
+        mock.value = False
+        assert get_widget_value(mock) is False
+
+    def test_get_widget_value_unknown(self) -> None:
+        """get_widget_value returns None for unknown widget types."""
+        mock = MagicMock()
+        assert get_widget_value(mock) is None
+
+    def test_is_widget_empty_input(self) -> None:
+        """is_widget_empty checks for blank Input."""
+        empty = MagicMock(spec=Input)
+        empty.value = ""
+        assert is_widget_empty(empty)
+        filled = MagicMock(spec=Input)
+        filled.value = "text"
+        assert not is_widget_empty(filled)
+
+    def test_is_widget_empty_text_area(self) -> None:
+        """is_widget_empty checks for blank TextArea."""
+        empty = MagicMock(spec=TextArea)
+        empty.text = ""
+        assert is_widget_empty(empty)
+
+    def test_is_widget_empty_radio_set(self) -> None:
+        """is_widget_empty checks for unpressed RadioSet."""
+        empty = MagicMock(spec=RadioSet)
+        empty.pressed_button = None
+        assert is_widget_empty(empty)
+
+    def test_is_widget_empty_selection_list(self) -> None:
+        """is_widget_empty checks for empty SelectionList."""
+        empty = MagicMock(spec=SelectionList)
+        empty.selected = []
+        assert is_widget_empty(empty)
+
+    def test_is_widget_empty_switch(self) -> None:
+        """is_widget_empty always returns False for Switch."""
+        s = MagicMock(spec=Switch)
+        assert not is_widget_empty(s)
+
+    def test_is_widget_empty_unknown(self) -> None:
+        """is_widget_empty returns True for unknown widget types."""
+        assert is_widget_empty(MagicMock())
 
 
 class TestSubmitScreen:

@@ -300,3 +300,26 @@ class TestDisplayCommand:
             assert result.exit_code == 0
             mock_server_cls.assert_called_once()
             mock_instance.serve.assert_called_once()
+
+    def test_display_serve_with_db_dir(self, tmp_path: Path) -> None:
+        """Display --serve --db-dir passes the directory to the subprocess."""
+        form = _write_form(
+            tmp_path / "form.json",
+            {"name": "ServedForm", "questions": []},
+        )
+        db_dir = tmp_path / "custom_db"
+        with patch("textual_serve.server.Server") as mock_server_cls:
+            result = runner.invoke(
+                app,
+                [
+                    "display",
+                    str(form),
+                    "--serve",
+                    "--db-dir",
+                    str(db_dir),
+                ],
+            )
+            assert result.exit_code == 0
+            mock_server_cls.assert_called_once()
+            cmd_arg = mock_server_cls.call_args[0][0]
+            assert str(db_dir) in cmd_arg
