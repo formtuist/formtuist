@@ -159,7 +159,7 @@ This means the build order is:
 Every new module added to the project must satisfy the four type checkers
 before the PR / commit is considered valid.
 
-### 1.3 Directory Structure
+### 1.5 Directory Structure
 
 ```
 formtuitous/
@@ -285,32 +285,8 @@ Each question may optionally include:
 - `image_path` is resolved relative to the form JSON file's directory.
 - `url` renders as a clickable `Link` widget.
 
-**Image rendering — `textual-image` evaluation:**
-`textual-image` (https://github.com/lnqs/textual-image) provides Textual
-widgets and Rich renderables that display images via:
-
-- **Terminal Graphics Protocol (TGP)** — Kitty, WezTerm
-- **Sixel** — iTerm2, Windows Terminal, VS Code, xterm, foot, konsole, etc.
-- **Unicode fallback** — block characters for unsupported terminals
-
-**Terminal mode:** `textual-image` is an excellent fit. Add it as an
-optional dependency (`textual-image[textual]`) and use its widget inside
-`QuestionContainer` when `image_path` is present.
-
-**Web mode (`textual-serve`):** Plausible but **experimental**.
-
-- `textual-serve` streams ANSI escape codes to an `xterm.js` terminal
-  emulator in the browser.
-- Modern `xterm.js` does support Sixel.
-- `textual-image` embeds image data as Sixel sequences (base64-ish text),
-  which travels naturally over the WebSocket as part of the terminal stream.
-- **Risk:** Browser performance with large images, xterm.js Sixel bugs, and
-  the requirement that the server process can read the image file at the
-  resolved absolute path.
-
-**Decision:** Use `textual-image` for the terminal TUI. For the web mode,
-document image display as **best-effort / experimental**, with a graceful
-fallback to showing the image filename/path as text.
+Media rendering details (terminal vs. web, `textual-image`, Sixel) are
+discussed in section 4.2a below.
 
 ______________________________________________________________________
 
@@ -338,6 +314,68 @@ Use `Literal` types for question types and grading modes. Use Pydantic
 `Field(validators=...)` or custom `@field_validator` methods for cross-field
 checks (e.g., ensure `checkbox` questions have at least one choice, ensure
 `correct_answer` is present when `auto_grade` is enabled).
+
+**Concrete model sketch:**
+
+```python
+from pydantic import BaseModel, Field, field_validator
+from typing import Literal, Annotated
+
+class ShortTextQuestion(BaseModel):
+    id: str
+    text: str
+    type: Literal["short_text"]
+    required: bool = False
+
+class MultipleChoiceQuestion(BaseModel):
+    id: str
+    text: str
+    type: Literal["multiple_choice"]
+    required: bool = False
+    choices: list[str]
+    correct_answer: str | None = None
+    points: int = 0
+    grading_type: Literal["exact"] = "exact"
+
+    @field_validator("choices")
+    @classmethod
+    def choices_not_empty(cls, v: list[str]) -> list[str]:
+        if len(v) < 2:
+            raise ValueError("multiple_choice requires at least 2 choices")
+        return v
+
+# ... one model per question type ...
+
+Question = Annotated[
+    ShortTextQuestion
+    | MultipleChoiceQuestion
+    | CheckboxQuestion
+    | NumericQuestion
+    | RatingQuestion
+    | DateQuestion
+    | YesNoQuestion
+    | ParagraphQuestion,
+    Field(discriminator="type"),
+]
+
+class FormDefinition(BaseModel):
+    name: str
+    description: str = ""
+    config: FormConfig = Field(default_factory=FormConfig)
+    questions: list[Question]
+
+    @field_validator("questions")
+    @classmethod
+    def ids_unique(cls, v: list[Question]) -> list[Question]:
+        ids = [q.id for q in v]
+        if len(ids) != len(set(ids)):
+            raise ValueError("question ids must be unique")
+        return v
+```
+
+Key Pydantic pattern: `Annotated[... , Field(discriminator="type")]` creates
+a tagged union. Validation automatically selects the right subclass based on
+the `type` field value.
 
 ### 3.2 `parser.py` — JSON Validation & Parsing
 
@@ -400,9 +438,54 @@ Functions needed:
 - Handle each `grading_type` (`exact`, `regex`, `contains`).
 - Support partial credit for `checkbox` questions (e.g., proportion correct).
 
+**Concrete grading logic sketch:**
+
+```python
+def grade_response(form: FormDefinition, answers: dict[str, Any]) -> dict:
+    results = []
+    total = 0
+    max_total = 0
+    for q in form.questions:
+        if q.correct_answer is None:
+            continue  # not a graded question
+        score, max_score = _grade_question(q, answers.get(q.id))
+        results.append({"id": q.id, "score": score, "max": max_score})
+        total += score
+        max_total += max_score
+    return {
+        "total": total,
+        "max": max_total,
+        "percentage": (total / max_total * 100) if max_total else 0,
+        "breakdown": results,
+    }
+
+def _grade_question(q, answer):
+    if q.type == "multiple_choice":
+        return (q.points, q.points) if answer == q.correct_answer else (0, q.points)
+    elif q.type == "checkbox":
+        correct = set(q.correct_answer)
+        given = set(answer) if answer else set()
+        if not correct:
+            return (0, q.points)
+        score = len(correct & given) / len(correct | given) * q.points
+        return (round(score), q.points)
+    elif q.type == "numeric" and isinstance(q.correct_answer, dict):
+        # range grading
+        if q.correct_answer["min"] <= answer <= q.correct_answer["max"]:
+            return (q.points, q.points)
+        return (0, q.points)
+    elif q.grading_type == "regex":
+        import re
+        return (q.points, q.points) if re.search(q.correct_answer, str(answer)) else (0, q.points)
+    elif q.grading_type == "contains":
+        return (q.points, q.points) if q.correct_answer in str(answer) else (0, q.points)
+    else:  # exact
+        return (q.points, q.points) if str(answer) == str(q.correct_answer) else (0, q.points)
+```
+
 ______________________________________________________________________
 
-## 3.5 TUI Architecture Decision — Plain Textual Widgets
+## 3.6 TUI Architecture Decision — Plain Textual Widgets
 
 **Decision:** Build the TUI using **plain Textual widgets**, not
 `textual-wtf`.
@@ -437,6 +520,28 @@ ______________________________________________________________________
 
 ## 4. TUI Implementation (Textual)
 
+### 4.0 Target Platform — Laptop-Only
+
+**Scope constraint:** Formtuitous is designed for students filling out forms
+on **laptops or desktop computers**. It is **not** targeting phones, tablets,
+or other mobile devices.
+
+**Why this matters:**
+
+- The TUI assumes a keyboard (Tab, Enter, Ctrl+S) and a terminal-sized
+  viewport. These are laptop-native interactions.
+- The `textual-serve` web mode renders an `xterm.js` terminal emulator in the
+  browser. This is usable on a laptop with a keyboard and a reasonably wide
+  screen. On a phone, a terminal emulator is cramped and frustrating.
+- Keyboard shortcuts (`^s` to submit, arrow keys for `RadioSet`) are core to
+  the experience and do not translate to touch interfaces.
+- Images rendered via `textual-image` (Sixel / TGP / Unicode fallback) are
+  sized for terminal cells, not responsive mobile viewports.
+
+**Consequence:** The TUI layout, web-serving expectations, and UX copy can
+all assume a laptop user. No responsive design, no touch targets, no mobile
+viewport testing is required for v1.
+
 ### 4.1 Widget Selection per Question Type
 
 | Question Type | Primary Widget | Supporting Widgets |
@@ -466,6 +571,34 @@ Composition:
 - Optional `Static` for image path / URL hint
 - The input widget appropriate for the question type
 - `Rule` (divider) between questions
+
+### 4.2a Image Rendering — `textual-image`
+
+`textual-image` (https://github.com/lnqs/textual-image) provides Textual
+widgets and Rich renderables that display images via:
+
+- **Terminal Graphics Protocol (TGP)** — Kitty, WezTerm
+- **Sixel** — iTerm2, Windows Terminal, VS Code, xterm, foot, konsole, etc.
+- **Unicode fallback** — block characters for unsupported terminals
+
+**Terminal mode:** `textual-image` is an excellent fit. Add it as an
+optional dependency (`textual-image[textual]`) and use its widget inside
+`QuestionContainer` when `image_path` is present.
+
+**Web mode (`textual-serve`):** Plausible but **experimental**.
+
+- `textual-serve` streams ANSI escape codes to an `xterm.js` terminal
+  emulator in the browser.
+- Modern `xterm.js` does support Sixel.
+- `textual-image` embeds image data as Sixel sequences (base64-ish text),
+  which travels naturally over the WebSocket as part of the terminal stream.
+- **Risk:** Browser performance with large images, xterm.js Sixel bugs, and
+  the requirement that the server process can read the image file at the
+  resolved absolute path.
+
+**Decision:** Use `textual-image` for the terminal TUI. For the web mode,
+document image display as **best-effort / experimental**, with a graceful
+fallback to showing the image filename/path as text.
 
 ### 4.3 TUI Layout Design
 
@@ -521,6 +654,201 @@ Define:
 - Focus styles for input widgets
 - Required question indicator (red asterisk)
 - Progress bar styling
+
+______________________________________________________________________
+
+### 4.6 TUI Implementation Details — Buildable Specification
+
+This section closes the ambiguity gaps for an AI agent implementing the TUI.
+
+### 4.6.1 Widget Factory — `make_question_widget()`
+
+`widgets.py` contains a dispatch function that creates the correct input
+widget for each `Question` type:
+
+```python
+from textual.widgets import Input, TextArea, RadioSet, RadioButton, SelectionList, Switch, Select
+from textual.validation import Integer, Number
+
+def make_input_widget(question: Question) -> Widget:
+    """Return the appropriate input widget for a question."""
+    if question.type == "short_text":
+        return Input(placeholder="Type your answer...")
+    elif question.type == "paragraph":
+        return TextArea()
+    elif question.type == "multiple_choice":
+        return RadioSet(*question.choices)
+    elif question.type == "checkbox":
+        # SelectionList takes tuples of (label, value, initial_selected)
+        return SelectionList(*[(c, c, False) for c in question.choices])
+    elif question.type == "numeric":
+        return Input(validators=[Integer()])
+    elif question.type == "rating":
+        # RadioSet for visibility; labels like "1 - Poor"
+        return RadioSet(*question.labels)
+    elif question.type == "date":
+        return Input(placeholder="YYYY-MM-DD")
+    elif question.type == "yes_no":
+        return Switch()
+    else:
+        raise ValueError(f"unknown question type: {question.type}")
+```
+
+### 4.6.2 `QuestionContainer` — Composite Widget API
+
+````python
+from textual.containers import Vertical
+from textual.widgets import Label, Static, Rule
+from textual.widget import Widget
+
+class QuestionContainer(Vertical):
+    """Wraps a question: text, optional media, input widget, divider."""
+
+    def __init__(self, question: Question) -> None:
+        self.question = question
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        # Question text (bold, wrapped)
+        required_marker = " [red]*[/red]" if self.question.required else ""
+        yield Label(f"[bold]{self.question.text}[/bold]{required_marker}")
+
+        # Optional code block
+        if self.question.code:
+            code_text = f"```{self.question.code.language}\n{self.question.code.content}\n```"
+            yield Static(code_text)  # Rich markdown-like rendering via Static
+
+        # Optional image
+        if self.question.image_path:
+            # Terminal: textual-image widget. Web: falls back to text path.
+            yield Static(f"[Image: {self.question.image_path}]")
+
+        # Optional URL
+        if self.question.url:
+            yield Static(f"[@click=app.open_url('{self.question.url}')]Reference[/]")
+
+        # The actual input widget
+        self.input_widget = make_input_widget(self.question)
+        yield self.input_widget
+
+        # Divider between questions
+        yield Rule()
+
+    def get_answer(self) -> Any:
+        """Extract the answer value from the input widget."""
+        w = self.input_widget
+        if isinstance(w, Input):
+            return w.value
+        elif isinstance(w, TextArea):
+            return w.text
+        elif isinstance(w, RadioSet):
+            # pressed_button may be None if nothing selected
+            return w.pressed_button.label if w.pressed_button else None
+        elif isinstance(w, SelectionList):
+            return [w.get_option_at_index(i).prompt for i in w.selected_indices]
+        elif isinstance(w, Switch):
+            return w.value
+        else:
+            return None
+
+    def set_error(self, message: str) -> None:
+        """Show a validation error next to the question."""
+        # Add a red error label; remove it when fixed
+        self.error_label = Label(f"[red]{message}[/red]")
+        self.mount(self.error_label, after=self.input_widget)
+
+    def clear_error(self) -> None:
+        """Remove any validation error label."""
+        if hasattr(self, "error_label"):
+            self.error_label.remove()
+            delattr(self, "error_label")
+````
+
+### 4.6.3 `FormScreen` — State, Compose, Submit
+
+```python
+from textual.app import ComposeResult
+from textual.containers import VerticalScroll
+from textual.screen import Screen
+from textual.widgets import Button, Footer, Header, Label
+
+class FormScreen(Screen):
+    BINDINGS = [
+        ("ctrl+s", "submit", "Submit"),
+    ]
+
+    def __init__(self, form: FormDefinition, db_path: Path) -> None:
+        self.form = form
+        self.db_path = db_path
+        self.question_containers: list[QuestionContainer] = []
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with VerticalScroll():
+            yield Label(f"[bold]{self.form.name}[/bold]")
+            if self.form.description:
+                yield Label(self.form.description)
+            for question in self.form.questions:
+                container = QuestionContainer(question)
+                self.question_containers.append(container)
+                yield container
+            yield Button("Submit", id="submit", variant="primary")
+        yield Footer()
+
+    def action_submit(self) -> None:
+        """Validate, collect answers, save to DB, push SubmitScreen."""
+        answers: dict[str, Any] = {}
+        valid = True
+        for qc in self.question_containers:
+            answer = qc.get_answer()
+            qc.clear_error()
+            if qc.question.required and (answer is None or answer == ""):
+                qc.set_error("This question is required.")
+                valid = False
+            answers[qc.question.id] = answer
+
+        if not valid:
+            self.notify("Please fix the errors above.", severity="error")
+            return
+
+        # Save to SQLite
+        conn = init_db(self.db_path)
+        save_response(conn, self.form.name, answers)
+        conn.close()
+
+        # Show confirmation
+        self.app.push_screen(SubmitScreen())
+```
+
+### 4.6.4 Screen Transition Flow
+
+```
+WelcomeScreen  --[Start button]-->  FormScreen  --[Ctrl+S or Submit]-->  SubmitScreen
+```
+
+If `form.config.auto_grade` is true, `SubmitScreen` includes a
+"View Grade" button that pushes `GradeScreen` with the grading results.
+
+### 4.6.5 Data Passing — `FormApp` Constructor
+
+```python
+from textual.app import App
+
+class FormApp(App):
+    CSS_PATH = "styles.tcss"
+
+    def __init__(self, form: FormDefinition, db_path: Path) -> None:
+        self.form = form
+        self.db_path = db_path
+        super().__init__()
+
+    def on_mount(self) -> None:
+        self.push_screen(WelcomeScreen(self.form, self.db_path))
+```
+
+The `display` CLI command creates `FormApp(form, db_path)` and calls
+`app.run()`.
 
 ______________________________________________________________________
 
@@ -580,17 +908,40 @@ ______________________________________________________________________
 - Each process has its own SQLite connection. SQLite handles concurrent reads
   well; writes may block briefly but are safe.
 
-### 6.2 Wrapper Command
+### 6.2 Wrapper Command — `server.py`
 
-The `Server` command will be something like:
+`server.py` is a thin Click command that wraps `textual-serve`:
 
 ```python
 from textual_serve.server import Server
 
-cmd = f"formtuitous display {form_path} --db {db_path}"
-server = Server(cmd, host=host, port=port, title=form_name)
-server.serve()
+@click.command()
+@click.argument("form_path", type=click.Path(exists=True))
+@click.option("--host", default="0.0.0.0")
+@click.option("--port", default=8000)
+@click.option("--db", default="responses.db")
+def serve(form_path: str, host: str, port: int, db: str) -> None:
+    form = parse_form(Path(form_path))
+    cmd = f"formtuitous display {form_path} --db {db}"
+    server = Server(
+        cmd,
+        host=host,
+        port=port,
+        title=form.name,
+    )
+    click.echo(f"Serving {form.name} at http://{host}:{port}")
+    server.serve()
 ```
+
+Key points:
+
+- The command string is exactly what a user would type in a shell.
+- `textual-serve` spawns a new Python process running that command for every
+  visitor.
+- The form JSON is parsed once in the server process only to get the title.
+- Each visitor's subprocess does its own form parsing and DB writes.
+- `--public-url` can be passed if behind a reverse proxy (e.g., Cloudflare
+  tunnel).
 
 ### 6.3 Public URL Support
 
@@ -649,32 +1000,7 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## 9. Priorities for Proof-of-Concept
-
-To get a usable proof-of-concept quickly:
-
-1. **Schema + Parser**: Define the JSON schema and validate it.
-1. **SQLite DB**: Create `database.py` with `save_response`.
-1. **Basic TUI**: A single `FormScreen` using `VerticalScroll` + `Input` +
-   `RadioSet` + `Button`. No custom widgets yet — just compose directly.
-1. **`display` command**: Wire CLI → parser → TUI → DB.
-1. **`serve` command**: Wrap `display` in `textual-serve.Server`.
-1. **`check` command**: Validate JSON and print summary.
-
-Defer to later:
-
-- Code block syntax highlighting in TUI
-- Image display
-- `grade` command
-- `export` command
-- `view` command
-- Custom `QuestionContainer` widget
-- Progress bar
-- Randomized question order
-
-______________________________________________________________________
-
-## 10. Known Similar Tools (Research Notes)
+## 9. Known Similar Tools (Research Notes)
 
 The following tools overlap with Formtuitous but do **not** match the exact
 combination of JSON-defined + Textual TUI + web-serve + SQLite + datasette:
@@ -693,7 +1019,7 @@ workflow** with trivial web deployment via `textual-serve`.
 
 ______________________________________________________________________
 
-## 11. Open Questions to Resolve During Build
+## 10. Open Questions to Resolve During Build
 
 1. Should `rating` use a horizontal `RadioSet` or a `Select` dropdown?
    - Recommendation: `RadioSet` for visibility of all options at once.
@@ -743,6 +1069,31 @@ ______________________________________________________________________
   JSON unless a flattened view is added.
 - **Mitigation:** Add a helper that creates a `responses_flat` view or a
   temporary flattened table before running `datasette serve`.
+
+______________________________________________________________________
+
+## 12. Priorities for Proof-of-Concept
+
+To get a usable proof-of-concept quickly:
+
+1. **Schema + Parser**: Define the JSON schema and validate it.
+1. **SQLite DB**: Create `database.py` with `save_response`.
+1. **Basic TUI**: A single `FormScreen` using `VerticalScroll` + `Input` +
+   `RadioSet` + `Button`. No custom widgets yet — just compose directly.
+1. **`display` command**: Wire CLI → parser → TUI → DB.
+1. **`serve` command**: Wrap `display` in `textual-serve.Server`.
+1. **`check` command**: Validate JSON and print summary.
+
+Defer to later:
+
+- Code block syntax highlighting in TUI
+- Image display
+- `grade` command
+- `export` command
+- `view` command
+- Custom `QuestionContainer` widget
+- Progress bar
+- Randomized question order
 
 ______________________________________________________________________
 
