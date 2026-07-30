@@ -1,7 +1,7 @@
 [project]
 name = "formtuitous"
 version = "0.1.0"
-description = "Formtuitous: Forms in the terminal, where programmers work."
+description = "Formtuitous: Creating forms with JSON and a TUI is an unexpected success!"
 authors = [
     { name = "Gregory M. Kapfhammer", email = "gkapfham@allegheny.edu" }
 ]
