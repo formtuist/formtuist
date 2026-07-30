@@ -116,7 +116,9 @@ first module:
 - `test` → `pytest -x -s -vv`
 - `test-parallel` → `pytest -x -s -vv -n auto -p no:sugar`
 - `test-silent` → `pytest -x --show-capture=no -n auto`
-- `test-coverage` → `pytest -s --cov=formtuitous --cov-branch --cov-fail-under={coveragefailunder} --cov-report=term-missing tests/`
+- `test-coverage` → `pytest -s --cov=formtuitous --cov-branch
+  --cov-fail-under={coveragefailunder}
+  --cov-report=term-missing tests/`
 - `test-propertybased` → `pytest -x -s -vv -m propertybased`
 - `test-not-propertybased` → `pytest -x -s -vv -m 'not propertybased'`
 - `display` → `uv run formtuitous display`
@@ -161,7 +163,7 @@ before the PR / commit is considered valid.
 
 ### 1.5 Directory Structure
 
-```
+```text
 formtuitous/
 ├── pyproject.toml
 ├── README.md
@@ -476,11 +478,14 @@ def _grade_question(q, answer):
         return (0, q.points)
     elif q.grading_type == "regex":
         import re
-        return (q.points, q.points) if re.search(q.correct_answer, str(answer)) else (0, q.points)
+        correct = re.search(q.correct_answer, str(answer))
+        return (q.points, q.points) if correct else (0, q.points)
     elif q.grading_type == "contains":
-        return (q.points, q.points) if q.correct_answer in str(answer) else (0, q.points)
+        correct = q.correct_answer in str(answer)
+        return (q.points, q.points) if correct else (0, q.points)
     else:  # exact
-        return (q.points, q.points) if str(answer) == str(q.correct_answer) else (0, q.points)
+        exact = str(answer) == str(q.correct_answer)
+        return (q.points, q.points) if exact else (0, q.points)
 ```
 
 ______________________________________________________________________
@@ -508,7 +513,7 @@ ______________________________________________________________________
 
 **The pipeline is therefore:**
 
-```
+```text
 JSON form → Pydantic validation → Custom widgets.py → FormScreen compose()
 ```
 
@@ -574,7 +579,7 @@ Composition:
 
 ### 4.2a Image Rendering — `textual-image`
 
-`textual-image` (https://github.com/lnqs/textual-image) provides Textual
+`textual-image` (<https://github.com/lnqs/textual-image>) provides Textual
 widgets and Rich renderables that display images via:
 
 - **Terminal Graphics Protocol (TGP)** — Kitty, WezTerm
@@ -604,7 +609,7 @@ fallback to showing the image filename/path as text.
 
 **Goal:** Simple, clear, single-column scrolling layout.
 
-```
+```text
 +--------------------------------------------------+
 |  󰋼 Formtuitous — CS 101 Attendance          1/3   |
 +--------------------------------------------------+
@@ -667,7 +672,10 @@ This section closes the ambiguity gaps for an AI agent implementing the TUI.
 widget for each `Question` type:
 
 ```python
-from textual.widgets import Input, TextArea, RadioSet, RadioButton, SelectionList, Switch, Select
+from textual.widgets import (
+    Input, TextArea, RadioSet, RadioButton,
+    SelectionList, Switch, Select,
+)
 from textual.validation import Integer, Number
 
 def make_input_widget(question: Question) -> Widget:
@@ -823,8 +831,9 @@ class FormScreen(Screen):
 
 ### 4.6.4 Screen Transition Flow
 
-```
-WelcomeScreen  --[Start button]-->  FormScreen  --[Ctrl+S or Submit]-->  SubmitScreen
+```text
+WelcomeScreen  --[Start button]-->  FormScreen
+  --[Ctrl+S or Submit]-->  SubmitScreen
 ```
 
 If `form.config.auto_grade` is true, `SubmitScreen` includes a
