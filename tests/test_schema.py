@@ -295,7 +295,7 @@ class TestFormConfigInForm:
 
 
 class TestExampleForms:
-    """Tests that all example JSON files validate correctly."""
+    """Tests that all valid example JSON files parse correctly."""
 
     EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "examples"
 
@@ -311,9 +311,32 @@ class TestExampleForms:
         ],
     )
     def test_example_validates(self, filename: str) -> None:
-        """Each example form file validates without errors."""
+        """Each valid example form file validates without errors."""
         path = self.EXAMPLE_DIR / filename
         raw = path.read_text(encoding="utf-8")
         form = FormDefinition.model_validate_json(raw)
         assert form.name
         assert len(form.questions) > 0
+
+
+class TestInvalidExampleForms:
+    """Tests that all invalid example JSON files raise ValidationError."""
+
+    EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "examples"
+
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "invalid_checkbox_no_choices.json",
+            "invalid_duplicate_ids.json",
+            "invalid_multiple_choice_one_choice.json",
+            "invalid_rating_max_less_than_min.json",
+            "invalid_unknown_question_type.json",
+        ],
+    )
+    def test_invalid_example_raises(self, filename: str) -> None:
+        """Each invalid example form file raises ValidationError."""
+        path = self.EXAMPLE_DIR / filename
+        raw = path.read_text(encoding="utf-8")
+        with pytest.raises(ValidationError):
+            FormDefinition.model_validate_json(raw)
