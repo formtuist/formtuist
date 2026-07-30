@@ -3,14 +3,23 @@
 from pathlib import Path
 
 from formtuitous.database import (
+    DATABASE_FILENAME,
+    ensure_db_dir,
+    get_default_db_dir,
     get_response_count,
     get_responses,
     init_db,
+    resolve_db_path,
     save_response,
 )
 
 EXPECTED_TWO_RESPONSES = 2
 EXPECTED_THREE_RESPONSES = 3
+EXPECTED_AGE_VALUE = 22
+EXPECTED_GPA_VALUE = 3.75
+EXPECTED_FIRST_ID = 1
+EXPECTED_SECOND_ID = 2
+EXPECTED_THIRD_ID = 3
 
 
 class TestInitDb:
@@ -179,3 +188,150 @@ class TestConcurrency:
         conn = init_db(db_path)
         assert get_response_count(conn) == EXPECTED_TWO_RESPONSES
         conn.close()
+
+
+class TestDatabaseContent:
+    """Verify database content correctness and round-trip fidelity."""
+
+    def test_round_trip_exact_values(self, tmp_path: Path) -> None:
+        """Answers saved and retrieved are byte-for-byte identical."""
+        conn = init_db(tmp_path / "test.db")
+        original = {"name": "Alice", "score": 95, "active": True}
+        save_response(conn, "RoundTrip", original)
+        results = get_responses(conn)
+        conn.close()
+        assert len(results) == 1
+        assert results[0]["answers_json"] == original
+
+    def test_multiple_saves_same_form_all_present(
+        self, tmp_path: Path
+    ) -> None:
+        """All submissions for the same form are stored and retrievable."""
+        conn = init_db(tmp_path / "test.db")
+        answers_list = [
+            {"q1": "Alice"},
+            {"q1": "Bob"},
+            {"q1": "Charlie"},
+        ]
+        for answers in answers_list:
+            save_response(conn, "Attendance", answers)
+        results = get_responses(conn, form_name="Attendance")
+        conn.close()
+        assert len(results) == len(answers_list)
+        saved_answers = [r["answers_json"] for r in results]
+        for expected in answers_list:
+            assert expected in saved_answers
+
+    def test_multiple_forms_separate_contents(self, tmp_path: Path) -> None:
+        """Responses for different forms are stored independently and separated by form_name."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(conn, "Quiz", {"q": "answer", "score": 10})
+        save_response(conn, "Survey", {"feedback": "great"})
+        save_response(conn, "Quiz", {"q": "other", "score": 8})
+        conn.close()
+        conn = init_db(tmp_path / "test.db")
+        quiz_responses = get_responses(conn, form_name="Quiz")
+        survey_responses = get_responses(conn, form_name="Survey")
+        all_responses = get_responses(conn)
+        conn.close()
+        assert len(quiz_responses) == EXPECTED_TWO_RESPONSES
+        assert len(survey_responses) == 1
+        assert len(all_responses) == EXPECTED_THREE_RESPONSES
+        assert survey_responses[0]["answers_json"] == {"feedback": "great"}
+
+    def test_form_name_matches_saved(self, tmp_path: Path) -> None:
+        """The form_name column stores the exact name provided."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(conn, "CS 101 Exam", {"q": "ok"})
+        results = get_responses(conn)
+        conn.close()
+        assert results[0]["form_name"] == "CS 101 Exam"
+
+    def test_various_data_types_round_trip(self, tmp_path: Path) -> None:
+        """Answers with mixed types survive a round trip through the database."""
+        conn = init_db(tmp_path / "test.db")
+        answers = {
+            "name": "Alice",
+            "age": EXPECTED_AGE_VALUE,
+            "gpa": EXPECTED_GPA_VALUE,
+            "enrolled": True,
+            "notes": None,
+        }
+        save_response(conn, "Types", answers)
+        results = get_responses(conn)
+        conn.close()
+        retrieved = results[0]["answers_json"]
+        assert retrieved["name"] == "Alice"
+        assert retrieved["age"] == EXPECTED_AGE_VALUE
+        assert retrieved["gpa"] == EXPECTED_GPA_VALUE
+        assert retrieved["enrolled"] is True
+        assert retrieved["notes"] is None
+
+    def test_three_saves_incremental_ids(self, tmp_path: Path) -> None:
+        """Three saves produce rows with ids 1, 2, 3."""
+        conn = init_db(tmp_path / "test.db")
+        id1 = save_response(conn, "F", {"n": 1})
+        id2 = save_response(conn, "F", {"n": 2})
+        id3 = save_response(conn, "F", {"n": 3})
+        conn.close()
+        assert id1 == EXPECTED_FIRST_ID
+        assert id2 == EXPECTED_SECOND_ID
+        assert id3 == EXPECTED_THIRD_ID
+
+    def test_get_responses_id_order(self, tmp_path: Path) -> None:
+        """Responses are returned in ascending id order."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(conn, "Order", {"seq": "first"})
+        save_response(conn, "Order", {"seq": "second"})
+        save_response(conn, "Order", {"seq": "third"})
+        results = get_responses(conn)
+        conn.close()
+        ids = [r["id"] for r in results]
+        assert ids == sorted(ids)
+
+    def test_empty_answers_dict(self, tmp_path: Path) -> None:
+        """Saving an empty answers dict works correctly."""
+        conn = init_db(tmp_path / "test.db")
+        row_id = save_response(conn, "Empty", {})
+        results = get_responses(conn)
+        conn.close()
+        assert len(results) == 1
+        assert results[0]["answers_json"] == {}
+        assert results[0]["id"] == row_id
+
+
+class TestDbDirectory:
+    """Tests for database directory resolution and platformdirs integration."""
+
+    def test_get_default_db_dir_returns_path(self) -> None:
+        """get_default_db_dir returns a Path ending with formtuitous."""
+        db_dir = get_default_db_dir()
+        assert isinstance(db_dir, Path)
+        assert "formtuitous" in db_dir.parts
+
+    def test_ensure_db_dir_creates_directory(self, tmp_path: Path) -> None:
+        """ensure_db_dir creates the directory tree."""
+        target = tmp_path / "a" / "b" / "c"
+        assert not target.exists()
+        ensure_db_dir(target)
+        assert target.is_dir()
+
+    def test_ensure_db_dir_idempotent(self, tmp_path: Path) -> None:
+        """ensure_db_dir succeeds when the directory already exists."""
+        target = tmp_path / "existing"
+        target.mkdir(parents=True)
+        ensure_db_dir(target)
+        assert target.is_dir()
+
+    def test_resolve_db_path_with_dir(self, tmp_path: Path) -> None:
+        """resolve_db_path appends DATABASE_FILENAME and creates the dir."""
+        db_dir = tmp_path / "my_responses"
+        full_path = resolve_db_path(db_dir)
+        assert full_path == db_dir / DATABASE_FILENAME
+        assert db_dir.is_dir()
+
+    def test_resolve_db_path_defaults(self) -> None:
+        """resolve_db_path with no arg uses the platform-appropriate dir."""
+        full_path = resolve_db_path()
+        assert full_path.name == DATABASE_FILENAME
+        assert "formtuitous" in full_path.parts

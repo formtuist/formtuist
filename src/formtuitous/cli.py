@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.rule import Rule
 
+from formtuitous.database import resolve_db_path
 from formtuitous.parser import parse_form
 
 # rich console for all user-facing output
@@ -88,8 +89,7 @@ def check(
     raise typer.Exit(code=0)
 
 
-DEFAULT_DB_PATH = "responses.db"
-DB_PATH_HELP = "Path to the SQLite database for storing responses."
+DB_DIR_HELP = "Directory for the responses database (default: platformdirs user_data_dir)."
 
 
 @app.command()
@@ -101,9 +101,11 @@ def display(
         dir_okay=False,
         readable=True,
     ),
-    db: Path = typer.Option(
-        DEFAULT_DB_PATH,
-        help=DB_PATH_HELP,
+    db_dir: Path = typer.Option(
+        None,
+        help=DB_DIR_HELP,
+        file_okay=False,
+        dir_okay=True,
     ),
 ) -> None:
     """Display a form in the TUI and collect responses."""
@@ -115,7 +117,8 @@ def display(
         parse_form(form_path)
     except ValidationError:
         raise typer.Exit(code=1)
-    app_ui = FormtuitousApp(form_path, db)
+    db_path = resolve_db_path(db_dir)
+    app_ui = FormtuitousApp(form_path, db_path)
     app_ui.run()
 
 

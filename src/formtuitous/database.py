@@ -6,9 +6,38 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import platformdirs
+
 # sqlite3 is part of the Python standard library — no extra dependency needed
 
+DATABASE_FILENAME = "responses.db"
 WAL_JOURNAL_MODE = "wal"
+
+
+def get_default_db_dir() -> Path:
+    """Return the platform-appropriate directory for formtuitous data."""
+    return Path(platformdirs.user_data_dir("formtuitous", ensure_exists=True))
+
+
+def ensure_db_dir(db_dir: Path) -> Path:
+    """Create the database directory if it does not exist and return it."""
+    db_dir.mkdir(parents=True, exist_ok=True)
+    return db_dir
+
+
+def resolve_db_path(db_dir: Path | None = None) -> Path:
+    """Return the full path to the database file.
+
+    When *db_dir* is provided the directory is created if needed and the
+    default filename is appended.  When *db_dir* is *None* the platform-
+    appropriate default directory is used.
+    """
+    if db_dir is None:
+        db_dir = get_default_db_dir()
+    ensure_db_dir(db_dir)
+    return db_dir / DATABASE_FILENAME
+
+
 BUSY_TIMEOUT_MS = 30000
 ID_COLUMN = "id"
 FORM_NAME_COLUMN = "form_name"

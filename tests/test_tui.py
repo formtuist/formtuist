@@ -35,6 +35,13 @@ class TestWelcomeScreen:
         screen = WelcomeScreen(form, Path("test.db"))
         assert screen.form.description == ""
 
+    def test_compose_without_description(self) -> None:
+        """WelcomeScreen compose works for a form with no description."""
+        form = FormDefinition(name="NoDesc", questions=[])
+        screen = WelcomeScreen(form, Path("test.db"))
+        children = list(screen.compose())
+        assert len(children) >= MIN_WELCOME_CHILDREN
+
     def test_on_button_pressed_start(
         self, minimal_form: FormDefinition
     ) -> None:
@@ -196,6 +203,18 @@ class TestFormScreen:
         )
         mock_app.push_screen.assert_called_once()
         mock_notify.assert_not_called()
+
+    def test_action_focus_first_input(
+        self, minimal_form: FormDefinition
+    ) -> None:
+        """action_focus_first_input sets focus on the first input."""
+        screen = FormScreen(minimal_form, Path(":memory:"))
+        mock_input = MagicMock()
+        mock_input.id = "input-q1"
+        screen.inputs["q1"] = mock_input
+        with patch.object(FormScreen, "set_focus") as mock_set_focus:
+            screen.action_focus_first_input()
+        mock_set_focus.assert_called_once_with(mock_input)
 
 
 class TestSubmitScreen:

@@ -259,11 +259,15 @@ class TestDisplayCommand:
             tmp_path / "form.json",
             {"name": "T", "description": "d", "questions": []},
         )
+        db_dir = tmp_path / "db_out"
         with patch("formtuitous.tui.app.FormtuitousApp") as mock_app_cls:
             mock_instance = mock_app_cls.return_value
-            result = runner.invoke(app, ["display", str(form)])
+            result = runner.invoke(
+                app, ["display", str(form), "--db-dir", str(db_dir)]
+            )
             assert result.exit_code == 0
-            mock_app_cls.assert_called_once_with(form, Path("responses.db"))
+            expected_db_path = db_dir / "responses.db"
+            mock_app_cls.assert_called_once_with(form, expected_db_path)
             mock_instance.run.assert_called_once()
 
     def test_display_invalid_form_exits(self, tmp_path: Path) -> None:

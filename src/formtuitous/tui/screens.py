@@ -42,6 +42,7 @@ class FormScreen(Screen):
 
     BINDINGS: ClassVar[list[tuple[str, str] | tuple[str, str, str]]] = [  # type: ignore[assignment]
         ("ctrl+s", "submit", "Submit"),
+        ("ctrl+f", "focus_first_input", "Focus Input"),
     ]
 
     def __init__(self, form: FormDefinition, db_path: Path) -> None:
@@ -90,6 +91,14 @@ class FormScreen(Screen):
         save_response(conn, self.form.name, answers)
         conn.close()
         self.app.push_screen(SubmitScreen())
+
+    def action_focus_first_input(self) -> None:
+        """Focus the first input widget on the form."""
+        for question in self.form.questions:
+            input_widget = self.inputs.get(question.id)
+            if input_widget is not None:
+                self.set_focus(input_widget)
+                return
 
 
 class SubmitScreen(Screen):
