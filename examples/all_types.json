@@ -1,0 +1,119 @@
+{
+  "name": "Formtuitous — Kitchen Sink Demo",
+  "description": "Every question type and media feature in a single form. Use this to verify the TUI widget factory and media rendering.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": true,
+    "allow_multiple_submissions": true,
+    "show_progress_bar": true
+  },
+  "questions": [
+    {
+      "id": "name",
+      "text": "What is your full name?",
+      "type": "short_text",
+      "required": true
+    },
+    {
+      "id": "bio",
+      "text": "Tell us a little about yourself.",
+      "type": "paragraph",
+      "required": false
+    },
+    {
+      "id": "language",
+      "text": "Which programming language do you prefer for introductory courses?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "Python",
+        "Java",
+        "C",
+        "JavaScript",
+        "Rust"
+      ],
+      "correct_answer": "Python",
+      "points": 5,
+      "grading_type": "exact"
+    },
+    {
+      "id": "features",
+      "text": "Which features of Formtuitous interest you? (Select all that apply.)",
+      "type": "checkbox",
+      "required": false,
+      "choices": [
+        "Terminal UI",
+        "Web serving",
+        "JSON-defined forms",
+        "Auto-grading",
+        "SQLite storage",
+        "Datasette viewing"
+      ],
+      "correct_answer": [
+        "Terminal UI",
+        "JSON-defined forms"
+      ],
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "age",
+      "text": "How many years of programming experience do you have?",
+      "type": "numeric",
+      "required": true,
+      "correct_answer": {
+        "min": 0,
+        "max": 50
+      },
+      "points": 5,
+      "grading_type": "exact"
+    },
+    {
+      "id": "enjoyment",
+      "text": "Rate your enjoyment of terminal-based tools.",
+      "type": "rating",
+      "required": true,
+      "min": 1,
+      "max": 5,
+      "labels": [
+        "Strongly dislike",
+        "Dislike",
+        "Neutral",
+        "Like",
+        "Strongly like"
+      ]
+    },
+    {
+      "id": "birthday",
+      "text": "What is your date of birth?",
+      "type": "date",
+      "required": false
+    },
+    {
+      "id": "consent",
+      "text": "Do you consent to anonymous usage data collection?",
+      "type": "yes_no",
+      "required": true
+    },
+    {
+      "id": "code_review",
+      "text": "Review the following function. What is its primary bug?",
+      "type": "short_text",
+      "required": true,
+      "correct_answer": "off-by-one",
+      "points": 15,
+      "grading_type": "contains",
+      "code": {
+        "language": "python",
+        "content": "def sum_list(items):\n    total = 0\n    for i in range(len(items) - 1):\n        total += items[i]\n    return total"
+      }
+    },
+    {
+      "id": "reference",
+      "text": "For more context, see the project README.",
+      "type": "short_text",
+      "required": false,
+      "url": "https://github.com/gkapfhammer/formtuitous"
+    }
+  ]
+}

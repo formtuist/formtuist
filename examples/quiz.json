@@ -1,0 +1,67 @@
+{
+  "name": "CS 101 — Week 3 Quiz",
+  "description": "A short quiz covering Python fundamentals.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": true,
+    "allow_multiple_submissions": false,
+    "show_progress_bar": true
+  },
+  "questions": [
+    {
+      "id": "q1_list_comprehension",
+      "text": "What is the output of the following Python code?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "[0, 1, 4, 9, 16]",
+        "[0, 1, 2, 3, 4]",
+        "[1, 2, 3, 4, 5]",
+        "Error"
+      ],
+      "correct_answer": "[0, 1, 4, 9, 16]",
+      "points": 10,
+      "grading_type": "exact",
+      "code": {
+        "language": "python",
+        "content": "print([x ** 2 for x in range(5)])"
+      }
+    },
+    {
+      "id": "q2_mutability",
+      "text": "Explain why lists are mutable but tuples are immutable in Python.",
+      "type": "paragraph",
+      "required": true,
+      "correct_answer": "immutable",
+      "points": 15,
+      "grading_type": "contains"
+    },
+    {
+      "id": "q3_time_complexity",
+      "text": "What is the time complexity of looking up an item in a Python dictionary?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "O(1) average case",
+        "O(n)",
+        "O(log n)",
+        "O(n log n)"
+      ],
+      "correct_answer": "O(1) average case",
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q4_recursion_depth",
+      "text": "What is the maximum default recursion depth in CPython?",
+      "type": "numeric",
+      "required": true,
+      "correct_answer": {
+        "min": 990,
+        "max": 1010
+      },
+      "points": 10,
+      "grading_type": "exact"
+    }
+  ]
+}

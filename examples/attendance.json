@@ -1,0 +1,39 @@
+{
+  "name": "CS 101 — Daily Attendance",
+  "description": "Quick check-in for today's class session.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": false,
+    "allow_multiple_submissions": false,
+    "show_progress_bar": false
+  },
+  "questions": [
+    {
+      "id": "name",
+      "text": "What is your full name?",
+      "type": "short_text",
+      "required": true
+    },
+    {
+      "id": "present",
+      "text": "Are you present in class today?",
+      "type": "yes_no",
+      "required": true
+    },
+    {
+      "id": "mood",
+      "text": "How are you feeling today?",
+      "type": "rating",
+      "required": false,
+      "min": 1,
+      "max": 5,
+      "labels": [
+        "Awful",
+        "Bad",
+        "Okay",
+        "Good",
+        "Great"
+      ]
+    }
+  ]
+}

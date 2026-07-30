@@ -1,0 +1,18 @@
+{
+  "name": "Minimal Smoke Test",
+  "description": "A single-question form for rapid TUI and DB pipeline debugging.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": false,
+    "allow_multiple_submissions": true,
+    "show_progress_bar": false
+  },
+  "questions": [
+    {
+      "id": "smoke",
+      "text": "Type anything to confirm the pipeline works.",
+      "type": "short_text",
+      "required": true
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "name": "Anonymous Course Climate Poll",
+  "description": "Share honest feedback without identifying yourself.",
+  "config": {
+    "randomize_questions": true,
+    "auto_grade": false,
+    "allow_multiple_submissions": false,
+    "show_progress_bar": true,
+    "anonymous": true
+  },
+  "questions": [
+    {
+      "id": "comfort",
+      "text": "How comfortable do you feel asking questions in class?",
+      "type": "rating",
+      "required": true,
+      "min": 1,
+      "max": 5,
+      "labels": [
+        "Very uncomfortable",
+        "Uncomfortable",
+        "Neutral",
+        "Comfortable",
+        "Very comfortable"
+      ]
+    },
+    {
+      "id": "concerns",
+      "text": "What concerns do you have about the course?",
+      "type": "paragraph",
+      "required": false
+    },
+    {
+      "id": "support",
+      "text": "Which support resources have you used?",
+      "type": "checkbox",
+      "required": false,
+      "choices": [
+        "Office hours",
+        "Piazza / Discord",
+        "Peer tutoring",
+        "Study groups",
+        "None"
+      ]
+    },
+    {
+      "id": "recommend",
+      "text": "Would you recommend this course to a friend?",
+      "type": "yes_no",
+      "required": true
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "name": "CS 101 — Mid-Semester Feedback",
+  "description": "Help us improve the course by sharing your feedback.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": false,
+    "allow_multiple_submissions": true,
+    "show_progress_bar": true
+  },
+  "questions": [
+    {
+      "id": "satisfaction",
+      "text": "How satisfied are you with the course so far?",
+      "type": "rating",
+      "required": true,
+      "min": 1,
+      "max": 7,
+      "labels": [
+        "Very dissatisfied",
+        "Dissatisfied",
+        "Somewhat dissatisfied",
+        "Neutral",
+        "Somewhat satisfied",
+        "Satisfied",
+        "Very satisfied"
+      ]
+    },
+    {
+      "id": "strengths",
+      "text": "Which aspects of the course are working well for you?",
+      "type": "checkbox",
+      "required": false,
+      "choices": [
+        "Lecture clarity",
+        "Lab assignments",
+        "Textbook readings",
+        "Office hours",
+        "Online resources",
+        "Peer collaboration"
+      ]
+    },
+    {
+      "id": "improvements",
+      "text": "What could be improved? Please be specific.",
+      "type": "paragraph",
+      "required": false
+    },
+    {
+      "id": "pace",
+      "text": "How would you describe the pace of the course?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "Too slow",
+        "Slightly slow",
+        "Just right",
+        "Slightly fast",
+        "Too fast"
+      ]
+    },
+    {
+      "id": "feedback_date",
+      "text": "What date are you submitting this feedback?",
+      "type": "date",
+      "required": true
+    }
+  ]
+}
