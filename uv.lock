@@ -188,6 +188,15 @@ wheels = [
 ]
 
 [[package]]
+name = "annotated-doc"
+version = "0.0.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/8e/38aa427ed5402449e226975b649c5dc73ccadfefeb95e6aecb8f8ea4b6b6/annotated_doc-0.0.5.tar.gz", hash = "sha256:c7e58ce09192557605d8bbd92836d7e1d520ac9580096042c0bfd197efacf1bb", size = 10758, upload-time = "2026-07-28T13:50:58.129Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3e/30/e900b21425a860e195f32e37657aa1f7c7f2b1bfb26f03ca209b90933c06/annotated_doc-0.0.5-py3-none-any.whl", hash = "sha256:117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101", size = 5302, upload-time = "2026-07-28T13:50:57.239Z" },
+]
+
+[[package]]
 name = "annotated-types"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -485,6 +494,7 @@ dependencies = [
     { name = "rich" },
     { name = "textual" },
     { name = "textual-serve" },
+    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -514,6 +524,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0.0" },
     { name = "textual", specifier = ">=1.0.0" },
     { name = "textual-serve", specifier = ">=1.1.0" },
+    { name = "typer", specifier = ">=0.27.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1853,6 +1864,15 @@ wheels = [
 ]
 
 [[package]]
+name = "shellingham"
+version = "1.5.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b27b655beb4b4e9c62313a4e8da8c676e142cc210d58e/shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de", size = 10310, upload-time = "2023-10-24T04:13:40.426Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", size = 9755, upload-time = "2023-10-24T04:13:38.866Z" },
+]
+
+[[package]]
 name = "snowballstemmer"
 version = "3.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2004,6 +2024,21 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/81/14/eaaa410a25bbdea19722109b5422380a0e211b3afcf3071d15953ddbd5db/ty-0.0.65-py3-none-win32.whl", hash = "sha256:cf529d538f1403b14b0511e6ec3cdb95d3d974adabf24cc76cedc533368c3edc", size = 11692341, upload-time = "2026-07-29T18:30:54.35Z" },
     { url = "https://files.pythonhosted.org/packages/bc/0f/6d48f206dce9d7e53fe3b5ea0f0ab5800dd9d2365b2b48f736783436c43f/ty-0.0.65-py3-none-win_amd64.whl", hash = "sha256:234a321e33c7cbbfbd67bfa0b01b685dd9c21f1841781a21e5ca1fa0b25f1d5d", size = 12729355, upload-time = "2026-07-29T18:30:57.275Z" },
     { url = "https://files.pythonhosted.org/packages/96/aa/7446f7725e303cf78e058c893af1f0552b9451895454908706f4c6c3494b/ty-0.0.65-py3-none-win_arm64.whl", hash = "sha256:b9424be1ec56d93ff18609fb1c0a0a2283fe1282cd6d1c7604f97d73b94d61f2", size = 12051375, upload-time = "2026-07-29T18:31:00.579Z" },
+]
+
+[[package]]
+name = "typer"
+version = "0.27.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "annotated-doc" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "rich" },
+    { name = "shellingham" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/37/78/fda3361b56efc27944f24225f6ecd13d96d6fcfe37bd0eb34e2f4c63f9fc/typer-0.27.0.tar.gz", hash = "sha256:629bd12ea5d13a17148125d9a264f949eb171fb3f120f9b04d85873cab054fa5", size = 203430, upload-time = "2026-07-15T19:21:07.007Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/40/03/26a383c9e58c213199d1aad1c3d353cfc22d4444ec6d2c0bf8ad02523843/typer-0.27.0-py3-none-any.whl", hash = "sha256:6f4b27631e47f077871b7dc30e933ec0131c1390fbe0e387ea5574b5bac9ccf1", size = 122716, upload-time = "2026-07-15T19:21:05.553Z" },
 ]
 
 [[package]]
