@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner, Result
 
 from formtuitous.cli import app
@@ -173,6 +174,47 @@ class TestStubCommands:
         db = _write_form(tmp_path / "resp.db", {"dummy": True})
         result = runner.invoke(app, ["grade", str(form), str(db)])
         assert result.exit_code == 0
+
+
+class TestExampleFormsCLI:
+    """Integration tests: formtuitous check against all example files."""
+
+    EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
+
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "all_types.json",
+            "anonymous_poll.json",
+            "attendance.json",
+            "minimal.json",
+            "quiz.json",
+            "survey.json",
+        ],
+    )
+    def test_valid_example_exits_zero(self, filename: str) -> None:
+        """Check exits 0 for each valid example form."""
+        path = self.EXAMPLES_DIR / filename
+        result = runner.invoke(app, ["check", str(path)])
+        assert result.exit_code == 0
+        assert "Status: valid" in _plain(result)
+
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "invalid_checkbox_no_choices.json",
+            "invalid_duplicate_ids.json",
+            "invalid_multiple_choice_one_choice.json",
+            "invalid_rating_max_less_than_min.json",
+            "invalid_unknown_question_type.json",
+        ],
+    )
+    def test_invalid_example_exits_nonzero(self, filename: str) -> None:
+        """Check exits 1 for each invalid example form."""
+        path = self.EXAMPLES_DIR / filename
+        result = runner.invoke(app, ["check", str(path)])
+        assert result.exit_code == 1
+        assert "Form definition contains errors" in _plain_stderr(result)
 
 
 class TestMainFunction:
