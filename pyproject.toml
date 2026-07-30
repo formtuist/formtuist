@@ -1,7 +1,7 @@
 [project]
 name = "formtuitous"
 version = "0.1.0"
-description = "Formtuitous: Help Programmers to Define and Complete Forms for Fortuitous Discoveries."
+description = "Formtuitous: Forms in the terminal, where programmers work."
 authors = [
     { name = "Gregory M. Kapfhammer", email = "gkapfham@allegheny.edu" }
 ]
