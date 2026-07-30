@@ -5,9 +5,11 @@ from pathlib import Path
 import typer
 from pydantic import ValidationError
 from rich.console import Console
+from rich.rule import Rule
 
 from formtuitous.parser import parse_form
 
+# rich console for all user-facing output
 console = Console()
 
 app = typer.Typer(
@@ -27,11 +29,12 @@ def check(
     ),
 ) -> None:
     """Validate a form JSON file and print a summary."""
+    # attempt to parse and validate the form; exit on failure
     try:
         form = parse_form(form_path)
     except ValidationError:
         raise typer.Exit(code=1)
-
+    # count questions by required status and grading presence
     total = len(form.questions)
     required_count = sum(1 for q in form.questions if q.required)
     optional_count = total - required_count
@@ -41,24 +44,25 @@ def check(
         if getattr(q, "correct_answer", None) is not None
     )
     auto_grade = form.config.auto_grade
-
-    console.print(f"Form: {form.name}")
+    # print a labelled summary with rich markup
+    console.print(Rule(style="dim"))
+    console.print(f"[bold]Form:[/bold] {form.name}")
     if form.description:
-        console.print(f"Description: {form.description}")
+        console.print(f"[bold]Description:[/bold] {form.description}")
     console.print(
-        f"Questions: {total} ({required_count} required, "
-        f"{optional_count} optional)"
+        f"[bold]Questions:[/bold] {total} "
+        f"({required_count} required, {optional_count} optional)"
     )
     if graded_count > 0:
+        grade_status = "on" if auto_grade else "off"
         console.print(
-            f"Graded: {graded_count} question(s) "
-            f"(auto-grade is "
-            f"{'on' if auto_grade else 'off'})"
+            f"[bold]Graded:[/bold] {graded_count} question(s) "
+            f"(auto-grade is {grade_status})"
         )
     else:
-        console.print("Graded: none")
-    console.print("Status: valid")
-
+        console.print("[bold]Graded:[/bold] none")
+    console.print("[bold]Status:[/bold] [green]valid[/green]")
+    console.print(Rule(style="dim"))
     raise typer.Exit(code=0)
 
 
