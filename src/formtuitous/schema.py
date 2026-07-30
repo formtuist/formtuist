@@ -63,6 +63,7 @@ class MultipleChoiceQuestion(_QuestionBase):
     points: int = 0
     grading_type: Literal["exact"] | None = "exact"
 
+    # ensure at least two choices exist for a meaningful selection
     @field_validator("choices")
     @classmethod
     def _choices_min_two(cls, v: list[str]) -> list[str]:
@@ -81,6 +82,7 @@ class CheckboxQuestion(_QuestionBase):
     points: int = 0
     grading_type: Literal["exact"] | None = "exact"
 
+    # ensure at least one checkbox option is defined
     @field_validator("choices")
     @classmethod
     def _choices_min_one(cls, v: list[str]) -> list[str]:
@@ -114,6 +116,7 @@ class RatingQuestion(_QuestionBase):
     max: int
     labels: list[str]
 
+    # cross-field check: max must be strictly greater than min
     @model_validator(mode="after")
     def _min_less_than_max(self) -> "RatingQuestion":
         """Validate rating min is strictly less than max."""
@@ -134,6 +137,7 @@ class YesNoQuestion(_QuestionBase):
     type: Literal["yes_no"]
 
 
+# discriminated union: selects the correct model class based on the type field
 Question = Annotated[
     ShortTextQuestion
     | ParagraphQuestion
@@ -155,6 +159,7 @@ class FormDefinition(BaseModel):
     config: FormConfig = Field(default_factory=FormConfig)
     questions: list[Question]
 
+    # prevent two questions from sharing the same identifier
     @field_validator("questions")
     @classmethod
     def _ids_unique(cls, v: list[Question]) -> list[Question]:
