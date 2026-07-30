@@ -76,3 +76,11 @@ Here are some details about the JSON format for specifying a form:
   - A source code segment to be displayed with syntax highlighting
   - An image to be displayed with the question
   - A reference to a URL for the question
+
+The tool could have the following sub-commands:
+
+- `check`: Check the JSON file for errors and display any errors found.
+- `display`: Display the form in a TUI and allow the user to fill it out.
+- `serve`: Serve the form as a web application and allow the user to fill it out
+- `export`: Export the responses in a JSON file to CSV or sqlite database format.
+- `view`: Use datasette to serve the responses as a web application and allow the user to view them in a web browser.
