@@ -4,12 +4,15 @@ from pathlib import Path
 
 import typer
 from pydantic import ValidationError
+from rich.console import Console
 
 from formtuitous.parser import parse_form
 
+console = Console()
+
 app = typer.Typer(
     name="formtuitous",
-    help="Formtuitous: Creating forms with JSON and a TUI is an unexpected success!",
+    help=("Creating forms with JSON and a TUI is an unexpected success!"),
 )
 
 
@@ -39,26 +42,23 @@ def check(
     )
     auto_grade = form.config.auto_grade
 
-    summary_lines = [
-        f"Form: {form.name}",
-    ]
+    console.print(f"Form: {form.name}")
     if form.description:
-        summary_lines.append(f"Description: {form.description}")
-    summary_lines.append(
+        console.print(f"Description: {form.description}")
+    console.print(
         f"Questions: {total} ({required_count} required, "
         f"{optional_count} optional)"
     )
     if graded_count > 0:
-        summary_lines.append(
+        console.print(
             f"Graded: {graded_count} question(s) "
             f"(auto-grade is "
             f"{'on' if auto_grade else 'off'})"
         )
     else:
-        summary_lines.append("Graded: none")
-    summary_lines.append("Status: valid")
+        console.print("Graded: none")
+    console.print("Status: valid")
 
-    typer.echo("\n".join(summary_lines))
     raise typer.Exit(code=0)
 
 
