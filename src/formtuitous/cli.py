@@ -12,9 +12,30 @@ from formtuitous.parser import parse_form
 # rich console for all user-facing output
 console = Console()
 
+# constants for rule styling and output labels
+RULE_STYLE = "dim"
+LABEL_FORM = "[bold]Form:[/bold]"
+LABEL_DESCRIPTION = "[bold]Description:[/bold]"
+LABEL_QUESTIONS = "[bold]Questions:[/bold]"
+LABEL_GRADED = "[bold]Graded:[/bold]"
+LABEL_GRADED_NONE = "[bold]Graded:[/bold] none"
+LABEL_STATUS = "[bold]Status:[/bold] [green]valid[/green]"
+GRADE_STATUS_ON = "on"
+GRADE_STATUS_OFF = "off"
+GRADED_SUFFIX = " question(s)"
+AUTO_GRADE_PREFIX = " (auto-grade is "
+AUTO_GRADE_SUFFIX = ")"
+QUESTIONS_SEPARATOR = " required, "
+QUESTIONS_SUFFIX = " optional)"
+
+# constants for shared typer argument help strings
+FORM_PATH_HELP = "Path to a JSON form definition file."
+RESPONSES_PATH_HELP = "Path to a responses SQLite database."
+APP_HELP = "Creating forms with JSON and a TUI is an unexpected success!"
+
 app = typer.Typer(
     name="formtuitous",
-    help=("Creating forms with JSON and a TUI is an unexpected success!"),
+    help=APP_HELP,
 )
 
 
@@ -22,7 +43,7 @@ app = typer.Typer(
 def check(
     form_path: Path = typer.Argument(
         ...,
-        help="Path to a JSON form definition file.",
+        help=FORM_PATH_HELP,
         exists=True,
         dir_okay=False,
         readable=True,
@@ -45,24 +66,25 @@ def check(
     )
     auto_grade = form.config.auto_grade
     # print a labelled summary with rich markup
-    console.print(Rule(style="dim"))
-    console.print(f"[bold]Form:[/bold] {form.name}")
+    console.print(Rule(style=RULE_STYLE))
+    console.print(f"{LABEL_FORM} {form.name}")
     if form.description:
-        console.print(f"[bold]Description:[/bold] {form.description}")
+        console.print(f"{LABEL_DESCRIPTION} {form.description}")
     console.print(
-        f"[bold]Questions:[/bold] {total} "
-        f"({required_count} required, {optional_count} optional)"
+        f"{LABEL_QUESTIONS} {total}"
+        f" ({required_count}{QUESTIONS_SEPARATOR}"
+        f"{optional_count}{QUESTIONS_SUFFIX}"
     )
     if graded_count > 0:
-        grade_status = "on" if auto_grade else "off"
+        grade_status = GRADE_STATUS_ON if auto_grade else GRADE_STATUS_OFF
         console.print(
-            f"[bold]Graded:[/bold] {graded_count} question(s) "
-            f"(auto-grade is {grade_status})"
+            f"{LABEL_GRADED} {graded_count}{GRADED_SUFFIX}"
+            f"{AUTO_GRADE_PREFIX}{grade_status}{AUTO_GRADE_SUFFIX}"
         )
     else:
-        console.print("[bold]Graded:[/bold] none")
-    console.print("[bold]Status:[/bold] [green]valid[/green]")
-    console.print(Rule(style="dim"))
+        console.print(LABEL_GRADED_NONE)
+    console.print(LABEL_STATUS)
+    console.print(Rule(style=RULE_STYLE))
     raise typer.Exit(code=0)
 
 
@@ -70,7 +92,7 @@ def check(
 def display(
     form_path: Path = typer.Argument(
         ...,
-        help="Path to a JSON form definition file.",
+        help=FORM_PATH_HELP,
         exists=True,
         dir_okay=False,
         readable=True,
@@ -84,7 +106,7 @@ def display(
 def serve(
     form_path: Path = typer.Argument(
         ...,
-        help="Path to a JSON form definition file.",
+        help=FORM_PATH_HELP,
         exists=True,
         dir_okay=False,
         readable=True,
@@ -98,7 +120,7 @@ def serve(
 def export(
     responses_path: Path = typer.Argument(
         ...,
-        help="Path to a responses SQLite database.",
+        help=RESPONSES_PATH_HELP,
         exists=True,
         dir_okay=False,
         readable=True,
@@ -112,7 +134,7 @@ def export(
 def view(
     responses_path: Path = typer.Argument(
         ...,
-        help="Path to a responses SQLite database.",
+        help=RESPONSES_PATH_HELP,
         exists=True,
         dir_okay=False,
         readable=True,
@@ -126,14 +148,14 @@ def view(
 def grade(
     form_path: Path = typer.Argument(
         ...,
-        help="Path to a JSON form definition file.",
+        help=FORM_PATH_HELP,
         exists=True,
         dir_okay=False,
         readable=True,
     ),
     responses_path: Path = typer.Argument(
         ...,
-        help="Path to a responses SQLite database.",
+        help=RESPONSES_PATH_HELP,
         exists=True,
         dir_okay=False,
         readable=True,
