@@ -12,6 +12,13 @@ from formtuitous.schema import FormDefinition
 # rich console directed to stderr so error reports stay separate from regular output
 console = Console(stderr=True)
 INDENT = "  "
+RULE_STYLE = "dim"
+ERROR_HEADER = "[bold]Form definition contains errors:[/bold]"
+ERROR_LINE_PREFIX = "at "
+ERROR_LINE_SUFFIX = " (type="
+ERROR_LINE_CLOSE = ")"
+ERROR_TYPE_DEFAULT = "unknown"
+ENCODING = "utf-8"
 
 
 def _format_error_path(loc: tuple[Any, ...]) -> str:
@@ -32,15 +39,18 @@ def _format_error_path(loc: tuple[Any, ...]) -> str:
 
 def _pretty_print_errors(err: ValidationError) -> None:
     """Print a formatted error report to stderr with JSON path references."""
-    console.print(Rule(style="dim"))
-    console.print("[bold]Form definition contains errors:[/bold]")
+    console.print(Rule(style=RULE_STYLE))
+    console.print(ERROR_HEADER)
     for error in err.errors():
         # each error carries a location tuple, a human-readable message, and a type code
         path = _format_error_path(error["loc"])
         message = error["msg"]
-        error_type = error.get("type", "unknown")
-        console.print(f"{INDENT}at {path}: {message} (type={error_type})")
-    console.print(Rule(style="dim"))
+        error_type = error.get("type", ERROR_TYPE_DEFAULT)
+        console.print(
+            f"{INDENT}{ERROR_LINE_PREFIX}{path}: {message}"
+            f"{ERROR_LINE_SUFFIX}{error_type}{ERROR_LINE_CLOSE}"
+        )
+    console.print(Rule(style=RULE_STYLE))
 
 
 def _resolve_image_paths(definition: FormDefinition, form_dir: Path) -> None:
