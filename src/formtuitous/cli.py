@@ -225,18 +225,20 @@ def serve(
     except ValidationError:
         raise typer.Exit(code=1)
 
-    from textual_serve.server import Server  # noqa: PLC0415
+    from formtuitous.server import FormtuitousServer  # noqa: PLC0415
 
     cmd = f"formtuitous display {form_path}"
     if db_dir is not None:
         cmd += f" --db-dir {db_dir}"
     if database_name is not None:
         cmd += f" --database-name {database_name}"
-    server = Server(
+    templates_dir = Path(__file__).parent / "templates"
+    server = FormtuitousServer(
         cmd,
         host=host,
         port=port,
         title=form.name,
+        templates_path=templates_dir,
     )
     console.print(f"Serving [bold]{form.name}[/bold] at http://{host}:{port}")
     server.serve()
