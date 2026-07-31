@@ -46,9 +46,6 @@ Responses are saved to a SQLite database.
 |---|---|---|
 | `--db-dir` | Directory for the responses database | `~/.local/share/formtuitous/` |
 | `--database-name` | Name of the database file | `responses.db` |
-| `--serve` | Serve the form as a web app instead of using the local TUI | off |
-| `--host` | Host address for the web server | `0.0.0.0` |
-| `--port` | Port for the web server | `8000` |
 
 **Examples:**
 
@@ -59,12 +56,37 @@ uvx formtuitous display examples/quiz.json --db-dir ~/survey-data
 # Separate databases per form (same directory)
 uvx formtuitous display examples/attendance.json --database-name attendance.db
 uvx formtuitous display examples/quiz.json --database-name quiz.db
+```
 
-# Serve as a web app (each visitor gets their own TUI via textual-serve)
-uvx formtuitous display examples/survey.json --serve
+### `serve` — Serve a form as a web app
+
+```bash
+uvx formtuitous serve examples/survey.json
+```
+
+Serves the form as a web application via textual-serve. Each visitor gets
+their own TUI instance in the browser.
+
+**Options:**
+
+| Flag | Description | Default |
+|---|---|---|
+| `--host` | Host address for the web server | `0.0.0.0` |
+| `--port` | Port for the web server | `8000` |
+| `--db-dir` | Directory for the responses database | `~/.local/share/formtuitous/` |
+| `--database-name` | Name of the database file | `responses.db` |
+
+**Examples:**
+
+```bash
+# Serve on the default address and port
+uvx formtuitous serve examples/survey.json
 
 # Serve on a specific address and port (e.g., via NetBird)
-uvx formtuitous display examples/quiz.json --serve --host 100.xx.xx.xx --port 9000
+uvx formtuitous serve examples/quiz.json --host 100.xx.xx.xx --port 9000
+
+# Save responses to a dedicated database
+uvx formtuitous serve examples/attendance.json --database-name attendance.db
 ```
 
 **Keyboard shortcuts inside the TUI:**
@@ -110,14 +132,6 @@ uvx formtuitous export responses.db
 ```bash
 uvx formtuitous grade examples/quiz.json responses.db
 ```
-
-### `serve` — Legacy serve alias
-
-```bash
-uvx formtuitous serve examples/minimal.json
-```
-
-Prefer `uvx formtuitous display --serve` instead.
 
 ## Form JSON format
 
