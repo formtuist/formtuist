@@ -2,13 +2,14 @@
 
 import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 from pygments.styles import ClassNotFound
 from textual._context import NoActiveAppError
 from textual.app import App
 from textual.widgets import (
+    Footer,
     Input,
     RadioSet,
     SelectionList,
@@ -17,10 +18,12 @@ from textual.widgets import (
     TextArea,
 )
 
+from formtuitous.auth import GitHubIdentity
 from formtuitous.schema import (
     CheckboxQuestion,
     CodeBlock,
     DateQuestion,
+    FormConfig,
     FormDefinition,
     MultipleChoiceQuestion,
     NumericQuestion,
@@ -135,26 +138,30 @@ class TestFormScreen:
     ) -> None:
         """Pressing submit triggers action_submit."""
         screen = FormScreen(minimal_form, Path(":memory:"))
-        with patch.object(FormScreen, "action_submit") as mock_action:
+        with patch.object(
+            FormScreen, "action_submit", new=AsyncMock()
+        ) as mock_action:
             button = MagicMock()
             button.id = "submit"
             event = MagicMock()
             event.button = button
-            screen.on_button_pressed(event)
-        mock_action.assert_called_once()
+            asyncio.run(screen.on_button_pressed(event))
+        mock_action.assert_awaited_once()
 
     def test_on_button_pressed_other(
         self, minimal_form: FormDefinition
     ) -> None:
         """Pressing a non-submit button does nothing."""
         screen = FormScreen(minimal_form, Path(":memory:"))
-        with patch.object(FormScreen, "action_submit") as mock_action:
+        with patch.object(
+            FormScreen, "action_submit", new=AsyncMock()
+        ) as mock_action:
             button = MagicMock()
             button.id = "other"
             event = MagicMock()
             event.button = button
-            screen.on_button_pressed(event)
-        mock_action.assert_not_called()
+            asyncio.run(screen.on_button_pressed(event))
+        mock_action.assert_not_awaited()
 
     def test_action_submit_valid(self, minimal_form: FormDefinition) -> None:
         """action_submit saves valid answers and pushes submit screen."""
@@ -174,10 +181,10 @@ class TestFormScreen:
                         "formtuitous.tui.screens.save_response"
                     ) as mock_save:
                         mock_save.return_value = 1
-                        screen.action_submit()
+                        asyncio.run(screen.action_submit())
         mock_init.assert_called_once()
         mock_save.assert_called_once_with(
-            mock_init.return_value, "Minimal", {"q1": "Alice"}
+            mock_init.return_value, "Minimal", {"q1": "Alice"}, None, None
         )
         mock_app.push_screen.assert_called_once()
         mock_notify.assert_not_called()
@@ -198,7 +205,7 @@ class TestFormScreen:
             mock_prop.return_value = mock_app
             with patch.object(FormScreen, "notify") as mock_notify:
                 with patch("formtuitous.tui.screens.init_db") as mock_init:
-                    screen.action_submit()
+                    asyncio.run(screen.action_submit())
         mock_init.assert_not_called()
         mock_notify.assert_called_once()
         mock_app.push_screen.assert_not_called()
@@ -231,13 +238,120 @@ class TestFormScreen:
                         "formtuitous.tui.screens.save_response"
                     ) as mock_save:
                         mock_save.return_value = 1
-                        screen.action_submit()
+                        asyncio.run(screen.action_submit())
         mock_init.assert_called_once()
         mock_save.assert_called_once_with(
-            mock_init.return_value, "Test", {"q1": ""}
+            mock_init.return_value, "Test", {"q1": ""}, None, None
         )
         mock_app.push_screen.assert_called_once()
         mock_notify.assert_not_called()
+
+    def test_action_submit_with_github_auth(self) -> None:
+        """action_submit validates the token and stores the identity."""
+        form = FormDefinition(
+            name="Auth",
+            config=FormConfig(auth="github"),
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        mock_auth_input = MagicMock(spec=Input)
+        mock_auth_input.value = "ghp_valid_token"
+        screen.auth_input = mock_auth_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuitous.tui.screens.init_db") as mock_init:
+                    with patch(
+                        "formtuitous.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        with patch(
+                            "formtuitous.tui.screens.fetch_github_identity",
+                            return_value=GitHubIdentity(
+                                username="octocat",
+                                profile_url="https://github.com/octocat",
+                            ),
+                        ):
+                            asyncio.run(screen.action_submit())
+        mock_init.assert_called_once()
+        mock_save.assert_called_once_with(
+            mock_init.return_value,
+            "Auth",
+            {"q1": "answer"},
+            "octocat",
+            "https://github.com/octocat",
+        )
+        mock_app.push_screen.assert_called_once()
+        mock_notify.assert_not_called()
+
+    def test_action_submit_blocks_empty_token(self) -> None:
+        """action_submit blocks submission when the token is empty."""
+        form = FormDefinition(
+            name="Auth",
+            config=FormConfig(auth="github"),
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        screen.inputs["q1"] = mock_input
+        mock_auth_input = MagicMock(spec=Input)
+        mock_auth_input.value = ""
+        screen.auth_input = mock_auth_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuitous.tui.screens.init_db") as mock_init:
+                    asyncio.run(screen.action_submit())
+        mock_init.assert_not_called()
+        mock_notify.assert_called_once()
+        mock_app.push_screen.assert_not_called()
+
+    def test_action_submit_blocks_invalid_token(self) -> None:
+        """action_submit blocks submission when the token is invalid."""
+        form = FormDefinition(
+            name="Auth",
+            config=FormConfig(auth="github"),
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        screen.inputs["q1"] = mock_input
+        mock_auth_input = MagicMock(spec=Input)
+        mock_auth_input.value = "ghp_bad_token"
+        screen.auth_input = mock_auth_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuitous.tui.screens.init_db") as mock_init:
+                    with patch(
+                        "formtuitous.tui.screens.fetch_github_identity",
+                        return_value=None,
+                    ):
+                        asyncio.run(screen.action_submit())
+        mock_init.assert_not_called()
+        mock_notify.assert_called_once()
+        mock_app.push_screen.assert_not_called()
 
     def test_action_focus_first_input(
         self, minimal_form: FormDefinition
@@ -971,3 +1085,41 @@ class TestFormtuitousApp:
         tui_app.push_screen = MagicMock()
         tui_app.on_mount()
         tui_app.push_screen.assert_called_once()
+
+    def test_footer_orders_navigation_keys_together(self) -> None:
+        """The custom footer shows ctrl+j and ctrl+k adjacent."""
+
+        async def run() -> None:
+            app = FormtuitousApp(
+                Path("examples/minimal.json"), Path(":memory:")
+            )
+            async with app.run_test():
+                footer = app.screen.query_one(Footer)
+                actions = [
+                    str(getattr(child, "action", ""))
+                    for child in footer.children
+                ]
+                assert "focus_next" in actions
+                assert "focus_previous" in actions
+                next_idx = actions.index("focus_next")
+                prev_idx = actions.index("focus_previous")
+                assert abs(next_idx - prev_idx) == 1
+
+        asyncio.run(run())
+
+    def test_footer_keeps_command_palette_last(self) -> None:
+        """The command palette binding stays at the end of the footer."""
+
+        async def run() -> None:
+            app = FormtuitousApp(
+                Path("examples/minimal.json"), Path(":memory:")
+            )
+            async with app.run_test():
+                footer = app.screen.query_one(Footer)
+                actions = [
+                    str(getattr(child, "action", ""))
+                    for child in footer.children
+                ]
+                assert actions[-1] == "command_palette"
+
+        asyncio.run(run())

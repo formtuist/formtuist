@@ -76,11 +76,27 @@ class TestFormConfig:
         assert config.allow_multiple_submissions is True
         assert config.show_progress_bar is True
         assert config.anonymous is False
+        assert config.auth is None
 
     def test_anonymous_config(self) -> None:
         """Anonymous flag can be set to true."""
         config = FormConfig(anonymous=True)
         assert config.anonymous is True
+
+    def test_auth_default_disabled(self) -> None:
+        """Auth is disabled (None) by default."""
+        config = FormConfig()
+        assert config.auth is None
+
+    def test_auth_github_enabled(self) -> None:
+        """Auth can be set to github."""
+        config = FormConfig(auth="github")
+        assert config.auth == "github"
+
+    def test_auth_rejects_unknown_provider(self) -> None:
+        """Auth rejects providers other than github."""
+        with pytest.raises(ValidationError):
+            FormConfig.model_validate({"auth": "gitlab"})
 
 
 class TestQuestionModels:
@@ -305,7 +321,9 @@ class TestExampleForms:
             "all_types.json",
             "anonymous_poll.json",
             "attendance.json",
+            "authenticated.json",
             "minimal.json",
+            "minimal_auth.json",
             "quiz.json",
             "survey.json",
         ],

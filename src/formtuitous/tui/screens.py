@@ -1,5 +1,6 @@
 """Screen definitions for the formtuitous TUI workflow."""
 
+import asyncio
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -9,12 +10,14 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widget import Widget
-from textual.widgets import Button, Footer, Header, Label, Static
+from textual.widgets import Button, Header, Input, Label, Static
 
+from formtuitous.auth import fetch_github_identity
 from formtuitous.database import init_db, save_response
 from formtuitous.schema import FormDefinition
 from formtuitous.tui.widgets import (
     CODE_THEME_AUTO,
+    FormtuitousFooter,
     get_widget_value,
     is_widget_empty,
     is_widget_valid,
@@ -44,7 +47,7 @@ class WelcomeScreen(Screen):
             yield Static(self.form.description, id="form-desc")
         yield Static(f"Questions: {len(self.form.questions)}", id="form-count")
         yield Button("Start", id="start", variant="primary")
-        yield Footer()
+        yield FormtuitousFooter()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Transition to the form screen on start."""
@@ -79,6 +82,7 @@ class FormScreen(Screen):
         self.code_widgets: dict[str, Static] = {}
         self.sidebar_items: list[Static] = []
         self.current_index = 0
+        self.auth_input: Input | None = None
         super().__init__()
 
     def compose(self) -> ComposeResult:
@@ -96,6 +100,18 @@ class FormScreen(Screen):
                 yield Static(
                     f"[bold]{self.form.name}[/bold]", id="form-header"
                 )
+                if self.form.config.auth == "github":
+                    yield Label(
+                        "GitHub token (run gh auth token to get one):",
+                        id="auth-label",
+                    )
+                    auth_input = Input(
+                        placeholder="Paste your GitHub token...",
+                        password=True,
+                    )
+                    auth_input.id = "auth-input"
+                    self.auth_input = auth_input
+                    yield auth_input
                 for question in self.form.questions:
                     required = " *" if question.required else ""
                     yield Label(f"{question.text}{required}")
@@ -113,7 +129,7 @@ class FormScreen(Screen):
                     yield input_widget
                 yield Static(id="question-counter")
                 yield Button("Submit", id="submit", variant="primary")
-        yield Footer()
+        yield FormtuitousFooter()
 
     def on_mount(self) -> None:
         """Focus the first input and hide scrollbars after mounting."""
@@ -207,15 +223,39 @@ class FormScreen(Screen):
         for i, item in enumerate(self.sidebar_items):
             item.set_class(i == self.current_index, "current")
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Validate required fields and submit."""
         if event.button.id == "submit":
-            self.action_submit()
+            await self.action_submit()
 
-    def action_submit(self) -> None:
-        """Collect answers, validate, save to DB, show confirmation."""
+    async def action_submit(self) -> None:
+        """Collect answers, validate auth, save to DB, show confirmation."""
         answers: dict[str, Any] = {}
         valid = True
+        github_username: str | None = None
+        github_url: str | None = None
+        if self.form.config.auth == "github":
+            if self.auth_input is None:
+                self.notify(
+                    "Authentication is required but no token field exists.",
+                    severity="error",
+                )
+                return
+            token = self.auth_input.value.strip()
+            if not token:
+                self.notify(
+                    "Please enter your GitHub token.", severity="error"
+                )
+                return
+            identity = await asyncio.to_thread(fetch_github_identity, token)
+            if identity is None:
+                self.notify(
+                    "Invalid GitHub token. Please try again.",
+                    severity="error",
+                )
+                return
+            github_username = identity.username
+            github_url = identity.profile_url
         for question in self.form.questions:
             widget = self.inputs[question.id]
             value = get_widget_value(widget)
@@ -235,12 +275,21 @@ class FormScreen(Screen):
         if not valid:
             return
         conn = init_db(self.db_path)
-        save_response(conn, self.form.name, answers)
+        save_response(
+            conn,
+            self.form.name,
+            answers,
+            github_username,
+            github_url,
+        )
         conn.close()
         self.app.push_screen(SubmitScreen(self.form, self.db_path))
 
     def action_focus_first_input(self) -> None:
-        """Focus the first input widget on the form."""
+        """Focus the auth token field or the first question input."""
+        if self.auth_input is not None:
+            self.set_focus(self.auth_input)
+            return
         for question in self.form.questions:
             input_widget = self.inputs.get(question.id)
             if input_widget is not None:
@@ -299,7 +348,7 @@ class SubmitScreen(Screen):
         )
         yield Button("Restart", id="restart", variant="primary")
         yield Button("Quit", id="quit", variant="default")
-        yield Footer()
+        yield FormtuitousFooter()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle restart or quit."""

@@ -356,3 +356,72 @@ class TestDbDirectory:
         survey_path = resolve_db_path(db_dir, "survey.db")
         assert quiz_path != survey_path
         assert quiz_path.parent == survey_path.parent
+
+
+class TestGitHubIdentityColumns:
+    """Tests for the GitHub identity columns in the responses table."""
+
+    def test_init_creates_identity_columns(self, tmp_path: Path) -> None:
+        """init_db creates the github_username and github_url columns."""
+        conn = init_db(tmp_path / "test.db")
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(responses)").fetchall()
+        }
+        conn.close()
+        assert "github_username" in columns
+        assert "github_url" in columns
+
+    def test_save_response_stores_identity(self, tmp_path: Path) -> None:
+        """save_response stores the GitHub identity on the row."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(
+            conn,
+            "FormA",
+            {"q1": "answer"},
+            github_username="octocat",
+            github_url="https://github.com/octocat",
+        )
+        results = get_responses(conn)
+        conn.close()
+        assert results[0]["github_username"] == "octocat"
+        assert results[0]["github_url"] == "https://github.com/octocat"
+
+    def test_save_response_without_identity(self, tmp_path: Path) -> None:
+        """save_response stores NULL identity when not provided."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(conn, "FormA", {"q1": "answer"})
+        results = get_responses(conn)
+        conn.close()
+        assert results[0]["github_username"] is None
+        assert results[0]["github_url"] is None
+
+    def test_existing_db_gets_identity_columns(self, tmp_path: Path) -> None:
+        """An older database is migrated to add the identity columns."""
+        db_path = tmp_path / "old.db"
+        conn = init_db(db_path)
+        conn.execute("DROP TABLE responses")
+        conn.execute(
+            "CREATE TABLE responses ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "form_name TEXT NOT NULL,"
+            "submitted_at TEXT NOT NULL,"
+            "answers_json TEXT NOT NULL"
+            ")"
+        )
+        conn.execute(
+            "INSERT INTO responses (form_name, submitted_at, answers_json)"
+            " VALUES ('Old', '2024-01-01', '{}')"
+        )
+        conn.commit()
+        conn.close()
+        conn2 = init_db(db_path)
+        columns = {
+            row[1]
+            for row in conn2.execute("PRAGMA table_info(responses)").fetchall()
+        }
+        results = get_responses(conn2)
+        conn2.close()
+        assert "github_username" in columns
+        assert "github_url" in columns
+        assert results[0]["github_username"] is None

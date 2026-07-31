@@ -16,6 +16,8 @@ ID_COLUMN = "id"
 FORM_NAME_COLUMN = "form_name"
 SUBMITTED_AT_COLUMN = "submitted_at"
 ANSWERS_JSON_COLUMN = "answers_json"
+GITHUB_USERNAME_COLUMN = "github_username"
+GITHUB_URL_COLUMN = "github_url"
 RESPONSES_TABLE = "responses"
 
 CREATE_TABLE_SQL = (
@@ -23,9 +25,17 @@ CREATE_TABLE_SQL = (
     f"    {ID_COLUMN} INTEGER PRIMARY KEY AUTOINCREMENT,"
     f"    {FORM_NAME_COLUMN} TEXT NOT NULL,"
     f"    {SUBMITTED_AT_COLUMN} TEXT NOT NULL,"
-    f"    {ANSWERS_JSON_COLUMN} TEXT NOT NULL"
+    f"    {ANSWERS_JSON_COLUMN} TEXT NOT NULL,"
+    f"    {GITHUB_USERNAME_COLUMN} TEXT,"
+    f"    {GITHUB_URL_COLUMN} TEXT"
     f")"
 )
+
+# columns added after the initial table definition (for migrations)
+EXTRA_COLUMNS: dict[str, str] = {
+    GITHUB_USERNAME_COLUMN: "TEXT",
+    GITHUB_URL_COLUMN: "TEXT",
+}
 
 PRAGMA_WAL = f"PRAGMA journal_mode={WAL_JOURNAL_MODE};"
 PRAGMA_BUSY_TIMEOUT = f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS};"
@@ -60,27 +70,54 @@ def resolve_db_path(
     return db_dir / filename
 
 
+def _ensure_extra_columns(conn: sqlite3.Connection) -> None:
+    """Add any missing columns to an existing responses table."""
+    existing = {
+        row[1]
+        for row in conn.execute(
+            f"PRAGMA table_info({RESPONSES_TABLE})"
+        ).fetchall()
+    }
+    for column, definition in EXTRA_COLUMNS.items():
+        if column not in existing:
+            conn.execute(
+                f"ALTER TABLE {RESPONSES_TABLE} "
+                f"ADD COLUMN {column} {definition}"
+            )
+
+
 def init_db(db_path: Path) -> sqlite3.Connection:
     """Open a connection and ensure WAL mode, busy timeout, and table exist."""
     conn = sqlite3.connect(str(db_path))
     conn.execute(PRAGMA_WAL)
     conn.execute(PRAGMA_BUSY_TIMEOUT)
     conn.execute(CREATE_TABLE_SQL)
+    _ensure_extra_columns(conn)
     conn.commit()
     return conn
 
 
 def save_response(
-    conn: sqlite3.Connection, form_name: str, answers: dict[str, Any]
+    conn: sqlite3.Connection,
+    form_name: str,
+    answers: dict[str, Any],
+    github_username: str | None = None,
+    github_url: str | None = None,
 ) -> int:
-    """Insert a response row and return the new row id."""
+    """Insert a response row and return the new row id.
+
+    The *github_username* and *github_url* identity fields are optional
+    and stored as nullable columns. The raw authentication token is
+    never stored.
+    """
     submitted_at = datetime.now(timezone.utc).isoformat()
     answers_json = json.dumps(answers)
     cursor = conn.execute(
         f"INSERT INTO {RESPONSES_TABLE} "
-        f"({FORM_NAME_COLUMN}, {SUBMITTED_AT_COLUMN}, {ANSWERS_JSON_COLUMN}) "
-        f"VALUES (?, ?, ?)",
-        (form_name, submitted_at, answers_json),
+        f"({FORM_NAME_COLUMN}, {SUBMITTED_AT_COLUMN}, {ANSWERS_JSON_COLUMN},"
+        f" {GITHUB_USERNAME_COLUMN}, {GITHUB_URL_COLUMN}) "
+        f"VALUES (?, ?, ?, ?, ?)",
+        (form_name, submitted_at, answers_json, github_username, github_url),
     )
     conn.commit()
     row_id = cursor.lastrowid
@@ -95,13 +132,15 @@ def get_responses(
     if form_name is None:
         rows = conn.execute(
             f"SELECT {ID_COLUMN}, {FORM_NAME_COLUMN}, "
-            f"{SUBMITTED_AT_COLUMN}, {ANSWERS_JSON_COLUMN} "
+            f"{SUBMITTED_AT_COLUMN}, {ANSWERS_JSON_COLUMN}, "
+            f"{GITHUB_USERNAME_COLUMN}, {GITHUB_URL_COLUMN} "
             f"FROM {RESPONSES_TABLE} ORDER BY {ID_COLUMN}"
         ).fetchall()
     else:
         rows = conn.execute(
             f"SELECT {ID_COLUMN}, {FORM_NAME_COLUMN}, "
-            f"{SUBMITTED_AT_COLUMN}, {ANSWERS_JSON_COLUMN} "
+            f"{SUBMITTED_AT_COLUMN}, {ANSWERS_JSON_COLUMN}, "
+            f"{GITHUB_USERNAME_COLUMN}, {GITHUB_URL_COLUMN} "
             f"FROM {RESPONSES_TABLE} "
             f"WHERE {FORM_NAME_COLUMN} = ? ORDER BY {ID_COLUMN}",
             (form_name,),
@@ -112,6 +151,8 @@ def get_responses(
             FORM_NAME_COLUMN: row[1],
             SUBMITTED_AT_COLUMN: row[2],
             ANSWERS_JSON_COLUMN: json.loads(row[3]),
+            GITHUB_USERNAME_COLUMN: row[4],
+            GITHUB_URL_COLUMN: row[5],
         }
         for row in rows
     ]

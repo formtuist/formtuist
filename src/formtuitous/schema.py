@@ -13,6 +13,7 @@ class FormConfig(BaseModel):
     allow_multiple_submissions: bool = True
     show_progress_bar: bool = True
     anonymous: bool = False
+    auth: Literal["github"] | None = None
 
 
 class CodeBlock(BaseModel):
