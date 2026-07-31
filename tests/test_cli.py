@@ -151,7 +151,7 @@ class TestStubCommands:
         form = _write_form(
             tmp_path / "form.json", {"name": "T", "questions": []}
         )
-        with patch("textual_serve.server.Server") as mock_server_cls:
+        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
             mock_instance = mock_server_cls.return_value
             result = runner.invoke(app, ["serve", str(form)])
             assert result.exit_code == 0
@@ -370,7 +370,7 @@ class TestServeCommand:
             tmp_path / "form.json",
             {"name": "ServedForm", "questions": []},
         )
-        with patch("textual_serve.server.Server") as mock_server_cls:
+        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
             mock_instance = mock_server_cls.return_value
             result = runner.invoke(app, ["serve", str(form)])
             assert result.exit_code == 0
@@ -384,7 +384,7 @@ class TestServeCommand:
             {"name": "ServedForm", "questions": []},
         )
         db_dir = tmp_path / "custom_db"
-        with patch("textual_serve.server.Server") as mock_server_cls:
+        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
             result = runner.invoke(
                 app,
                 ["serve", str(form), "--db-dir", str(db_dir)],
@@ -400,7 +400,7 @@ class TestServeCommand:
             tmp_path / "form.json",
             {"name": "ServedForm", "questions": []},
         )
-        with patch("textual_serve.server.Server") as mock_server_cls:
+        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
             result = runner.invoke(
                 app,
                 [
@@ -421,7 +421,7 @@ class TestServeCommand:
             tmp_path / "form.json",
             {"name": "ServedForm", "questions": []},
         )
-        with patch("textual_serve.server.Server") as mock_server_cls:
+        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
             mock_instance = mock_server_cls.return_value
             result = runner.invoke(
                 app,
@@ -489,7 +489,7 @@ class TestSchemaCommand:
     def test_serve_invalid_form_exits(self, tmp_path: Path) -> None:
         """Serve exits 1 for an invalid form."""
         path = _write_form(tmp_path / "bad.json", {"bad": "data"})
-        with patch("textual_serve.server.Server") as mock_server_cls:
+        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
             result = runner.invoke(app, ["serve", str(path)])
             assert result.exit_code == 1
             mock_server_cls.assert_not_called()
