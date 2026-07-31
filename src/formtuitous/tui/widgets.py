@@ -4,7 +4,9 @@
 
 from typing import Any
 
+from pygments.styles import ClassNotFound, get_style_by_name
 from rich.syntax import Syntax
+from textual.app import App
 from textual.validation import Integer, Regex
 from textual.widget import Widget
 from textual.widgets import (
@@ -20,6 +22,57 @@ from formtuitous.schema import Question
 
 # regex pattern for ISO 8601 date (YYYY-MM-DD)
 DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
+
+# sentinel value telling FormScreen to derive the syntax theme from the app
+CODE_THEME_AUTO = "auto"
+
+# Pygments fallback theme for dark Textual themes
+CODE_THEME_FALLBACK_DARK = "ansi_dark"
+
+# Pygments fallback theme for light Textual themes
+CODE_THEME_FALLBACK_LIGHT = "ansi_light"
+
+# map Textual theme names to the closest Pygments syntax-highlighting theme
+TEXTUAL_TO_PYGMENTS_THEME: dict[str, str] = {
+    "ansi-dark": "ansi_dark",
+    "ansi-light": "ansi_light",
+    "atom-one-dark": "github-dark",
+    "atom-one-light": "default",
+    "catppuccin-frappe": "nord",
+    "catppuccin-latte": "default",
+    "catppuccin-macchiato": "nord-darker",
+    "catppuccin-mocha": "nord-darker",
+    "dracula": "dracula",
+    "flexoki": "monokai",
+    "gruvbox": "gruvbox-dark",
+    "monokai": "monokai",
+    "nord": "nord",
+    "rose-pine": "monokai",
+    "rose-pine-dawn": "default",
+    "rose-pine-moon": "monokai",
+    "solarized-dark": "solarized-dark",
+    "solarized-light": "solarized-light",
+    "textual-dark": "ansi_dark",
+    "textual-light": "ansi_light",
+    "tokyo-night": "github-dark",
+}
+
+
+def resolve_code_theme(app: App) -> str:
+    """Return a Pygments theme name matching the current Textual app theme."""
+    textual_theme = app.theme
+    if textual_theme in TEXTUAL_TO_PYGMENTS_THEME:
+        return TEXTUAL_TO_PYGMENTS_THEME[textual_theme]
+    try:
+        get_style_by_name(textual_theme)
+        return textual_theme
+    except ClassNotFound:
+        pass
+    return (
+        CODE_THEME_FALLBACK_DARK
+        if app.current_theme.dark
+        else CODE_THEME_FALLBACK_LIGHT
+    )
 
 
 def make_input_widget(question: Question) -> Widget:
@@ -51,11 +104,12 @@ def make_input_widget(question: Question) -> Widget:
 
 def make_code_widget(
     question: Question,
-    theme: str = "ansi-dark",
+    theme: str = CODE_THEME_AUTO,
 ) -> Static | None:
     """Return a Static widget with syntax-highlighted code, or None.
 
-    The *theme* is a Pygments theme name.  Defaults to ``"ansi-dark"``.
+    The *theme* is a Pygments theme name or CODE_THEME_AUTO to derive it
+    from the app theme later. Defaults to CODE_THEME_AUTO.
     """
     if question.code is None:
         return None

@@ -1,9 +1,13 @@
 """Smoke tests for TUI screens and application construction."""
 
+import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
+from pygments.styles import ClassNotFound
+from textual._context import NoActiveAppError
+from textual.app import App
 from textual.widgets import (
     Input,
     RadioSet,
@@ -33,6 +37,7 @@ from formtuitous.tui.widgets import (
     is_widget_valid,
     make_code_widget,
     make_input_widget,
+    resolve_code_theme,
 )
 
 MIN_WELCOME_CHILDREN = 3
@@ -463,6 +468,159 @@ class TestFormScreen:
         mock_sidebar.styles.scrollbar_size_horizontal = 0
         mock_sidebar.styles.scrollbar_size_vertical = 0
 
+    def test_update_code_widgets(self) -> None:
+        """_update_code_widgets refreshes the Static renderable."""
+        form = FormDefinition(
+            name="F",
+            questions=[
+                ShortTextQuestion(
+                    id="a",
+                    text="A?",
+                    type="short_text",
+                    code=CodeBlock(language="python", content="x = 1"),
+                ),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_static = MagicMock()
+        screen.code_widgets["a"] = mock_static
+        screen._update_code_widgets("monokai")
+        mock_static.update.assert_called_once()
+
+    def test_sync_code_theme_skips_when_fixed(self) -> None:
+        """_sync_code_theme does nothing when a fixed theme is configured."""
+        screen = FormScreen(
+            FormDefinition(name="F", questions=[]),
+            Path(":memory:"),
+            code_theme="monokai",
+        )
+        mock_app = MagicMock()
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            screen._sync_code_theme()
+        mock_app.assert_not_called()
+
+    def test_sync_code_theme_handles_no_app(self) -> None:
+        """_sync_code_theme is safe when there is no active app."""
+        screen = FormScreen(
+            FormDefinition(name="F", questions=[]),
+            Path(":memory:"),
+        )
+        with patch.object(
+            FormScreen,
+            "app",
+            new_callable=PropertyMock,
+            side_effect=NoActiveAppError,
+        ):
+            screen._sync_code_theme()
+
+    def test_on_app_theme_change_syncs(self) -> None:
+        """_on_app_theme_change delegates to _sync_code_theme."""
+        screen = FormScreen(
+            FormDefinition(name="F", questions=[]),
+            Path(":memory:"),
+        )
+        with patch.object(FormScreen, "_sync_code_theme") as mock_sync:
+            screen._on_app_theme_change("old", "new")
+        mock_sync.assert_called_once()
+
+    def test_on_mount_watches_theme_when_app_present(self) -> None:
+        """on_mount watches app.theme when auto theme is enabled."""
+        screen = FormScreen(
+            FormDefinition(name="F", questions=[]),
+            Path(":memory:"),
+        )
+        mock_app = MagicMock()
+        with patch.object(
+            FormScreen, "action_focus_first_input"
+        ) as mock_focus:
+            with patch.object(FormScreen, "_hide_scrollbars") as mock_hide:
+                with patch.object(
+                    FormScreen, "app", new_callable=PropertyMock
+                ) as mock_prop:
+                    mock_prop.return_value = mock_app
+                    with patch.object(
+                        FormScreen, "_sync_code_theme"
+                    ) as mock_sync:
+                        with patch.object(FormScreen, "watch") as mock_watch:
+                            screen.on_mount()
+        mock_focus.assert_called_once()
+        mock_hide.assert_called_once()
+        mock_sync.assert_called_once()
+        mock_watch.assert_called_once_with(
+            mock_app, "theme", screen._on_app_theme_change
+        )
+
+    def test_compose_populates_code_widgets(self) -> None:
+        """Compose stores code widgets when run inside a Textual app."""
+        form = FormDefinition(
+            name="F",
+            questions=[
+                ShortTextQuestion(
+                    id="a",
+                    text="A?",
+                    type="short_text",
+                    code=CodeBlock(language="python", content="x = 1"),
+                ),
+            ],
+        )
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = FormScreen(form, Path(":memory:"))
+                await app.push_screen(screen)
+                assert "a" in screen.code_widgets
+
+        asyncio.run(run())
+
+    def test_on_mount_syncs_code_theme(self) -> None:
+        """on_mount resolves the code theme from the app theme."""
+        form = FormDefinition(
+            name="F",
+            questions=[
+                ShortTextQuestion(
+                    id="a",
+                    text="A?",
+                    type="short_text",
+                    code=CodeBlock(language="python", content="x = 1"),
+                ),
+            ],
+        )
+
+        async def run() -> None:
+            app: App = App()
+            app.theme = "dracula"
+            async with app.run_test():
+                screen = FormScreen(form, Path(":memory:"))
+                await app.push_screen(screen)
+                assert screen.code_theme == "auto"
+                assert "a" in screen.code_widgets
+
+        asyncio.run(run())
+
+    def test_update_code_widgets_skips_missing_widgets(self) -> None:
+        """_update_code_widgets ignores questions without a stored widget."""
+        form = FormDefinition(
+            name="F",
+            questions=[
+                ShortTextQuestion(
+                    id="a",
+                    text="A?",
+                    type="short_text",
+                    code=CodeBlock(language="python", content="x = 1"),
+                ),
+                ShortTextQuestion(id="b", text="B?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_static = MagicMock()
+        screen.code_widgets["a"] = mock_static
+        screen._update_code_widgets("monokai")
+        mock_static.update.assert_called_once()
+
 
 class TestWidgetFactory:
     """Tests for the widget factory functions."""
@@ -647,6 +805,56 @@ class TestWidgetFactory:
         """is_widget_valid returns True for non-Input widgets."""
         mock = MagicMock(spec=Switch)
         assert is_widget_valid(mock) is True
+
+
+class TestResolveCodeTheme:
+    """Tests for resolving Textual app themes to Pygments syntax themes."""
+
+    def test_resolve_mapped_dark_theme(self) -> None:
+        """resolve_code_theme returns the mapped Pygments theme."""
+        app = MagicMock()
+        app.theme = "dracula"
+        app.current_theme.dark = True
+        assert resolve_code_theme(app) == "dracula"
+
+    def test_resolve_mapped_light_theme(self) -> None:
+        """resolve_code_theme returns the mapped light Pygments theme."""
+        app = MagicMock()
+        app.theme = "solarized-light"
+        app.current_theme.dark = False
+        assert resolve_code_theme(app) == "solarized-light"
+
+    def test_resolve_unknown_direct_pygments_match(self) -> None:
+        """resolve_code_theme uses the Textual name if it is a Pygments style."""
+        app = MagicMock()
+        app.theme = "github-dark"
+        app.current_theme.dark = True
+        assert resolve_code_theme(app) == "github-dark"
+
+    def test_resolve_unknown_dark_fallback(self) -> None:
+        """resolve_code_theme falls back to the dark theme."""
+        app = MagicMock()
+        app.theme = "no-such-theme"
+        app.current_theme.dark = True
+        assert resolve_code_theme(app) == "ansi_dark"
+
+    def test_resolve_unknown_light_fallback(self) -> None:
+        """resolve_code_theme falls back to the light theme."""
+        app = MagicMock()
+        app.theme = "no-such-theme"
+        app.current_theme.dark = False
+        assert resolve_code_theme(app) == "ansi_light"
+
+    def test_resolve_class_not_found_fallback(self) -> None:
+        """resolve_code_theme falls back when Pygments raises ClassNotFound."""
+        app = MagicMock()
+        app.theme = "custom-theme"
+        app.current_theme.dark = True
+        with patch(
+            "formtuitous.tui.widgets.get_style_by_name",
+            side_effect=ClassNotFound("custom-theme"),
+        ):
+            assert resolve_code_theme(app) == "ansi_dark"
 
 
 class TestSubmitScreen:

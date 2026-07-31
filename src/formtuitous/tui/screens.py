@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any, ClassVar
 
+from textual._context import NoActiveAppError
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -13,11 +14,13 @@ from textual.widgets import Button, Footer, Header, Label, Static
 from formtuitous.database import init_db, save_response
 from formtuitous.schema import FormDefinition
 from formtuitous.tui.widgets import (
+    CODE_THEME_AUTO,
     get_widget_value,
     is_widget_empty,
     is_widget_valid,
     make_code_widget,
     make_input_widget,
+    resolve_code_theme,
 )
 
 # maximum characters for a sidebar question title before truncation
@@ -66,13 +69,14 @@ class FormScreen(Screen):
         self,
         form: FormDefinition,
         db_path: Path,
-        code_theme: str = "ansi-dark",
+        code_theme: str = CODE_THEME_AUTO,
     ) -> None:
         """Store the form definition, database path, and initialise input map."""
         self.form = form
         self.db_path = db_path
         self.code_theme = code_theme
         self.inputs: dict[str, Widget] = {}
+        self.code_widgets: dict[str, Static] = {}
         self.sidebar_items: list[Static] = []
         self.current_index = 0
         super().__init__()
@@ -97,6 +101,7 @@ class FormScreen(Screen):
                     yield Label(f"{question.text}{required}")
                     code_widget = make_code_widget(question, self.code_theme)
                     if code_widget is not None:
+                        self.code_widgets[question.id] = code_widget
                         yield code_widget
                     # optional url
                     if question.url is not None:
@@ -114,6 +119,46 @@ class FormScreen(Screen):
         """Focus the first input and hide scrollbars after mounting."""
         self.action_focus_first_input()
         self._hide_scrollbars()
+        self._sync_code_theme()
+        try:
+            app = self.app
+        except NoActiveAppError:
+            return
+        if self.code_theme == CODE_THEME_AUTO:
+            self.watch(app, "theme", self._on_app_theme_change)
+
+    def _sync_code_theme(self) -> None:
+        """Resolve and apply the current app theme to all code widgets."""
+        if self.code_theme != CODE_THEME_AUTO:
+            return
+        try:
+            app = self.app
+        except NoActiveAppError:
+            return
+        self._update_code_widgets(resolve_code_theme(app))
+
+    def _on_app_theme_change(self, _old_theme: str, _new_theme: str) -> None:
+        """Refresh code highlighting when the app theme changes."""
+        self._sync_code_theme()
+
+    def _update_code_widgets(self, theme_name: str) -> None:
+        """Recreate the Syntax renderables for all code widgets."""
+        for question in self.form.questions:
+            if question.code is None:
+                continue
+            widget = self.code_widgets.get(question.id)
+            if widget is None:
+                continue
+            from rich.syntax import Syntax  # noqa: PLC0415
+
+            widget.update(
+                Syntax(
+                    question.code.content,
+                    question.code.language,
+                    theme=theme_name,
+                    line_numbers=True,
+                )
+            )
 
     def _hide_scrollbars(self) -> None:
         """Set scrollbar size to zero on scrollable containers.
