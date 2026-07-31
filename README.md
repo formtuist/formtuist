@@ -45,6 +45,7 @@ Responses are saved to a SQLite database.
 | Flag | Description | Default |
 |---|---|---|
 | `--db-dir` | Directory for the responses database | `~/.local/share/formtuitous/` |
+| `--database-name` | Name of the database file | `responses.db` |
 | `--serve` | Serve the form as a web app instead of using the local TUI | off |
 | `--host` | Host address for the web server | `0.0.0.0` |
 | `--port` | Port for the web server | `8000` |
@@ -54,6 +55,10 @@ Responses are saved to a SQLite database.
 ```bash
 # Local TUI, custom database directory
 uvx formtuitous display examples/quiz.json --db-dir ~/survey-data
+
+# Separate databases per form (same directory)
+uvx formtuitous display examples/attendance.json --database-name attendance.db
+uvx formtuitous display examples/quiz.json --database-name quiz.db
 
 # Serve as a web app (each visitor gets their own TUI via textual-serve)
 uvx formtuitous display examples/survey.json --serve
