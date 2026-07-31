@@ -32,7 +32,7 @@ QUESTIONS_SUFFIX = " optional)"
 # constants for shared typer argument help strings
 FORM_PATH_HELP = "Path to a JSON form definition file."
 RESPONSES_PATH_HELP = "Path to a responses SQLite database."
-APP_HELP = "Creating forms with JSON and a TUI is an unexpected success!"
+APP_HELP = "Creating forms with JSON and a TUI is an unexpected success for programmers and agents!"
 
 app = typer.Typer(
     name="formtuitous",
@@ -90,13 +90,14 @@ def check(
 
 
 DB_DIR_HELP = "Directory for the responses database (default: platformdirs user_data_dir)."
+DB_NAME_HELP = "Name of the database file (default: responses.db)."
 SERVE_HELP = "Serve the form in a web browser instead of the local TUI."
 HOST_HELP = "Host address for the web server."
 PORT_HELP = "Port for the web server."
 
 
 @app.command()
-def display(
+def display(  # noqa: PLR0913, PLR0917
     form_path: Path = typer.Argument(
         ...,
         help=FORM_PATH_HELP,
@@ -109,6 +110,11 @@ def display(
         help=DB_DIR_HELP,
         file_okay=False,
         dir_okay=True,
+    ),
+    database_name: str = typer.Option(
+        None,
+        "--database-name",
+        help=DB_NAME_HELP,
     ),
     serve: bool = typer.Option(
         False,
@@ -133,7 +139,7 @@ def display(
     except ValidationError:
         raise typer.Exit(code=1)
 
-    db_path = resolve_db_path(db_dir)
+    db_path = resolve_db_path(db_dir, database_name)
 
     if serve:
         from textual_serve.server import Server  # noqa: PLC0415
@@ -141,6 +147,8 @@ def display(
         cmd = f"formtuitous display {form_path}"
         if db_dir is not None:
             cmd += f" --db-dir {db_dir}"
+        if database_name is not None:
+            cmd += f" --database-name {database_name}"
         server = Server(
             cmd,
             host=host,
