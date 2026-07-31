@@ -1,0 +1,19 @@
+{
+  "name": "Minimal Auth Smoke Test",
+  "description": "A single-question form with GitHub auth enabled for TUI and DB testing.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": false,
+    "allow_multiple_submissions": true,
+    "show_progress_bar": false,
+    "auth": "github"
+  },
+  "questions": [
+    {
+      "id": "smoke",
+      "text": "Type anything to confirm the pipeline works.",
+      "type": "short_text",
+      "required": true
+    }
+  ]
+}

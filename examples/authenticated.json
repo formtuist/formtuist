@@ -1,0 +1,59 @@
+{
+  "name": "Authenticated Course Feedback",
+  "description": "A comprehensive feedback form that requires a GitHub token, demonstrating every question type with authentication enabled.",
+  "config": {
+    "randomize_questions": false,
+    "auto_grade": false,
+    "allow_multiple_submissions": true,
+    "show_progress_bar": true,
+    "auth": "github"
+  },
+  "questions": [
+    {
+      "id": "name",
+      "text": "What is your full name?",
+      "type": "short_text",
+      "required": true
+    },
+    {
+      "id": "bio",
+      "text": "Tell us a little about your background.",
+      "type": "paragraph",
+      "required": false
+    },
+    {
+      "id": "language",
+      "text": "Which programming language do you prefer for introductory courses?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": ["Python", "Java", "C", "JavaScript", "Rust"]
+    },
+    {
+      "id": "features",
+      "text": "Which features of this course were most helpful? (Select all that apply.)",
+      "type": "checkbox",
+      "required": false,
+      "choices": ["Lectures", "Labs", "Projects", "Office hours", "Peer review"]
+    },
+    {
+      "id": "hours",
+      "text": "How many hours per week did you spend on this course?",
+      "type": "numeric",
+      "required": false
+    },
+    {
+      "id": "pace",
+      "text": "How would you rate the pace of the course?",
+      "type": "rating",
+      "min": 1,
+      "max": 5,
+      "labels": ["Too slow", "Slow", "Good", "Fast", "Too fast"]
+    },
+    {
+      "id": "next_term",
+      "text": "Would you take another course from this instructor?",
+      "type": "yes_no",
+      "required": true
+    }
+  ]
+}
