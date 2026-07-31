@@ -146,12 +146,16 @@ class TestStubCommands:
         assert "Display a form" in _plain(result)
 
     def test_serve_with_file(self, tmp_path: Path) -> None:
-        """Serve command executes its stub body."""
+        """Serve command launches textual-serve."""
         form = _write_form(
             tmp_path / "form.json", {"name": "T", "questions": []}
         )
-        result = runner.invoke(app, ["serve", str(form)])
-        assert result.exit_code == 0
+        with patch("textual_serve.server.Server") as mock_server_cls:
+            mock_instance = mock_server_cls.return_value
+            result = runner.invoke(app, ["serve", str(form)])
+            assert result.exit_code == 0
+            mock_server_cls.assert_called_once()
+            mock_instance.serve.assert_called_once()
 
     def test_export_with_file(self, tmp_path: Path) -> None:
         """Export command executes its stub body."""
@@ -321,21 +325,36 @@ class TestDisplayCommand:
             main()
             mock_app.assert_called_once()
 
-    def test_display_serve_mocks_server(self, tmp_path: Path) -> None:
-        """Display with --serve parses the form and starts textual-serve."""
+    def test_display_has_no_serve_flag(self, tmp_path: Path) -> None:
+        """Display command no longer accepts --serve."""
+        form = _write_form(
+            tmp_path / "form.json",
+            {"name": "T", "questions": []},
+        )
+        with patch("formtuitous.tui.app.FormtuitousApp") as mock_app_cls:
+            result = runner.invoke(app, ["display", str(form), "--serve"])
+            assert result.exit_code != 0
+            mock_app_cls.assert_not_called()
+
+
+class TestServeCommand:
+    """Tests for the serve command."""
+
+    def test_serve_mocks_server(self, tmp_path: Path) -> None:
+        """Serve parses the form and starts textual-serve."""
         form = _write_form(
             tmp_path / "form.json",
             {"name": "ServedForm", "questions": []},
         )
         with patch("textual_serve.server.Server") as mock_server_cls:
             mock_instance = mock_server_cls.return_value
-            result = runner.invoke(app, ["display", str(form), "--serve"])
+            result = runner.invoke(app, ["serve", str(form)])
             assert result.exit_code == 0
             mock_server_cls.assert_called_once()
             mock_instance.serve.assert_called_once()
 
-    def test_display_serve_with_db_dir(self, tmp_path: Path) -> None:
-        """Display --serve --db-dir passes the directory to the subprocess."""
+    def test_serve_with_db_dir(self, tmp_path: Path) -> None:
+        """Serve --db-dir passes the directory to the subprocess."""
         form = _write_form(
             tmp_path / "form.json",
             {"name": "ServedForm", "questions": []},
@@ -344,21 +363,15 @@ class TestDisplayCommand:
         with patch("textual_serve.server.Server") as mock_server_cls:
             result = runner.invoke(
                 app,
-                [
-                    "display",
-                    str(form),
-                    "--serve",
-                    "--db-dir",
-                    str(db_dir),
-                ],
+                ["serve", str(form), "--db-dir", str(db_dir)],
             )
             assert result.exit_code == 0
             mock_server_cls.assert_called_once()
             cmd_arg = mock_server_cls.call_args[0][0]
             assert str(db_dir) in cmd_arg
 
-    def test_display_serve_with_database_name(self, tmp_path: Path) -> None:
-        """Display --serve --database-name passes the name to the subprocess."""
+    def test_serve_with_database_name(self, tmp_path: Path) -> None:
+        """Serve --database-name passes the name to the subprocess."""
         form = _write_form(
             tmp_path / "form.json",
             {"name": "ServedForm", "questions": []},
@@ -367,9 +380,8 @@ class TestDisplayCommand:
             result = runner.invoke(
                 app,
                 [
-                    "display",
+                    "serve",
                     str(form),
-                    "--serve",
                     "--database-name",
                     "quiz.db",
                 ],
@@ -378,6 +390,39 @@ class TestDisplayCommand:
             mock_server_cls.assert_called_once()
             cmd_arg = mock_server_cls.call_args[0][0]
             assert "quiz.db" in cmd_arg
+
+    def test_serve_with_host_and_port(self, tmp_path: Path) -> None:
+        """Serve passes host and port to textual-serve."""
+        form = _write_form(
+            tmp_path / "form.json",
+            {"name": "ServedForm", "questions": []},
+        )
+        with patch("textual_serve.server.Server") as mock_server_cls:
+            mock_instance = mock_server_cls.return_value
+            result = runner.invoke(
+                app,
+                [
+                    "serve",
+                    str(form),
+                    "--host",
+                    "100.64.1.1",
+                    "--port",
+                    "9000",
+                ],
+            )
+            assert result.exit_code == 0
+            kwargs = mock_server_cls.call_args.kwargs
+            assert kwargs["host"] == "100.64.1.1"
+            assert kwargs["port"] == 9000  # noqa: PLR2004
+            mock_instance.serve.assert_called_once()
+
+    def test_serve_invalid_form_exits(self, tmp_path: Path) -> None:
+        """Serve exits 1 for an invalid form."""
+        path = _write_form(tmp_path / "bad.json", {"bad": "data"})
+        with patch("textual_serve.server.Server") as mock_server_cls:
+            result = runner.invoke(app, ["serve", str(path)])
+            assert result.exit_code == 1
+            mock_server_cls.assert_not_called()
 
     def test_display_with_database_name(self, tmp_path: Path) -> None:
         """Display --database-name resolves to a custom db file."""
