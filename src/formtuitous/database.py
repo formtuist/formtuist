@@ -25,17 +25,22 @@ def ensure_db_dir(db_dir: Path) -> Path:
     return db_dir
 
 
-def resolve_db_path(db_dir: Path | None = None) -> Path:
+def resolve_db_path(
+    db_dir: Path | None = None,
+    db_name: str | None = None,
+) -> Path:
     """Return the full path to the database file.
 
-    When *db_dir* is provided the directory is created if needed and the
-    default filename is appended.  When *db_dir* is *None* the platform-
-    appropriate default directory is used.
+    When *db_dir* is provided the directory is created if needed.
+    When *db_dir* is *None* the platform-appropriate default directory is
+    used. The filename is *db_name* when given, otherwise the default
+    *DATABASE_FILENAME* is used.
     """
     if db_dir is None:
         db_dir = get_default_db_dir()
     ensure_db_dir(db_dir)
-    return db_dir / DATABASE_FILENAME
+    filename = db_name if db_name is not None else DATABASE_FILENAME
+    return db_dir / filename
 
 
 BUSY_TIMEOUT_MS = 30000
