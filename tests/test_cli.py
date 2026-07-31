@@ -229,6 +229,39 @@ class TestMainFunction:
         assert result.exit_code == 0
         assert "formtuitous" in _plain(result)
 
+    def test_version_flag(self) -> None:
+        """Running formtuitous --version shows version info and exits."""
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert "formtuitous 0.1.0" in _plain(result)
+        assert "Component" in _plain(result)
+        assert "Version" in _plain(result)
+        assert "textual" in _plain(result)
+        assert "pydantic" in _plain(result)
+        assert "rich" in _plain(result)
+
+    def test_version_flag_sorted(self) -> None:
+        """Dependency names are listed in alphabetical order."""
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        lines = [
+            line.strip()
+            for line in _plain(result).splitlines()
+            if "│" in line and line.strip().startswith("│")
+        ]
+        names = [
+            line.split("│")[1].strip()
+            for line in lines
+            if len(line.split("│")) >= 3  # noqa: PLR2004
+        ]
+        assert names == sorted(names)
+
+    def test_version_flag_help(self) -> None:
+        """The --help output mentions the --version flag."""
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "--version" in _plain(result)
+
     def test_serve_help(self) -> None:
         """Serve command accepts --help."""
         result = runner.invoke(app, ["serve", "--help"])
