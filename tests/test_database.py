@@ -335,3 +335,24 @@ class TestDbDirectory:
         full_path = resolve_db_path()
         assert full_path.name == DATABASE_FILENAME
         assert "formtuitous" in full_path.parts
+
+    def test_resolve_db_path_with_name(self, tmp_path: Path) -> None:
+        """resolve_db_path uses a custom database name."""
+        db_dir = tmp_path / "custom_dir"
+        full_path = resolve_db_path(db_dir, "attendance.db")
+        assert full_path == db_dir / "attendance.db"
+        assert db_dir.is_dir()
+
+    def test_resolve_db_path_with_name_defaults(self) -> None:
+        """resolve_db_path with a name uses the platform dir and that name."""
+        full_path = resolve_db_path(db_name="quiz.db")
+        assert full_path.name == "quiz.db"
+        assert "formtuitous" in full_path.parts
+
+    def test_resolve_db_path_distinct_names(self, tmp_path: Path) -> None:
+        """Two database names resolve to distinct files in the same dir."""
+        db_dir = tmp_path / "responses"
+        quiz_path = resolve_db_path(db_dir, "quiz.db")
+        survey_path = resolve_db_path(db_dir, "survey.db")
+        assert quiz_path != survey_path
+        assert quiz_path.parent == survey_path.parent

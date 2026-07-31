@@ -323,3 +323,50 @@ class TestDisplayCommand:
             mock_server_cls.assert_called_once()
             cmd_arg = mock_server_cls.call_args[0][0]
             assert str(db_dir) in cmd_arg
+
+    def test_display_serve_with_database_name(self, tmp_path: Path) -> None:
+        """Display --serve --database-name passes the name to the subprocess."""
+        form = _write_form(
+            tmp_path / "form.json",
+            {"name": "ServedForm", "questions": []},
+        )
+        with patch("textual_serve.server.Server") as mock_server_cls:
+            result = runner.invoke(
+                app,
+                [
+                    "display",
+                    str(form),
+                    "--serve",
+                    "--database-name",
+                    "quiz.db",
+                ],
+            )
+            assert result.exit_code == 0
+            mock_server_cls.assert_called_once()
+            cmd_arg = mock_server_cls.call_args[0][0]
+            assert "quiz.db" in cmd_arg
+
+    def test_display_with_database_name(self, tmp_path: Path) -> None:
+        """Display --database-name resolves to a custom db file."""
+        form = _write_form(
+            tmp_path / "form.json",
+            {"name": "T", "questions": []},
+        )
+        db_dir = tmp_path / "db_out"
+        with patch("formtuitous.tui.app.FormtuitousApp") as mock_app_cls:
+            mock_instance = mock_app_cls.return_value
+            result = runner.invoke(
+                app,
+                [
+                    "display",
+                    str(form),
+                    "--db-dir",
+                    str(db_dir),
+                    "--database-name",
+                    "attendance.db",
+                ],
+            )
+            assert result.exit_code == 0
+            expected_db_path = db_dir / "attendance.db"
+            mock_app_cls.assert_called_once_with(form, expected_db_path)
+            mock_instance.run.assert_called_once()
