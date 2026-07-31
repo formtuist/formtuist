@@ -1,14 +1,17 @@
 """Typer-based CLI entry point for the formtuitous application."""
 
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import typer
 from pydantic import ValidationError
 from rich.console import Console
 from rich.rule import Rule
+from rich.table import Table
 
 from formtuitous.database import resolve_db_path
 from formtuitous.parser import parse_form
+from formtuitous.version import FORMTUITOUS_VERSION
 
 # rich console for all user-facing output
 console = Console()
@@ -38,6 +41,45 @@ app = typer.Typer(
     name="formtuitous",
     help=APP_HELP,
 )
+
+# main runtime dependencies shown by --version
+# (note that this needs to be manually updated
+# when new dependencies are added)
+DEPENDENCY_NAMES = [
+    "pydantic",
+    "textual",
+    "textual-serve",
+    "rich",
+    "datasette",
+    "click",
+    "typer",
+    "platformdirs",
+]
+
+VERSION_TITLE = f"formtuitous {FORMTUITOUS_VERSION}"
+COMPONENT_COLUMN = "Component"
+VERSION_COLUMN = "Version"
+
+
+def _package_version(package: str) -> str:
+    """Return the installed version of a package, or unknown."""
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _version_callback(value: bool) -> None:
+    """Print version information and exit when --version is provided."""
+    if not value:
+        return
+    table = Table(title=VERSION_TITLE, header_style="bold")
+    table.add_column(COMPONENT_COLUMN)
+    table.add_column(VERSION_COLUMN)
+    for name in sorted(DEPENDENCY_NAMES):
+        table.add_row(name, _package_version(name))
+    console.print(table)
+    raise typer.Exit()
 
 
 @app.command()
@@ -247,6 +289,19 @@ def grade(
 ) -> None:
     """Grade responses against a form with correct answers."""
     raise typer.Exit(code=0)
+
+
+@app.callback()
+def _app_callback(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show version information and exit.",
+    ),
+) -> None:
+    """Display help for the formtuitous command-line interface."""
 
 
 def main() -> None:
