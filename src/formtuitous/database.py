@@ -8,10 +8,27 @@ from typing import Any
 
 import platformdirs
 
-# sqlite3 is part of the Python standard library — no extra dependency needed
-
 DATABASE_FILENAME = "responses.db"
 WAL_JOURNAL_MODE = "wal"
+
+BUSY_TIMEOUT_MS = 30000
+ID_COLUMN = "id"
+FORM_NAME_COLUMN = "form_name"
+SUBMITTED_AT_COLUMN = "submitted_at"
+ANSWERS_JSON_COLUMN = "answers_json"
+RESPONSES_TABLE = "responses"
+
+CREATE_TABLE_SQL = (
+    f"CREATE TABLE IF NOT EXISTS {RESPONSES_TABLE} ("
+    f"    {ID_COLUMN} INTEGER PRIMARY KEY AUTOINCREMENT,"
+    f"    {FORM_NAME_COLUMN} TEXT NOT NULL,"
+    f"    {SUBMITTED_AT_COLUMN} TEXT NOT NULL,"
+    f"    {ANSWERS_JSON_COLUMN} TEXT NOT NULL"
+    f")"
+)
+
+PRAGMA_WAL = f"PRAGMA journal_mode={WAL_JOURNAL_MODE};"
+PRAGMA_BUSY_TIMEOUT = f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS};"
 
 
 def get_default_db_dir() -> Path:
@@ -41,26 +58,6 @@ def resolve_db_path(
     ensure_db_dir(db_dir)
     filename = db_name if db_name is not None else DATABASE_FILENAME
     return db_dir / filename
-
-
-BUSY_TIMEOUT_MS = 30000
-ID_COLUMN = "id"
-FORM_NAME_COLUMN = "form_name"
-SUBMITTED_AT_COLUMN = "submitted_at"
-ANSWERS_JSON_COLUMN = "answers_json"
-RESPONSES_TABLE = "responses"
-
-CREATE_TABLE_SQL = (
-    f"CREATE TABLE IF NOT EXISTS {RESPONSES_TABLE} ("
-    f"    {ID_COLUMN} INTEGER PRIMARY KEY AUTOINCREMENT,"
-    f"    {FORM_NAME_COLUMN} TEXT NOT NULL,"
-    f"    {SUBMITTED_AT_COLUMN} TEXT NOT NULL,"
-    f"    {ANSWERS_JSON_COLUMN} TEXT NOT NULL"
-    f")"
-)
-
-PRAGMA_WAL = f"PRAGMA journal_mode={WAL_JOURNAL_MODE};"
-PRAGMA_BUSY_TIMEOUT = f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS};"
 
 
 def init_db(db_path: Path) -> sqlite3.Connection:
