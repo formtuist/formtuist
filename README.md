@@ -3,23 +3,6 @@
 Create, display, and serve JSON-defined forms, surveys, and quizzes — all from
 the terminal or a web browser.
 
-```text
-+------------------+--------------------------------+
-|  Questions       |  Minimal Smoke Test            |
-|  ------------    |                                |
-|  Type anythin..  |  Type anything to confirm the  |
-|                  |  pipeline works. *             |
-|                  |  ┌──────────────────────────┐  |
-|                  |  │ Type your answer...      │  |
-|                  |  └──────────────────────────┘  |
-|                  |                                |
-|                  |  Question 1 / 1                |
-|                  |  ┌──────────────────────────┐  |
-|                  |  │         Submit           │  |
-|                  |  └──────────────────────────┘  |
-+------------------+--------------------------------+
-```
-
 ## Installation
 
 ```bash
