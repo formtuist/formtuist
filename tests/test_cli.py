@@ -2,13 +2,14 @@
 
 import json
 import re
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner, Result
 
-from formtuitous.cli import app, main
+from formtuitous.cli import _display_db_dir, _package_version, app, main
 
 # regex to strip ANSI SGR escape sequences that Rich embeds in captured output
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
@@ -266,6 +267,22 @@ class TestMainFunction:
         assert result.exit_code == 0
         assert "--version" in _plain(result)
 
+    def test_package_version_unknown(self) -> None:
+        """_package_version returns unknown for missing packages."""
+        with patch(
+            "formtuitous.cli.version",
+            side_effect=PackageNotFoundError("missing"),
+        ):
+            assert _package_version("not-a-real-package") == "unknown"
+
+    def test_display_db_dir_outside_home(self) -> None:
+        """_display_db_dir falls back to the full path outside home."""
+        with patch(
+            "formtuitous.cli.get_default_db_dir",
+            return_value=Path("/opt/formtuitous-data"),
+        ):
+            assert _display_db_dir() == "/opt/formtuitous-data"
+
     def test_serve_help(self) -> None:
         """Serve command accepts --help."""
         result = runner.invoke(app, ["serve", "--help"])
@@ -415,6 +432,52 @@ class TestServeCommand:
             assert kwargs["host"] == "100.64.1.1"
             assert kwargs["port"] == 9000  # noqa: PLR2004
             mock_instance.serve.assert_called_once()
+
+
+class TestSchemaCommand:
+    """Tests for the schema command."""
+
+    def test_schema_prints_json(self) -> None:
+        """Schema command prints JSON schema output."""
+        result = runner.invoke(app, ["schema"])
+        assert result.exit_code == 0
+        assert '"$defs"' in _plain(result)
+        assert "questions" in _plain(result)
+
+    def test_schema_contains_question_types(self) -> None:
+        """Schema includes the question type definitions."""
+        result = runner.invoke(app, ["schema"])
+        assert result.exit_code == 0
+        assert "ShortTextQuestion" in _plain(result)
+        assert "MultipleChoiceQuestion" in _plain(result)
+        assert "RatingQuestion" in _plain(result)
+
+    def test_schema_output_to_file(self, tmp_path: Path) -> None:
+        """Schema --output saves the schema to a JSON file."""
+        out_path = tmp_path / "schema.json"
+        result = runner.invoke(app, ["schema", "--output", str(out_path)])
+        assert result.exit_code == 0
+        assert out_path.exists()
+        data = json.loads(out_path.read_text(encoding="utf-8"))
+        assert "properties" in data
+
+    def test_schema_help(self) -> None:
+        """Schema command accepts --help."""
+        result = runner.invoke(app, ["schema", "--help"])
+        assert result.exit_code == 0
+        assert "schema" in _plain(result)
+
+    def test_schema_with_theme(self) -> None:
+        """Schema --theme accepts a Pygments theme name."""
+        result = runner.invoke(app, ["schema", "--theme", "ansi_light"])
+        assert result.exit_code == 0
+        assert '"$defs"' in _plain(result)
+
+    def test_schema_help_shows_theme_option(self) -> None:
+        """Schema --help mentions the --theme flag."""
+        result = runner.invoke(app, ["schema", "--help"])
+        assert result.exit_code == 0
+        assert "--theme" in _plain(result)
 
     def test_serve_invalid_form_exits(self, tmp_path: Path) -> None:
         """Serve exits 1 for an invalid form."""

@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
-from formtuitous.database import resolve_db_path
+from formtuitous.database import get_default_db_dir, resolve_db_path
 from formtuitous.parser import parse_form
 from formtuitous.version import FORMTUITOUS_VERSION
 
@@ -131,8 +131,22 @@ def check(
     raise typer.Exit(code=0)
 
 
-DB_DIR_HELP = "Directory for the responses database (default: platformdirs user_data_dir)."
 DB_NAME_HELP = "Name of the database file (default: responses.db)."
+
+
+def _display_db_dir() -> str:
+    """Return the default db directory with the home prefix shortened."""
+    db_dir = get_default_db_dir()
+    home = Path.home()
+    try:
+        return f"~/{db_dir.relative_to(home)}"
+    except ValueError:
+        return str(db_dir)
+
+
+DB_DIR_HELP = (
+    f"Directory for the responses database (default: {_display_db_dir()})."
+)
 HOST_HELP = "Host address for the web server."
 PORT_HELP = "Port for the web server."
 
@@ -274,6 +288,42 @@ def view(
         ],
         check=False,
     )
+
+
+SCHEMA_OUTPUT_HELP = "Save the schema to a JSON file instead of printing it."
+SCHEMA_THEME_HELP = "Pygments theme for syntax highlighting."
+SCHEMA_THEME_DEFAULT = "ansi_dark"
+
+
+@app.command()
+def schema(
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help=SCHEMA_OUTPUT_HELP,
+        dir_okay=False,
+    ),
+    theme: str = typer.Option(
+        SCHEMA_THEME_DEFAULT,
+        "--theme",
+        help=SCHEMA_THEME_HELP,
+    ),
+) -> None:
+    """Display the JSON schema that formtuitous enforces."""
+    import json  # noqa: PLC0415
+
+    from rich.syntax import Syntax  # noqa: PLC0415
+
+    from formtuitous.schema import FormDefinition  # noqa: PLC0415
+
+    schema_json = json.dumps(FormDefinition.model_json_schema(), indent=2)
+    if output is not None:
+        output.write_text(schema_json, encoding="utf-8")
+        console.print(f"Schema saved to [bold]{output}[/bold]")
+    else:
+        syntax = Syntax(schema_json, "json", theme=theme)
+        console.print(syntax)
 
 
 @app.command()
