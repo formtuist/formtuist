@@ -77,6 +77,16 @@ TextArea:focus {
     margin-bottom: 1;
 }
 
+#confirm-identity {
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#restart,
+#quit {
+    margin: 1 4;
+}
+
 /* Code block styling */
 Static > .code {
     background: $surface;
@@ -113,6 +123,7 @@ CommandPalette > Vertical {
 
 CommandPalette #--input {
     border: hkey white;
+    padding-top: 1;
 }
 
 CommandPalette CommandList {
