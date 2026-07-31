@@ -29,6 +29,8 @@ from formtuitous.tui.widgets import (
 # maximum characters for a sidebar question title before truncation
 SIDEBAR_TITLE_MAX = 25
 
+NEWLINE = "\n"
+
 
 class WelcomeScreen(Screen):
     """Display the form name, description, and a Start button."""
@@ -340,17 +342,16 @@ class SubmitScreen(Screen):
         """Render the confirmation message with actions."""
         yield Header(show_clock=True)
         yield Static("[bold]Response saved![/bold]", id="confirm-title")
-        yield Static("Your answers have been recorded.", id="confirm-msg")
+        yield Static(
+            f"{NEWLINE}Results saved to: [italic]{self.db_path}[/italic]",
+            id="confirm-db-path",
+        )
         if self.identity is not None:
             yield Static(
                 f"Authenticated as [bold]{self.identity.username}[/bold]"
                 f" ({self.identity.profile_url})",
                 id="confirm-identity",
             )
-        yield Static(
-            f"Results saved to: [italic]{self.db_path}[/italic]",
-            id="confirm-db-path",
-        )
         yield Static(
             "[dim]Tip: Press Ctrl+P for the command palette.[/dim]",
             id="confirm-tip",
