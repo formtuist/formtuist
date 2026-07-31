@@ -12,7 +12,7 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Button, Header, Input, Label, Static
 
-from formtuitous.auth import fetch_github_identity
+from formtuitous.auth import GitHubIdentity, fetch_github_identity
 from formtuitous.database import init_db, save_response
 from formtuitous.schema import FormDefinition
 from formtuitous.tui.widgets import (
@@ -232,8 +232,7 @@ class FormScreen(Screen):
         """Collect answers, validate auth, save to DB, show confirmation."""
         answers: dict[str, Any] = {}
         valid = True
-        github_username: str | None = None
-        github_url: str | None = None
+        identity: GitHubIdentity | None = None
         if self.form.config.auth == "github":
             if self.auth_input is None:
                 self.notify(
@@ -254,8 +253,6 @@ class FormScreen(Screen):
                     severity="error",
                 )
                 return
-            github_username = identity.username
-            github_url = identity.profile_url
         for question in self.form.questions:
             widget = self.inputs[question.id]
             value = get_widget_value(widget)
@@ -279,11 +276,11 @@ class FormScreen(Screen):
             conn,
             self.form.name,
             answers,
-            github_username,
-            github_url,
+            identity.username if identity is not None else None,
+            identity.profile_url if identity is not None else None,
         )
         conn.close()
-        self.app.push_screen(SubmitScreen(self.form, self.db_path))
+        self.app.push_screen(SubmitScreen(self.form, self.db_path, identity))
 
     def action_focus_first_input(self) -> None:
         """Focus the auth token field or the first question input."""
@@ -327,10 +324,16 @@ class SubmitScreen(Screen):
         Binding("ctrl+r", "restart", "Restart"),
     ]
 
-    def __init__(self, form: FormDefinition, db_path: Path) -> None:
-        """Store the form definition and database path for restart."""
+    def __init__(
+        self,
+        form: FormDefinition,
+        db_path: Path,
+        identity: GitHubIdentity | None = None,
+    ) -> None:
+        """Store the form definition, database path, and optional identity."""
         self.form = form
         self.db_path = db_path
+        self.identity = identity
         super().__init__()
 
     def compose(self) -> ComposeResult:
@@ -338,6 +341,12 @@ class SubmitScreen(Screen):
         yield Header(show_clock=True)
         yield Static("[bold]Response saved![/bold]", id="confirm-title")
         yield Static("Your answers have been recorded.", id="confirm-msg")
+        if self.identity is not None:
+            yield Static(
+                f"Authenticated as [bold]{self.identity.username}[/bold]"
+                f" ({self.identity.profile_url})",
+                id="confirm-identity",
+            )
         yield Static(
             f"Results saved to: [italic]{self.db_path}[/italic]",
             id="confirm-db-path",
