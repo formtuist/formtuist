@@ -133,13 +133,12 @@ def check(
 
 DB_DIR_HELP = "Directory for the responses database (default: platformdirs user_data_dir)."
 DB_NAME_HELP = "Name of the database file (default: responses.db)."
-SERVE_HELP = "Serve the form in a web browser instead of the local TUI."
 HOST_HELP = "Host address for the web server."
 PORT_HELP = "Port for the web server."
 
 
 @app.command()
-def display(  # noqa: PLR0913, PLR0917
+def display(
     form_path: Path = typer.Argument(
         ...,
         help=FORM_PATH_HELP,
@@ -158,10 +157,41 @@ def display(  # noqa: PLR0913, PLR0917
         "--database-name",
         help=DB_NAME_HELP,
     ),
-    serve: bool = typer.Option(
-        False,
-        "--serve",
-        help=SERVE_HELP,
+) -> None:
+    """Display a form in the TUI and collect responses."""
+    # validate the form before launching the TUI
+    try:
+        parse_form(form_path)
+    except ValidationError:
+        raise typer.Exit(code=1)
+
+    db_path = resolve_db_path(db_dir, database_name)
+
+    from formtuitous.tui.app import FormtuitousApp  # noqa: PLC0415
+
+    app_ui = FormtuitousApp(form_path, db_path)
+    app_ui.run()
+
+
+@app.command()
+def serve(
+    form_path: Path = typer.Argument(
+        ...,
+        help=FORM_PATH_HELP,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    db_dir: Path = typer.Option(
+        None,
+        help=DB_DIR_HELP,
+        file_okay=False,
+        dir_okay=True,
+    ),
+    database_name: str = typer.Option(
+        None,
+        "--database-name",
+        help=DB_NAME_HELP,
     ),
     host: str = typer.Option(
         "0.0.0.0",
@@ -174,52 +204,28 @@ def display(  # noqa: PLR0913, PLR0917
         help=PORT_HELP,
     ),
 ) -> None:
-    """Display a form in the TUI and collect responses."""
-    # validate the form before launching the TUI or server
+    """Serve a form as a web application via textual-serve."""
+    # validate the form before launching the server
     try:
         form = parse_form(form_path)
     except ValidationError:
         raise typer.Exit(code=1)
 
-    db_path = resolve_db_path(db_dir, database_name)
+    from textual_serve.server import Server  # noqa: PLC0415
 
-    if serve:
-        from textual_serve.server import Server  # noqa: PLC0415
-
-        cmd = f"formtuitous display {form_path}"
-        if db_dir is not None:
-            cmd += f" --db-dir {db_dir}"
-        if database_name is not None:
-            cmd += f" --database-name {database_name}"
-        server = Server(
-            cmd,
-            host=host,
-            port=port,
-            title=form.name,
-        )
-        console.print(
-            f"Serving [bold]{form.name}[/bold] at http://{host}:{port}"
-        )
-        server.serve()
-    else:
-        from formtuitous.tui.app import FormtuitousApp  # noqa: PLC0415
-
-        app_ui = FormtuitousApp(form_path, db_path)
-        app_ui.run()
-
-
-@app.command()
-def serve(
-    form_path: Path = typer.Argument(
-        ...,
-        help=FORM_PATH_HELP,
-        exists=True,
-        dir_okay=False,
-        readable=True,
-    ),
-) -> None:
-    """Serve a form as a web application via textual-serve."""
-    raise typer.Exit(code=0)
+    cmd = f"formtuitous display {form_path}"
+    if db_dir is not None:
+        cmd += f" --db-dir {db_dir}"
+    if database_name is not None:
+        cmd += f" --database-name {database_name}"
+    server = Server(
+        cmd,
+        host=host,
+        port=port,
+        title=form.name,
+    )
+    console.print(f"Serving [bold]{form.name}[/bold] at http://{host}:{port}")
+    server.serve()
 
 
 @app.command()
