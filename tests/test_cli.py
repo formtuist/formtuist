@@ -279,11 +279,16 @@ class TestMainFunction:
 
     def test_display_db_dir_outside_home(self) -> None:
         """_display_db_dir falls back to the full path outside home."""
+        outside = Path("/opt/formtuitous-data")
         with patch(
             "formtuitous.cli.get_default_db_dir",
-            return_value=Path("/opt/formtuitous-data"),
+            return_value=outside,
         ):
-            assert _display_db_dir() == "/opt/formtuitous-data"
+            result = _display_db_dir()
+        # compare against str(Path(...)) so the test is platform-agnostic
+        # (Windows renders the path with backslashes)
+        assert result == str(outside)
+        assert "formtuitous-data" in result
 
     def test_serve_help(self) -> None:
         """Serve command accepts --help."""

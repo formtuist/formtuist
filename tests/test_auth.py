@@ -109,3 +109,15 @@ class TestCreateSslContext:
             with patch.dict("os.environ", {}, clear=True):
                 context = create_ssl_context()
         assert isinstance(context, ssl.SSLContext)
+
+    def test_no_ca_bundle_falls_back_to_default(self) -> None:
+        """create_ssl_context falls back when no candidate exists.
+
+        This exercises the Windows and macOS path, where none of the
+        Linux CA bundle locations are present and the default context is
+        used.
+        """
+        with patch("pathlib.Path.is_file", return_value=False):
+            with patch.dict("os.environ", {}, clear=True):
+                context = create_ssl_context()
+        assert isinstance(context, ssl.SSLContext)

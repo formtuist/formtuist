@@ -291,6 +291,12 @@ class TestFormScreen:
             "https://github.com/octocat",
         )
         mock_app.push_screen.assert_called_once()
+        pushed_screen = mock_app.push_screen.call_args[0][0]
+        assert pushed_screen.identity is not None
+        assert pushed_screen.identity.username == "octocat"
+        assert pushed_screen.identity.profile_url == (
+            "https://github.com/octocat"
+        )
         mock_notify.assert_not_called()
 
     def test_action_submit_blocks_empty_token(self) -> None:
@@ -690,6 +696,60 @@ class TestFormScreen:
 
         asyncio.run(run())
 
+    def test_compose_creates_auth_input_when_configured(self) -> None:
+        """Compose creates the token field when auth is enabled."""
+        form = FormDefinition(
+            name="Auth",
+            config=FormConfig(auth="github"),
+            questions=[
+                ShortTextQuestion(id="a", text="A?", type="short_text"),
+            ],
+        )
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = FormScreen(form, Path(":memory:"))
+                await app.push_screen(screen)
+                assert screen.auth_input is not None
+                assert screen.auth_input.id == "auth-input"
+
+        asyncio.run(run())
+
+    def test_compose_omits_auth_input_by_default(self) -> None:
+        """Compose does not create the token field when auth is disabled."""
+        form = FormDefinition(
+            name="NoAuth",
+            questions=[
+                ShortTextQuestion(id="a", text="A?", type="short_text"),
+            ],
+        )
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = FormScreen(form, Path(":memory:"))
+                await app.push_screen(screen)
+                assert screen.auth_input is None
+
+        asyncio.run(run())
+
+    def test_focus_first_input_prefers_auth_field(self) -> None:
+        """action_focus_first_input focuses the token field when present."""
+        form = FormDefinition(
+            name="Auth",
+            config=FormConfig(auth="github"),
+            questions=[
+                ShortTextQuestion(id="a", text="A?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_auth = MagicMock(spec=Input)
+        screen.auth_input = mock_auth
+        with patch.object(FormScreen, "set_focus") as mock_set_focus:
+            screen.action_focus_first_input()
+        mock_set_focus.assert_called_once_with(mock_auth)
+
     def test_on_mount_syncs_code_theme(self) -> None:
         """on_mount resolves the code theme from the app theme."""
         form = FormDefinition(
@@ -1004,6 +1064,27 @@ class TestSubmitScreen:
         children = list(screen.compose())
         texts = [str(c.content) for c in children if hasattr(c, "content")]
         assert any("Ctrl+P" in t for t in texts)
+
+    def test_compose_shows_identity(self) -> None:
+        """SubmitScreen displays the authenticated identity when present."""
+        form = FormDefinition(name="Test", questions=[])
+        identity = GitHubIdentity(
+            username="octocat",
+            profile_url="https://github.com/octocat",
+        )
+        screen = SubmitScreen(form, Path("/tmp/test.db"), identity)
+        children = list(screen.compose())
+        texts = [str(c.content) for c in children if hasattr(c, "content")]
+        assert any("octocat" in t for t in texts)
+        assert any("github.com/octocat" in t for t in texts)
+
+    def test_compose_omits_identity_when_none(self) -> None:
+        """SubmitScreen does not show identity when auth is disabled."""
+        form = FormDefinition(name="Test", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        children = list(screen.compose())
+        texts = [str(c.content) for c in children if hasattr(c, "content")]
+        assert not any("Authenticated as" in t for t in texts)
 
     def test_on_button_pressed_restart(self) -> None:
         """Pressing restart pushes a new FormScreen."""
