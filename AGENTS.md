@@ -142,19 +142,154 @@ All tests must follow these standards:
   `@pytest.mark.propertybased`.
 - Tests must not produce console output.
 
+## Web Interface Testing Workflow
+
+When the `textual-serve` web interface has a layout or rendering bug (for
+example, content cut off at the bottom of the page), verify the fix in a
+real browser before reporting completion. Unit tests cannot catch
+browser-only problems because the web page is generated from the HTML
+template at `src/formtuitous/templates/app_index.html` and then laid out
+by browser CSS engines. Run all commands in this section from the
+repository root.
+
+### Start the server
+
+Run the server in the background on a fixed port and confirm it is up:
+
+```bash
+nohup uv run formtuitous serve examples/attendance.json --port 8020 \
+  > /tmp/formtuitous-serve.log 2>&1 &
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8020/
+```
+
+Use `pkill -f "formtuitous serve"` before restarting the server after a
+fix.
+
+### Inspect the served HTML
+
+The page is rendered from a Jinja template. The `serve` command passes
+`templates_path` pointing at `src/formtuitous/templates/`, so the served
+HTML comes from `app_index.html` in that directory. Compare it against
+the upstream textual-serve template at
+`.venv/lib/python3.14/site-packages/textual_serve/templates/app_index.html`
+and fetch the served page with `curl -s http://127.0.0.1:8020/`.
+
+### Verify the DOM structure with an HTML5 parser
+
+Python's built-in `html.parser` does not model browser parsing rules, so
+use `html5lib` to see how a browser would really structure the document.
+Run it with `uv run --with` so it is never added to project dependencies:
+
+```bash
+uv run --with html5lib python -c "
+import html5lib
+
+raw = open('src/formtuitous/templates/app_index.html', encoding='utf-8').read()
+doc = html5lib.parse(raw)
+
+
+def walk(node, depth=0):
+    print('  ' * depth + str(node.tag).split('}')[-1])
+    for child in node:
+        walk(child, depth + 1)
+
+
+walk(doc)
+"
+```
+
+A healthy page keeps every `link`, `script`, and `style` element inside
+`head` and only `div` elements inside `body`. Known trap: stray non-head
+elements in the template head (for example, leftover `<rect>` SVG
+fragments) make browsers close the head early, move the styles and
+scripts into the body, and render any leftover text as a line that pushes
+the `100vh`-tall terminal below the viewport fold. That is how the
+keyboard-shortcut footer ended up cut off.
+
+### Measure the page layout in a real browser
+
+Use Playwright through `uv run --with` with the system Chromium. The
+Playwright-downloaded browser in `~/.cache/ms-playwright` can fail on this
+machine with `error while loading shared libraries: libglib-2.0.so.0`, so
+resolve the system browser first:
+
+```bash
+readlink -f /etc/profiles/per-user/gkapfham/bin/chromium
+```
+
+Then write a measurement script such as:
+
+```python
+import asyncio
+import json
+
+from playwright.async_api import async_playwright
+
+# path from the readlink command above
+EXE = "/nix/store/.../bin/chromium"
+
+
+async def main() -> None:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(executable_path=EXE)
+        page = await browser.new_page(viewport={"width": 1200, "height": 800})
+        await page.goto("http://127.0.0.1:8020/")
+        await page.wait_for_timeout(4000)
+        metrics = await page.evaluate("""() => {
+            const term = document.getElementById('terminal');
+            const r = term.getBoundingClientRect();
+            return {
+                viewportH: window.innerHeight,
+                docH: document.documentElement.scrollHeight,
+                termTop: r.top,
+                termBottom: r.bottom,
+                bodyChildren: [...document.body.children].map(e => e.tagName),
+            };
+        }""")
+        print(json.dumps(metrics, indent=2))
+        await page.screenshot(path="/tmp/formtuitous_page.png")
+        await browser.close()
+
+
+asyncio.run(main())
+```
+
+Run it with `uv run --with playwright python /tmp/measure_footer.py`.
+
+A healthy page reports `docH == viewportH`, `termTop == 0`, and
+`termBottom == viewportH`. A page with a cut-off footer reports
+`termBottom > viewportH` and `docH > viewportH`, because the bottom row
+sits below the fold. Rely on these numbers: the agent model may not be
+able to view the screenshot, so still save one for the human reviewer.
+
+### Re-verify after a fix
+
+Edit the template, restart the server with `pkill -f "formtuitous serve"`, start it again, and re-run the measurement. Jinja2 auto-reloads
+templates, so a restart is not strictly required, but it is harmless.
+The human tester must hard-refresh the browser (Ctrl+Shift+R) because
+the browser caches the page. Also confirm the favicon still serves:
+
+```bash
+curl -s -o /dev/null -w "%{http_code} %{content_type} %{size_download}B\n" \
+  http://127.0.0.1:8020/favicon.png
+```
+
+Finish by running `uv run task all`. A browser check complements the
+test suite; it never replaces it.
+
 ## Making Changes
 
 1. **Understand:** Thoroughly understand the request and the relevant
    codebase. Use available tools to explore files.
-2. **Plan:** Formulate a clear plan before making changes. Consult `BUILD.md`
+1. **Plan:** Formulate a clear plan before making changes. Consult `BUILD.md`
    for architecture decisions.
-3. **Implement:** Make small, incremental changes.
-4. **Verify:** Run `uv run task all` to ensure correctness and style
+1. **Implement:** Make small, incremental changes.
+1. **Verify:** Run `uv run task all` to ensure correctness and style
    compliance.
-5. **Commit:** The human developer commits the changes.
-6. **Rules:** Follow all rules in this file and in `BUILD.md`.
-7. **Report, don't close the TODO:** When finished, summarize completed
+1. **Commit:** The human developer commits the changes.
+1. **Rules:** Follow all rules in this file and in `BUILD.md`.
+1. **Report, don't close the TODO:** When finished, summarize completed
    tasks, how you completed them, challenges faced, how you overcame them,
    and the rules you followed. Leave the TODO open — only the user closes it.
-8. **Wait for confirmation:** After reporting completion, wait for the user to
+1. **Wait for confirmation:** After reporting completion, wait for the user to
    confirm before starting the next TODO.
