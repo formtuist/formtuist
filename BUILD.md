@@ -116,9 +116,7 @@ first module:
 - `test` → `pytest -x -s -vv`
 - `test-parallel` → `pytest -x -s -vv -n auto -p no:sugar`
 - `test-silent` → `pytest -x --show-capture=no -n auto`
-- `test-coverage` → `pytest -s --cov=formtuitous --cov-branch
-  --cov-fail-under={coveragefailunder}
-  --cov-report=term-missing tests/`
+- `test-coverage` → `pytest -s --cov=formtuitous --cov-branch --cov-fail-under={coveragefailunder} --cov-report=term-missing tests/`
 - `test-propertybased` → `pytest -x -s -vv -m propertybased`
 - `test-not-propertybased` → `pytest -x -s -vv -m 'not propertybased'`
 - `display` → `uv run formtuitous display`
@@ -247,6 +245,12 @@ ______________________________________________________________________
 | `rating` | `RadioSet` (horizontal) or `Select` | `INTEGER` |
 | `date` | `Input` + date validator | `TEXT` (ISO 8601) |
 | `yes_no` | `Switch` or `Checkbox` | `INTEGER` (0/1) |
+
+Each question accepts a `randomize` field that defaults to `true`. When
+`config.randomize_questions` is enabled, a question with `randomize` set
+to `false` keeps its exact file position while the remaining questions
+are shuffled into the other positions. This suits questions that only
+make sense at a fixed point, such as a closing confidence rating.
 
 ### 2.3 Grading Fields
 
