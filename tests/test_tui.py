@@ -9,6 +9,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from pygments.styles import ClassNotFound
+from rich.syntax import Syntax
 from textual._context import NoActiveAppError
 from textual.app import App
 from textual.widgets import (
@@ -1593,7 +1594,7 @@ class TestSubmitScreen:
                 review_static = next(
                     w
                     for w in screen.query(Static)
-                    if "Your answer:" in str(w.content)
+                    if "very long" in str(w.content)
                 )
                 assert review_static.size.width <= review.content_size.width
                 assert review_static.size.height > 1
@@ -1713,6 +1714,45 @@ class TestSubmitScreen:
                 review = screen.query_one("#grade-review")
                 assert review.styles.scrollbar_size_vertical == 1
                 assert screen.styles.scrollbar_size_vertical == 1
+
+        asyncio.run(run())
+
+    def test_compose_highlights_code_answers(self) -> None:
+        """Code-question answers render highlighted with no blank line."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Q",
+                questions=[
+                    ShortTextQuestion(
+                        id="a",
+                        text="What is the output?",
+                        type="short_text",
+                        correct_answer="[0, 1]",
+                        points=GRADE_POINTS,
+                        grading_type="exact",
+                        code=CodeBlock(
+                            language="python", content="print([0, 1])\n"
+                        ),
+                    ),
+                ],
+            )
+            report = grade_response(form, {"a": "wrong"})
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                screen = SubmitScreen(
+                    form, Path("/tmp/test.db"), grade_report=report
+                )
+                await app.push_screen(screen)
+                syntaxes = [
+                    s.content
+                    for s in screen.query(Static)
+                    if isinstance(s.content, Syntax)
+                ]
+                codes = [syntax.code for syntax in syntaxes]
+                assert "[0, 1]" in codes
+                assert "wrong" in codes
+                assert all(not code.endswith("\n") for code in codes)
 
         asyncio.run(run())
 

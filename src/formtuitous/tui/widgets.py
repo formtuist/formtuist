@@ -153,7 +153,7 @@ def make_code_widget(
     if question.code is None:
         return None
     syntax = Syntax(
-        question.code.content or "",
+        (question.code.content or "").rstrip(),
         question.code.language,
         theme=theme,
         line_numbers=True,

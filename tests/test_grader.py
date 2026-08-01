@@ -8,6 +8,7 @@ from formtuitous.grader import (
     BREAKDOWN_CORRECT_KEY,
     BREAKDOWN_ID_KEY,
     BREAKDOWN_KEY,
+    BREAKDOWN_LANGUAGE_KEY,
     BREAKDOWN_SCORE_KEY,
     MAX_KEY,
     PERCENTAGE_KEY,
@@ -536,3 +537,34 @@ class TestGradeResponse:
             labels=["1", "2", "3", "4", "5"],
         )
         assert _grade_question(question, 3) == (0, 0)
+
+    def test_breakdown_reports_code_language(self) -> None:
+        """The breakdown carries each question's code language."""
+        form = FormDefinition(
+            name="Code",
+            questions=[
+                ShortTextQuestion(
+                    id="q",
+                    text="Code?",
+                    type="short_text",
+                    correct_answer="x = 1",
+                    points=EXPECTED_POINTS,
+                    grading_type="exact",
+                    code=CodeBlock(language="python", content="x = 1"),
+                ),
+                ShortTextQuestion(
+                    id="plain",
+                    text="Name?",
+                    type="short_text",
+                    correct_answer="Paris",
+                    points=EXPECTED_POINTS,
+                    grading_type="exact",
+                ),
+            ],
+        )
+        report = grade_response(form, {"q": "wrong", "plain": "London"})
+        by_id = {
+            entry[BREAKDOWN_ID_KEY]: entry for entry in report[BREAKDOWN_KEY]
+        }
+        assert by_id["q"][BREAKDOWN_LANGUAGE_KEY] == "python"
+        assert by_id["plain"][BREAKDOWN_LANGUAGE_KEY] is None
