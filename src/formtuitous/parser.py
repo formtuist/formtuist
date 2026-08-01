@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.rule import Rule
 
-from formtuitous.schema import FormDefinition
+from formtuitous.schema import CODE_DIR_CONTEXT_KEY, FormDefinition
 
 # rich console directed to stderr so error reports stay separate from regular output
 console = Console(stderr=True)
@@ -65,11 +65,16 @@ def _resolve_image_paths(definition: FormDefinition, form_dir: Path) -> None:
                 question.image_path = str(candidate)
 
 
-def parse_form(path: Path) -> FormDefinition:
+def parse_form(
+    path: Path,
+    code_dir: Path | None = None,
+) -> FormDefinition:
     """Load, validate, and return a FormDefinition from a JSON file.
 
     Args:
         path: Path to the JSON form definition file.
+        code_dir: Directory that code file references are relative to.
+            Defaults to the form file's own directory when not given.
 
     Returns:
         A validated FormDefinition instance.
@@ -78,9 +83,12 @@ def parse_form(path: Path) -> FormDefinition:
         ValidationError: If the JSON content is invalid.
 
     """
-    raw = path.read_text(encoding="utf-8")
+    raw = path.read_text(encoding=ENCODING)
+    base_dir = code_dir if code_dir is not None else path.parent
     try:
-        definition = FormDefinition.model_validate_json(raw)
+        definition = FormDefinition.model_validate_json(
+            raw, context={CODE_DIR_CONTEXT_KEY: base_dir}
+        )
     except ValidationError as err:
         _pretty_print_errors(err)
         raise

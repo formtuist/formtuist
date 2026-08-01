@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from formtuitous.cli import _display_db_dir, _package_version, app, main
+from formtuitous.database import init_db, save_response
 
 # regex to strip ANSI SGR escape sequences that Rich embeds in captured output
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
@@ -174,14 +175,152 @@ class TestStubCommands:
             args = mock_run.call_args[0][0]
             assert "datasette" in args
 
-    def test_grade_with_files(self, tmp_path: Path) -> None:
-        """Grade command executes its stub body."""
+
+class TestGradeCommand:
+    """Tests for the `formtuitous grade` subcommand."""
+
+    def _quiz_form(self, tmp_path: Path) -> Path:
+        """Write a small graded quiz form to a temp file."""
+        return _write_form(
+            tmp_path / "quiz.json",
+            {
+                "name": "Quiz",
+                "questions": [
+                    {
+                        "id": "mc",
+                        "text": "Pick?",
+                        "type": "multiple_choice",
+                        "choices": ["a", "b"],
+                        "correct_answer": "a",
+                        "points": 10,
+                        "grading_type": "exact",
+                    },
+                    {
+                        "id": "text",
+                        "text": "Type?",
+                        "type": "short_text",
+                        "correct_answer": "def",
+                        "points": 10,
+                        "grading_type": "exact",
+                    },
+                ],
+            },
+        )
+
+    def _responses_db(self, tmp_path: Path) -> Path:
+        """Create a database with one saved response for the Quiz form."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        save_response(
+            conn,
+            "Quiz",
+            {"mc": "a", "text": "wrong"},
+            github_username="alice",
+        )
+        conn.close()
+        return db_path
+
+    def test_grade_shows_score_table(self, tmp_path: Path) -> None:
+        """Grade prints a table with per-question and total scores."""
+        form = self._quiz_form(tmp_path)
+        db = self._responses_db(tmp_path)
+        result = runner.invoke(app, ["grade", str(form), str(db)])
+        assert result.exit_code == 0
+        output = _plain(result)
+        assert "Grades for Quiz" in output
+        assert "Q1" in output
+        assert "Q2" in output
+        assert "alice" in output
+        assert "Total" in output
+
+    def test_grade_no_responses(self, tmp_path: Path) -> None:
+        """Grade reports when the database has no responses."""
+        form = self._quiz_form(tmp_path)
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        conn.close()
+        result = runner.invoke(app, ["grade", str(form), str(db_path)])
+        assert result.exit_code == 0
+        assert "No responses for Quiz." in _plain(result)
+
+    def test_grade_filters_responses_by_form_name(
+        self, tmp_path: Path
+    ) -> None:
+        """Grade only scores responses for the matching form."""
+        form = self._quiz_form(tmp_path)
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        save_response(conn, "Other Form", {"mc": "a", "text": "def"})
+        conn.close()
+        result = runner.invoke(app, ["grade", str(form), str(db_path)])
+        assert result.exit_code == 0
+        assert "No responses for Quiz." in _plain(result)
+
+    def test_grade_invalid_form(self, tmp_path: Path) -> None:
+        """Grade exits 1 when the form is invalid."""
+        form = _write_form(tmp_path / "bad.json", {"bad": "data"})
+        db = self._responses_db(tmp_path)
+        result = runner.invoke(app, ["grade", str(form), str(db)])
+        assert result.exit_code == 1
+
+    def test_check_with_code_dir(self, tmp_path: Path) -> None:
+        """Check resolves code files against --code-dir."""
+        code_dir = tmp_path / "code"
+        code_dir.mkdir()
+        (code_dir / "snippet.py").write_text("x = 1\n", encoding="utf-8")
+        form = {
+            "name": "T",
+            "questions": [
+                {
+                    "id": "q",
+                    "text": "Q?",
+                    "type": "short_text",
+                    "code": {"language": "python", "file": "snippet.py"},
+                },
+            ],
+        }
+        path = _write_form(tmp_path / "form.json", form)
+        result = runner.invoke(
+            app, ["check", str(path), "--code-dir", str(code_dir)]
+        )
+        assert result.exit_code == 0
+        assert "Status: valid" in _plain(result)
+
+    def test_check_fails_without_code_dir(self, tmp_path: Path) -> None:
+        """Check fails when code files are not next to the form."""
+        code_dir = tmp_path / "code"
+        code_dir.mkdir()
+        (code_dir / "snippet.py").write_text("x = 1\n", encoding="utf-8")
+        form = {
+            "name": "T",
+            "questions": [
+                {
+                    "id": "q",
+                    "text": "Q?",
+                    "type": "short_text",
+                    "code": {"language": "python", "file": "snippet.py"},
+                },
+            ],
+        }
+        path = _write_form(tmp_path / "form.json", form)
+        result = runner.invoke(app, ["check", str(path)])
+        assert result.exit_code == 1
+
+    def test_serve_with_code_dir(self, tmp_path: Path) -> None:
+        """Serve passes --code-dir to the display subprocess."""
+        code_dir = tmp_path / "code"
+        code_dir.mkdir()
         form = _write_form(
             tmp_path / "form.json", {"name": "T", "questions": []}
         )
-        db = _write_form(tmp_path / "resp.db", {"dummy": True})
-        result = runner.invoke(app, ["grade", str(form), str(db)])
-        assert result.exit_code == 0
+        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
+            result = runner.invoke(
+                app,
+                ["serve", str(form), "--code-dir", str(code_dir)],
+            )
+            assert result.exit_code == 0
+            cmd_arg = mock_server_cls.call_args[0][0]
+            assert f"--code-dir {code_dir}" in cmd_arg
 
 
 class TestExampleFormsCLI:

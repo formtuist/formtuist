@@ -34,11 +34,15 @@
 
 #form-header {
     margin-bottom: 2;
+    width: 100%;
+    text-wrap: wrap;
 }
 
 Label {
     margin-top: 1;
     margin-bottom: 1;
+    width: 100%;
+    text-wrap: wrap;
 }
 
 Input {
@@ -75,6 +79,31 @@ TextArea:focus {
 #confirm-tip {
     margin-top: 1;
     margin-bottom: 1;
+}
+
+#grade-score {
+    text-style: bold;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#grade-review {
+    height: 55%;
+    border: round $accent;
+    padding: 1;
+    margin-bottom: 1;
+    scrollbar-size-vertical: 1;
+}
+
+#grade-review Static {
+    margin-top: 1;
+    margin-bottom: 1;
+    width: 100%;
+    text-wrap: wrap;
+}
+
+.submit-screen {
+    scrollbar-size-vertical: 1;
 }
 
 #confirm-identity {

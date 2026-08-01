@@ -275,6 +275,15 @@ submission with an error message. Questions may also include optional
 `code` blocks (rendered with syntax highlighting), `url` links, and
 `image_path` references.
 
+Code blocks may be written inline (`content`) or reference a file that
+holds the source code (`file`) — handy for multi-line snippets, which
+keep their real formatting and need no escape characters. Relative file
+paths resolve against the form file's directory, or against `--code-dir`
+when that option is given. Text answers may also accept several code
+segments: `correct_answer` may be a string, one code block, or a list of
+code blocks; an optional `accepts` regex provides tolerant grading
+without ever being shown to students.
+
 When `randomize_questions` is enabled, every question is shuffled by
 default. Set `"randomize": false` on a question to keep it at its file
 position while the other questions shuffle around it — useful for a

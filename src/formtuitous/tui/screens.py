@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
+from rich.syntax import Syntax
 from textual._context import NoActiveAppError
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -16,9 +17,27 @@ from textual.widgets import Button, Header, Input, Label, Static
 
 from formtuitous.auth import GitHubIdentity, fetch_github_identity
 from formtuitous.database import init_db, save_response
-from formtuitous.schema import AuthProvider, FormDefinition, Question
+from formtuitous.grader import (
+    BREAKDOWN_ANSWER_KEY,
+    BREAKDOWN_CORRECT_ANSWER_KEY,
+    BREAKDOWN_CORRECT_KEY,
+    BREAKDOWN_KEY,
+    BREAKDOWN_TEXT_KEY,
+    MAX_KEY,
+    PERCENTAGE_KEY,
+    TOTAL_KEY,
+    grade_response,
+)
+from formtuitous.schema import (
+    AuthProvider,
+    CodeBlock,
+    FormDefinition,
+    NumericRange,
+    Question,
+)
 from formtuitous.tui.widgets import (
     CODE_THEME_AUTO,
+    CODE_THEME_FALLBACK_DARK,
     FormtuitousFooter,
     get_widget_value,
     is_widget_empty,
@@ -32,6 +51,23 @@ from formtuitous.tui.widgets import (
 SIDEBAR_TITLE_MAX = 25
 
 NEWLINE = "\n"
+
+# labels for the post-submission grade review
+GRADE_SCORE_PREFIX = "Score: "
+GRADE_PERCENT_SUFFIX = "%"
+GRADE_REVIEW_TITLE = "Incorrect answers"
+GRADE_ALL_CORRECT = "All answers correct!"
+GRADE_NO_GRADED = "This form has no auto-graded questions."
+GRADE_YOUR_ANSWER = "Your answer: "
+GRADE_CORRECT_ANSWER = "Correct answer: "
+GRADE_CORRECT_ANSWERS = "Correct answers: "
+GRADE_NO_ANSWER = "(no answer)"
+GRADE_LIST_SEPARATOR = ", "
+GRADE_RANGE_BETWEEN = "between "
+GRADE_RANGE_AND = " and "
+
+# css class used to style the submit screen's own scrollbars
+SUBMIT_SCREEN_CLASS = "submit-screen"
 
 
 # default seed for the pseudo-random number generator used when shuffling
@@ -50,6 +86,32 @@ def shuffle_questions(
         question if not question.randomize else next(movable_iter)
         for question in questions
     ]
+
+
+def _format_answer(value: Any) -> str:
+    """Render an answer value for display in the grade review."""
+    if value is None:
+        return GRADE_NO_ANSWER
+    if isinstance(value, CodeBlock):
+        return value.content or ""
+    if isinstance(value, NumericRange):
+        return (
+            f"{GRADE_RANGE_BETWEEN}{value.min:g}{GRADE_RANGE_AND}{value.max:g}"
+        )
+    if isinstance(value, list):
+        return GRADE_LIST_SEPARATOR.join(str(item) for item in value)
+    return str(value)
+
+
+def _code_static(block: CodeBlock, theme: str) -> Static:
+    """Return a syntax-highlighted Static for a code block."""
+    syntax = Syntax(
+        block.content or "",
+        block.language,
+        theme=theme,
+        line_numbers=True,
+    )
+    return Static(syntax)
 
 
 class WelcomeScreen(Screen):
@@ -196,7 +258,7 @@ class FormScreen(Screen):
 
             widget.update(
                 Syntax(
-                    question.code.content,
+                    question.code.content or "",
                     question.code.language,
                     theme=theme_name,
                     line_numbers=True,
@@ -307,7 +369,12 @@ class FormScreen(Screen):
             identity.profile_url if identity is not None else None,
         )
         conn.close()
-        self.app.push_screen(SubmitScreen(self.form, self.db_path, identity))
+        grade_report = None
+        if self.form.config.auto_grade:
+            grade_report = grade_response(self.form, answers)
+        self.app.push_screen(
+            SubmitScreen(self.form, self.db_path, identity, grade_report)
+        )
 
     def action_focus_first_input(self) -> None:
         """Focus the auth token field or the first question input."""
@@ -356,12 +423,15 @@ class SubmitScreen(Screen):
         form: FormDefinition,
         db_path: Path,
         identity: GitHubIdentity | None = None,
+        grade_report: dict[str, Any] | None = None,
     ) -> None:
-        """Store the form definition, database path, and optional identity."""
+        """Store the form, database path, identity, and grade report."""
         self.form = form
         self.db_path = db_path
         self.identity = identity
+        self.grade_report = grade_report
         super().__init__()
+        self.add_class(SUBMIT_SCREEN_CLASS)
 
     def compose(self) -> ComposeResult:
         """Render the confirmation message with actions."""
@@ -377,6 +447,8 @@ class SubmitScreen(Screen):
                 f" ({self.identity.profile_url})",
                 id="confirm-identity",
             )
+        if self.grade_report is not None:
+            yield from self._compose_grade_review()
         yield Static(
             "[dim]Tip: Press Ctrl+P for the command palette.[/dim]",
             id="confirm-tip",
@@ -384,6 +456,57 @@ class SubmitScreen(Screen):
         yield Button("Restart", id="restart", variant="primary")
         yield Button("Quit", id="quit", variant="default")
         yield FormtuitousFooter()
+
+    def _compose_grade_review(self) -> ComposeResult:
+        """Yield the score summary and the incorrect-answer review."""
+        assert self.grade_report is not None
+        total = self.grade_report[TOTAL_KEY]
+        max_total = self.grade_report[MAX_KEY]
+        percentage = self.grade_report[PERCENTAGE_KEY]
+        breakdown = self.grade_report[BREAKDOWN_KEY]
+        yield Static(
+            f"{GRADE_SCORE_PREFIX}{total} / {max_total}"
+            f" ({percentage:g}{GRADE_PERCENT_SUFFIX})",
+            id="grade-score",
+        )
+        incorrect = [
+            entry for entry in breakdown if not entry[BREAKDOWN_CORRECT_KEY]
+        ]
+        theme = self._code_theme()
+        with VerticalScroll(id="grade-review"):
+            if not breakdown:
+                yield Static(GRADE_NO_GRADED)
+            elif not incorrect:
+                yield Static(GRADE_ALL_CORRECT)
+            else:
+                yield Static(f"[bold]{GRADE_REVIEW_TITLE}[/bold]")
+                for entry in incorrect:
+                    yield Static(
+                        f"[bold]{entry[BREAKDOWN_TEXT_KEY]}[/bold]"
+                        f"{NEWLINE}{GRADE_YOUR_ANSWER}"
+                        f"{_format_answer(entry[BREAKDOWN_ANSWER_KEY])}"
+                    )
+                    answer = entry[BREAKDOWN_CORRECT_ANSWER_KEY]
+                    if isinstance(answer, CodeBlock):
+                        yield Static(GRADE_CORRECT_ANSWER)
+                        yield _code_static(answer, theme)
+                    elif isinstance(answer, list) and all(
+                        isinstance(item, CodeBlock) for item in answer
+                    ):
+                        yield Static(GRADE_CORRECT_ANSWERS)
+                        for block in answer:
+                            yield _code_static(block, theme)
+                    else:
+                        yield Static(
+                            f"{GRADE_CORRECT_ANSWER}{_format_answer(answer)}"
+                        )
+
+    def _code_theme(self) -> str:
+        """Return a Pygments theme matching the app when one is active."""
+        try:
+            return resolve_code_theme(self.app)
+        except NoActiveAppError:
+            return CODE_THEME_FALLBACK_DARK
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle restart or quit."""

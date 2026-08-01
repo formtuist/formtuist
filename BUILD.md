@@ -271,7 +271,10 @@ Each question may optionally include:
 - For `numeric`: `correct_answer` is a number (exact match) or a dict with
   `min`/`max` for range grading.
 - For `short_text`/`paragraph`: `grading_type` selects exact, regex, or
-  substring matching.
+  substring matching. `correct_answer` may be a plain string, a code block,
+  or a list of code blocks when several answers are acceptable. An optional
+  `accepts` regex holds a tolerant pattern used only for grading when
+  `grading_type` is `regex`; it is never shown to students.
 
 ### 2.4 Extra Media Fields
 
@@ -287,6 +290,22 @@ Each question may optionally include:
   "url": "https://example.com/reference"
 }
 ```
+
+A code block may instead reference a file that holds the source code, so
+multi-line snippets can be pasted with real formatting and no escape
+characters. Relative file paths resolve against the form file's directory,
+or against the `--code-dir` option when it is given:
+
+```json
+{
+  "code": {
+    "language": "python",
+    "file": "answers/snippet.py"
+  }
+}
+```
+
+Each block provides exactly one of `content` or `file`.
 
 - `code` renders via Textual's `Markdown` widget with fenced code blocks.
 - `image_path` is resolved relative to the form JSON file's directory.
@@ -841,8 +860,10 @@ WelcomeScreen  --[Start button]-->  FormScreen
   --[Ctrl+S or Submit]-->  SubmitScreen
 ```
 
-If `form.config.auto_grade` is true, `SubmitScreen` includes a
-"View Grade" button that pushes `GradeScreen` with the grading results.
+If `form.config.auto_grade` is true, `SubmitScreen` shows the score and
+a review of every question the student answered incorrectly, including
+the student's answer and the correct answer. When all answers are
+correct, it shows an all-correct message instead.
 
 ### 4.6.5 Data Passing — `FormApp` Constructor
 

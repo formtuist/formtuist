@@ -14,6 +14,7 @@ from textual.app import App
 from textual.widgets import (
     Footer,
     Input,
+    Label,
     RadioSet,
     SelectionList,
     Static,
@@ -22,6 +23,7 @@ from textual.widgets import (
 )
 
 from formtuitous.auth import GitHubIdentity
+from formtuitous.grader import TOTAL_KEY, grade_response
 from formtuitous.schema import (
     AuthProvider,
     CheckboxQuestion,
@@ -31,6 +33,7 @@ from formtuitous.schema import (
     FormDefinition,
     MultipleChoiceQuestion,
     NumericQuestion,
+    NumericRange,
     ParagraphQuestion,
     Question,
     RatingQuestion,
@@ -56,9 +59,22 @@ from formtuitous.tui.widgets import (
 MIN_WELCOME_CHILDREN = 3
 MIN_SUBMIT_CHILDREN = 3
 
+# project stylesheet needed to verify text-wrapping behavior
+STYLESHEET_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "src"
+    / "formtuitous"
+    / "tui"
+    / "styles.tcss"
+)
+
 # seed and question count used for deterministic shuffle tests
 SHUFFLE_SEED = 42
 SHUFFLE_QUESTION_COUNT = 8
+
+# points and total for the auto-grading submit tests
+GRADE_POINTS = 10
+GRADE_TOTAL = 10
 
 # small list and seed range for the permutation-reachability check
 SMALL_SHUFFLE_COUNT = 3
@@ -279,6 +295,73 @@ class TestFormScreen:
             mock_init.return_value, "Test", {"q1": ""}, None, None
         )
         mock_app.push_screen.assert_called_once()
+        mock_notify.assert_not_called()
+
+    def test_action_submit_skips_grading_when_disabled(
+        self, minimal_form: FormDefinition
+    ) -> None:
+        """action_submit sends no report when auto-grading is off."""
+        screen = FormScreen(minimal_form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "Alice"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuitous.tui.screens.init_db"):
+                    with patch(
+                        "formtuitous.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        asyncio.run(screen.action_submit())
+        mock_app.push_screen.assert_called_once()
+        pushed = mock_app.push_screen.call_args[0][0]
+        assert isinstance(pushed, SubmitScreen)
+        assert pushed.grade_report is None
+        mock_notify.assert_not_called()
+
+    def test_action_submit_auto_grades(self) -> None:
+        """action_submit passes a grade report when auto-grading is on."""
+        form = FormDefinition(
+            name="Auto",
+            config=FormConfig(auto_grade=True),
+            questions=[
+                ShortTextQuestion(
+                    id="q1",
+                    text="Capital?",
+                    type="short_text",
+                    correct_answer="Paris",
+                    points=GRADE_POINTS,
+                    grading_type="exact",
+                ),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "Paris"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuitous.tui.screens.init_db"):
+                    with patch(
+                        "formtuitous.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        asyncio.run(screen.action_submit())
+        mock_app.push_screen.assert_called_once()
+        pushed = mock_app.push_screen.call_args[0][0]
+        assert isinstance(pushed, SubmitScreen)
+        assert pushed.grade_report is not None
+        assert pushed.grade_report[TOTAL_KEY] == GRADE_TOTAL
         mock_notify.assert_not_called()
 
     def test_action_submit_with_github_auth(self) -> None:
@@ -829,6 +912,36 @@ class TestFormScreen:
         screen.code_widgets["a"] = mock_static
         screen._update_code_widgets("monokai")
         mock_static.update.assert_called_once()
+
+    def test_long_question_text_wraps(self) -> None:
+        """Long question labels wrap instead of being clipped."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Long",
+                questions=[
+                    ShortTextQuestion(
+                        id="q1",
+                        text=("A very long question " * 12).strip(),
+                        type="short_text",
+                    ),
+                ],
+            )
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test() as pilot:
+                screen = FormScreen(form, Path(":memory:"))
+                await app.push_screen(screen)
+                await pilot.pause()
+                scroll = screen.query_one("#question-scroll")
+                label = next(
+                    w
+                    for w in screen.query(Label)
+                    if "very long" in str(w.content)
+                )
+                assert label.size.width <= scroll.content_size.width
+                assert label.size.height > 1
+
+        asyncio.run(run())
 
 
 class TestShuffleQuestions:
@@ -1450,6 +1563,253 @@ class TestSubmitScreen:
             mock_prop.return_value = mock_app
             screen.action_restart()
         mock_app.push_screen.assert_called_once()
+
+    def test_review_long_question_wraps(self) -> None:
+        """The grade review wraps long question text."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Q",
+                questions=[
+                    ShortTextQuestion(
+                        id="a",
+                        text=("A very long question " * 12).strip(),
+                        type="short_text",
+                        correct_answer="answer",
+                        points=GRADE_POINTS,
+                        grading_type="exact",
+                    ),
+                ],
+            )
+            report = grade_response(form, {"a": "wrong"})
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test() as pilot:
+                screen = SubmitScreen(
+                    form, Path("/tmp/test.db"), grade_report=report
+                )
+                await app.push_screen(screen)
+                await pilot.pause()
+                review = screen.query_one("#grade-review")
+                review_static = next(
+                    w
+                    for w in screen.query(Static)
+                    if "Your answer:" in str(w.content)
+                )
+                assert review_static.size.width <= review.content_size.width
+                assert review_static.size.height > 1
+
+        asyncio.run(run())
+
+    def test_compose_omits_review_without_report(self) -> None:
+        """SubmitScreen shows no review when grading is disabled."""
+        form = FormDefinition(name="Test", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        children = list(screen.compose())
+        texts = [str(c.content) for c in children if hasattr(c, "content")]
+        assert not any("Incorrect answers" in t for t in texts)
+        assert not any("Score:" in t for t in texts)
+
+    def test_compose_shows_wrong_answers(self) -> None:
+        """SubmitScreen lists wrong questions with correct answers."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Quiz",
+                questions=[
+                    ShortTextQuestion(
+                        id="a",
+                        text="Capital of France?",
+                        type="short_text",
+                        correct_answer="Paris",
+                        points=GRADE_POINTS,
+                        grading_type="exact",
+                    ),
+                    ShortTextQuestion(
+                        id="b",
+                        text="Capital of Italy?",
+                        type="short_text",
+                        correct_answer="Rome",
+                        points=GRADE_POINTS,
+                        grading_type="exact",
+                    ),
+                ],
+            )
+            report = grade_response(form, {"a": "Paris", "b": "London"})
+            app: App = App()
+            async with app.run_test():
+                screen = SubmitScreen(
+                    form, Path("/tmp/test.db"), grade_report=report
+                )
+                await app.push_screen(screen)
+                rendered = " ".join(
+                    str(s.content) for s in screen.query(Static)
+                )
+                assert "Score: 10 / 20 (50%)" in rendered
+                assert "Incorrect answers" in rendered
+                assert "Capital of Italy?" in rendered
+                assert "Your answer: London" in rendered
+                assert "Correct answer: Rome" in rendered
+                assert "Capital of France?" not in rendered
+
+        asyncio.run(run())
+
+    def test_compose_shows_all_correct_message(self) -> None:
+        """SubmitScreen celebrates when every answer is correct."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Quiz",
+                questions=[
+                    ShortTextQuestion(
+                        id="a",
+                        text="Capital of France?",
+                        type="short_text",
+                        correct_answer="Paris",
+                        points=GRADE_POINTS,
+                        grading_type="exact",
+                    ),
+                ],
+            )
+            report = grade_response(form, {"a": "Paris"})
+            app: App = App()
+            async with app.run_test():
+                screen = SubmitScreen(
+                    form, Path("/tmp/test.db"), grade_report=report
+                )
+                await app.push_screen(screen)
+                rendered = " ".join(
+                    str(s.content) for s in screen.query(Static)
+                )
+                assert "All answers correct!" in rendered
+                assert "Correct answer:" not in rendered
+
+        asyncio.run(run())
+
+    def test_review_uses_thin_scrollbar(self) -> None:
+        """The grade review uses a thin vertical scrollbar."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Q",
+                questions=[
+                    ShortTextQuestion(
+                        id="a",
+                        text="Capital of France?",
+                        type="short_text",
+                        correct_answer="Paris",
+                        points=GRADE_POINTS,
+                        grading_type="exact",
+                    ),
+                ],
+            )
+            report = grade_response(form, {"a": "London"})
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test() as pilot:
+                screen = SubmitScreen(
+                    form, Path("/tmp/test.db"), grade_report=report
+                )
+                await app.push_screen(screen)
+                await pilot.pause()
+                review = screen.query_one("#grade-review")
+                assert review.styles.scrollbar_size_vertical == 1
+                assert screen.styles.scrollbar_size_vertical == 1
+
+        asyncio.run(run())
+
+    def test_compose_handles_no_graded_questions(self) -> None:
+        """SubmitScreen notes when the form has no graded questions."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Plain",
+                questions=[
+                    RatingQuestion(
+                        id="r",
+                        text="Rate?",
+                        type="rating",
+                        min=1,
+                        max=5,
+                        labels=["1", "2", "3", "4", "5"],
+                    ),
+                ],
+            )
+            report = grade_response(form, {"r": 3})
+            app: App = App()
+            async with app.run_test():
+                screen = SubmitScreen(
+                    form, Path("/tmp/test.db"), grade_report=report
+                )
+                await app.push_screen(screen)
+                rendered = " ".join(
+                    str(s.content) for s in screen.query(Static)
+                )
+                assert "no auto-graded questions" in rendered
+
+        asyncio.run(run())
+
+    def test_compose_shows_plain_list_answers(self) -> None:
+        """Checkbox answers render as plain text, not code blocks."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Q",
+                questions=[
+                    CheckboxQuestion(
+                        id="a",
+                        text="Immutable?",
+                        type="checkbox",
+                        choices=["list", "tuple", "str"],
+                        correct_answer=["tuple", "str"],
+                        points=GRADE_POINTS,
+                        grading_type="exact",
+                    ),
+                ],
+            )
+            report = grade_response(form, {"a": ["list"]})
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                screen = SubmitScreen(
+                    form, Path("/tmp/test.db"), grade_report=report
+                )
+                await app.push_screen(screen)
+                rendered = " ".join(
+                    str(s.content) for s in screen.query(Static)
+                )
+                assert "Correct answer: tuple, str" in rendered
+                assert "Correct answers:" not in rendered
+
+        asyncio.run(run())
+
+    def test_compose_shows_range_answer(self) -> None:
+        """Numeric range answers render as a readable range."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Q",
+                questions=[
+                    NumericQuestion(
+                        id="a",
+                        text="Depth?",
+                        type="numeric",
+                        correct_answer=NumericRange(min=990, max=1010),
+                        points=GRADE_POINTS,
+                        grading_type="exact",
+                    ),
+                ],
+            )
+            report = grade_response(form, {"a": "500"})
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                screen = SubmitScreen(
+                    form, Path("/tmp/test.db"), grade_report=report
+                )
+                await app.push_screen(screen)
+                rendered = " ".join(
+                    str(s.content) for s in screen.query(Static)
+                )
+                assert "Correct answer: between 990 and 1010" in rendered
+
+        asyncio.run(run())
 
 
 class TestFormtuitousApp:

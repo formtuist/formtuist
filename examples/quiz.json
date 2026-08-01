@@ -81,7 +81,7 @@
       "grading_type": "exact",
       "code": {
         "language": "python",
-        "content": "def sum_even(n):\n    total = 0\n    for i in range(n + 1):\n        if i % 2 == 1:\n            total += i\n    return total"
+        "file": "answers/q5_sum_even_buggy.py"
       }
     },
     {
@@ -103,7 +103,7 @@
       "grading_type": "exact",
       "code": {
         "language": "python",
-        "content": "word = input(\"Enter a word: \")\nvowels = \"aeiou\"\nfor char in word.lower():\n    if char in vowels:\n        count += 1\ncount = 0\nprint(f\"Vowels: {count}\")"
+        "file": "answers/q6_vowel_counter_scrambled.py"
       }
     },
     {
@@ -111,7 +111,21 @@
       "text": "Write a lambda expression that squares its argument using the multiplication operator. Several spellings are accepted, so watch your spacing and the ** operator.",
       "type": "short_text",
       "required": true,
-      "correct_answer": "^lambda\\s+\\w+\\s*:\\s*\\w+\\s*(\\*\\*\\s*2|\\*\\s*\\w+)\\s*$",
+      "correct_answer": [
+        {
+          "language": "python",
+          "file": "answers/q7_lambda_square_a.py"
+        },
+        {
+          "language": "python",
+          "file": "answers/q7_lambda_square_b.py"
+        },
+        {
+          "language": "python",
+          "file": "answers/q7_lambda_square_c.py"
+        }
+      ],
+      "accepts": "^lambda\\s+\\w+\\s*:\\s*\\w+\\s*(\\*\\*\\s*2|\\*\\s*\\w+)\\s*$",
       "points": 15,
       "grading_type": "regex"
     },
@@ -145,7 +159,7 @@
       "grading_type": "exact",
       "code": {
         "language": "python",
-        "content": "d = {\"a\": 1, \"b\": 2, \"a\": 3}\nprint(len(d))"
+        "file": "answers/q9_duplicate_keys.py"
       }
     },
     {

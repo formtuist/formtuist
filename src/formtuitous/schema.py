@@ -1,9 +1,17 @@
 """Pydantic models for validating JSON form definitions."""
 
+import re
 from enum import Enum
+from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 
 class AuthProvider(str, Enum):
@@ -38,11 +46,65 @@ class FormConfig(BaseModel):
     auth: AuthProvider | None = None
 
 
+# validation context key carrying the base directory for code files
+CODE_DIR_CONTEXT_KEY = "code_dir"
+
+# encoding used when loading code from referenced files
+CODE_ENCODING = "utf-8"
+
+
 class CodeBlock(BaseModel):
     """A source code snippet displayed alongside a question."""
 
     language: str
-    content: str
+    content: str | None = None
+    file: str | None = None
+
+    # a code block is either written inline or loaded from a file
+    @model_validator(mode="after")
+    def _load_content(self, info: ValidationInfo) -> "CodeBlock":
+        """Load file-based code, or require exactly one source."""
+        if self.file is not None:
+            if self.content is not None:
+                raise ValueError("provide either content or file, not both")
+            candidate = self._code_path(info)
+            try:
+                self.content = candidate.read_text(encoding=CODE_ENCODING)
+            except OSError as error:
+                raise ValueError(
+                    f"cannot read code file {candidate}: {error}"
+                ) from error
+        elif self.content is None:
+            raise ValueError("provide exactly one of content or file")
+        return self
+
+    def _code_path(self, info: ValidationInfo) -> Path:
+        """Resolve a file reference against the code base directory."""
+        candidate = Path(self.file or "")
+        if candidate.is_absolute():
+            return candidate
+        base = Path.cwd()
+        if info.context is not None:
+            code_dir = info.context.get(CODE_DIR_CONTEXT_KEY)
+            if code_dir is not None:
+                base = Path(code_dir)
+        return base / candidate
+
+
+# a code answer may be a single block or several acceptable segments
+CodeAnswer = str | CodeBlock | list[CodeBlock]
+
+
+def _validate_accepts(v: str | None) -> str | None:
+    """Return the pattern when it compiles, otherwise raise a ValueError."""
+    if v is not None:
+        try:
+            re.compile(v)
+        except re.error as error:
+            raise ValueError(
+                f"accepts is not a valid regex: {error}"
+            ) from error
+    return v
 
 
 class _QuestionBase(BaseModel):
@@ -62,18 +124,34 @@ class ShortTextQuestion(_QuestionBase):
     """A single-line text input question."""
 
     type: Literal["short_text"]
-    correct_answer: str | None = None
+    correct_answer: CodeAnswer | None = None
+    accepts: str | None = None
     points: int = 0
     grading_type: Literal["exact", "regex", "contains"] | None = None
+
+    # ensure an accepts pattern is a usable regular expression
+    @field_validator("accepts")
+    @classmethod
+    def _accepts_is_valid_regex(cls, v: str | None) -> str | None:
+        """Validate that an accepts pattern compiles as a regex."""
+        return _validate_accepts(v)
 
 
 class ParagraphQuestion(_QuestionBase):
     """A multi-line text input question."""
 
     type: Literal["paragraph"]
-    correct_answer: str | None = None
+    correct_answer: CodeAnswer | None = None
+    accepts: str | None = None
     points: int = 0
     grading_type: Literal["exact", "regex", "contains"] | None = None
+
+    # ensure an accepts pattern is a usable regular expression
+    @field_validator("accepts")
+    @classmethod
+    def _accepts_is_valid_regex(cls, v: str | None) -> str | None:
+        """Validate that an accepts pattern compiles as a regex."""
+        return _validate_accepts(v)
 
 
 MIN_CHOICES_FOR_MULTIPLE_CHOICE = 2

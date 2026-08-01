@@ -9,7 +9,23 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
-from formtuitous.database import get_default_db_dir, resolve_db_path
+from formtuitous.database import (
+    ANSWERS_JSON_COLUMN,
+    GITHUB_USERNAME_COLUMN,
+    ID_COLUMN,
+    get_default_db_dir,
+    get_responses,
+    init_db,
+    resolve_db_path,
+)
+from formtuitous.grader import (
+    BREAKDOWN_KEY,
+    BREAKDOWN_SCORE_KEY,
+    MAX_KEY,
+    PERCENTAGE_KEY,
+    TOTAL_KEY,
+    grade_response,
+)
 from formtuitous.parser import parse_form
 from formtuitous.version import FORMTUITOUS_VERSION
 
@@ -32,9 +48,24 @@ AUTO_GRADE_SUFFIX = ")"
 QUESTIONS_SEPARATOR = " required, "
 QUESTIONS_SUFFIX = " optional)"
 
+# constants for the grade command output
+GRADE_TABLE_TITLE_PREFIX = "Grades for "
+GRADE_COLUMN_ID = "ID"
+GRADE_COLUMN_STUDENT = "Student"
+GRADE_COLUMN_TOTAL = "Total"
+GRADE_COLUMN_MAX = "Max"
+GRADE_COLUMN_PERCENT = "%"
+GRADE_QUESTION_COLUMN_PREFIX = "Q"
+GRADE_UNKNOWN_STUDENT = "-"
+GRADE_NO_RESPONSES_PREFIX = "No responses for "
+
 # constants for shared typer argument help strings
 FORM_PATH_HELP = "Path to a JSON form definition file."
 RESPONSES_PATH_HELP = "Path to a responses SQLite database."
+CODE_DIR_HELP = (
+    "Directory that code file references are relative to "
+    "(default: the form file's directory)."
+)
 APP_HELP = "Creating forms with JSON and a TUI is an unexpected success for programmers and agents!"
 
 app = typer.Typer(
@@ -91,11 +122,19 @@ def check(
         dir_okay=False,
         readable=True,
     ),
+    code_dir: Path = typer.Option(
+        None,
+        "--code-dir",
+        help=CODE_DIR_HELP,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+    ),
 ) -> None:
     """Validate a form JSON file and print a summary."""
     # attempt to parse and validate the form; exit on failure
     try:
-        form = parse_form(form_path)
+        form = parse_form(form_path, code_dir)
     except ValidationError:
         raise typer.Exit(code=1)
     # count questions by required status and grading presence
@@ -171,11 +210,19 @@ def display(
         "--database-name",
         help=DB_NAME_HELP,
     ),
+    code_dir: Path = typer.Option(
+        None,
+        "--code-dir",
+        help=CODE_DIR_HELP,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+    ),
 ) -> None:
     """Display a form in the TUI and collect responses."""
     # validate the form before launching the TUI
     try:
-        parse_form(form_path)
+        parse_form(form_path, code_dir)
     except ValidationError:
         raise typer.Exit(code=1)
 
@@ -188,7 +235,7 @@ def display(
 
 
 @app.command()
-def serve(
+def serve(  # noqa: PLR0913, PLR0917
     form_path: Path = typer.Argument(
         ...,
         help=FORM_PATH_HELP,
@@ -217,11 +264,19 @@ def serve(
         "--port",
         help=PORT_HELP,
     ),
+    code_dir: Path = typer.Option(
+        None,
+        "--code-dir",
+        help=CODE_DIR_HELP,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+    ),
 ) -> None:
     """Serve a form as a web application via textual-serve."""
     # validate the form before launching the server
     try:
-        form = parse_form(form_path)
+        form = parse_form(form_path, code_dir)
     except ValidationError:
         raise typer.Exit(code=1)
 
@@ -232,6 +287,8 @@ def serve(
         cmd += f" --db-dir {db_dir}"
     if database_name is not None:
         cmd += f" --database-name {database_name}"
+    if code_dir is not None:
+        cmd += f" --code-dir {code_dir}"
     templates_dir = Path(__file__).parent / "templates"
     server = FormtuitousServer(
         cmd,
@@ -344,8 +401,61 @@ def grade(
         dir_okay=False,
         readable=True,
     ),
+    code_dir: Path = typer.Option(
+        None,
+        "--code-dir",
+        help=CODE_DIR_HELP,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+    ),
 ) -> None:
     """Grade responses against a form with correct answers."""
+    try:
+        form = parse_form(form_path, code_dir)
+    except ValidationError:
+        raise typer.Exit(code=1)
+    conn = init_db(responses_path)
+    responses = get_responses(conn, form_name=form.name)
+    conn.close()
+    if not responses:
+        console.print(f"{GRADE_NO_RESPONSES_PREFIX}{form.name}.")
+        raise typer.Exit(code=0)
+    graded = [
+        question
+        for question in form.questions
+        if getattr(question, "correct_answer", None) is not None
+    ]
+    table = Table(
+        title=f"{GRADE_TABLE_TITLE_PREFIX}{form.name}",
+        header_style="bold",
+    )
+    table.add_column(GRADE_COLUMN_ID, justify="right")
+    table.add_column(GRADE_COLUMN_STUDENT)
+    for index, _question in enumerate(graded, start=1):
+        table.add_column(
+            f"{GRADE_QUESTION_COLUMN_PREFIX}{index}", justify="right"
+        )
+    table.add_column(GRADE_COLUMN_TOTAL, justify="right")
+    table.add_column(GRADE_COLUMN_MAX, justify="right")
+    table.add_column(GRADE_COLUMN_PERCENT, justify="right")
+    for response in responses:
+        report = grade_response(form, response[ANSWERS_JSON_COLUMN])
+        breakdown = report[BREAKDOWN_KEY]
+        row = [
+            str(response[ID_COLUMN]),
+            response[GITHUB_USERNAME_COLUMN] or GRADE_UNKNOWN_STUDENT,
+        ]
+        row.extend(str(entry[BREAKDOWN_SCORE_KEY]) for entry in breakdown)
+        row.extend(
+            [
+                str(report[TOTAL_KEY]),
+                str(report[MAX_KEY]),
+                f"{report[PERCENTAGE_KEY]:g}",
+            ]
+        )
+        table.add_row(*row)
+    console.print(table)
     raise typer.Exit(code=0)
 
 

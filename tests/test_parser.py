@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from formtuitous.parser import parse_form
+from formtuitous.schema import CODE_DIR_CONTEXT_KEY, CodeBlock
 
 ALL_QUESTION_TYPES_COUNT = 8
 
@@ -154,3 +155,136 @@ class TestImagePathResolution:
         form = parse_form(path)
         question = form.questions[0]
         assert question.image_path is None
+
+
+class TestCodeFileReferences:
+    """Tests for loading code blocks from referenced files."""
+
+    def test_code_file_loaded(self, tmp_path: Path) -> None:
+        """A code block referencing a file loads its content."""
+        answers = tmp_path / "answers"
+        answers.mkdir()
+        (answers / "snippet.py").write_text("x = 1\n", encoding="utf-8")
+        data = {
+            "name": "T",
+            "questions": [
+                {
+                    "id": "q",
+                    "text": "Q?",
+                    "type": "short_text",
+                    "code": {
+                        "language": "python",
+                        "file": "answers/snippet.py",
+                    },
+                },
+            ],
+        }
+        path = _write_form(tmp_path, data)
+        form = parse_form(path)
+        question = form.questions[0]
+        assert question.code is not None
+        assert question.code.content == "x = 1\n"
+
+    def test_correct_answer_files_loaded(self, tmp_path: Path) -> None:
+        """Answer segments referencing files load their content."""
+        answers = tmp_path / "answers"
+        answers.mkdir()
+        (answers / "a.py").write_text("lambda x: x * x\n", encoding="utf-8")
+        (answers / "b.py").write_text("lambda x: x ** 2\n", encoding="utf-8")
+        data = {
+            "name": "T",
+            "questions": [
+                {
+                    "id": "q",
+                    "text": "Q?",
+                    "type": "short_text",
+                    "correct_answer": [
+                        {"language": "python", "file": "answers/a.py"},
+                        {"language": "python", "file": "answers/b.py"},
+                    ],
+                },
+            ],
+        }
+        path = _write_form(tmp_path, data)
+        form = parse_form(path)
+        question = form.questions[0]
+        answer = getattr(question, "correct_answer", None)
+        assert isinstance(answer, list)
+        contents = [(block.content or "").strip() for block in answer]
+        assert contents == ["lambda x: x * x", "lambda x: x ** 2"]
+
+    def test_code_dir_override(self, tmp_path: Path) -> None:
+        """parse_form resolves file references against code_dir."""
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        (shared / "snippet.py").write_text("y = 2\n", encoding="utf-8")
+        data = {
+            "name": "T",
+            "questions": [
+                {
+                    "id": "q",
+                    "text": "Q?",
+                    "type": "short_text",
+                    "code": {"language": "python", "file": "snippet.py"},
+                },
+            ],
+        }
+        path = _write_form(tmp_path, data)
+        form = parse_form(path, code_dir=shared)
+        question = form.questions[0]
+        assert question.code is not None
+        assert question.code.content == "y = 2\n"
+
+    def test_absolute_code_file(self, tmp_path: Path) -> None:
+        """An absolute file reference loads regardless of code_dir."""
+        snippet = tmp_path / "snippet.py"
+        snippet.write_text("z = 3\n", encoding="utf-8")
+        data = {
+            "name": "T",
+            "questions": [
+                {
+                    "id": "q",
+                    "text": "Q?",
+                    "type": "short_text",
+                    "code": {
+                        "language": "python",
+                        "file": str(snippet),
+                    },
+                },
+            ],
+        }
+        path = _write_form(tmp_path, data)
+        form = parse_form(path)
+        question = form.questions[0]
+        assert question.code is not None
+        assert question.code.content == "z = 3\n"
+
+    def test_missing_code_file_raises(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A missing code file raises ValidationError."""
+        data = {
+            "name": "T",
+            "questions": [
+                {
+                    "id": "q",
+                    "text": "Q?",
+                    "type": "short_text",
+                    "code": {"language": "python", "file": "missing.py"},
+                },
+            ],
+        }
+        path = _write_form(tmp_path, data)
+        with pytest.raises(ValidationError):
+            parse_form(path)
+        capsys.readouterr()
+
+    def test_context_loading_direct_validation(self, tmp_path: Path) -> None:
+        """A code block resolves through the pydantic context directly."""
+        snippet = tmp_path / "snippet.py"
+        snippet.write_text("x = 1\n", encoding="utf-8")
+        block = CodeBlock.model_validate(
+            {"language": "python", "file": "snippet.py"},
+            context={CODE_DIR_CONTEXT_KEY: tmp_path},
+        )
+        assert block.content == "x = 1\n"

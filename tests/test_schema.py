@@ -6,9 +6,11 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from formtuitous.parser import parse_form
 from formtuitous.schema import (
     AuthProvider,
     CheckboxQuestion,
+    CodeBlock,
     DateQuestion,
     FormConfig,
     FormDefinition,
@@ -30,6 +32,7 @@ VALID_MINIMAL = {
 
 EXPECTED_CHOICE_COUNT_MULTIPLE = 3
 EXPECTED_CHOICE_COUNT_CHECKBOX = 2
+EXPECTED_SEGMENT_COUNT = 2
 EXPECTED_POINTS = 10
 EXPECTED_RANGE_MAX = 120
 EXPECTED_RATING_MAX = 5
@@ -219,6 +222,69 @@ class TestQuestionModels:
         )
         assert q.randomize is False
 
+    def test_accepts_defaults_to_none(self) -> None:
+        """The accepts pattern is optional."""
+        q = ShortTextQuestion(id="q", text="Name?", type="short_text")
+        assert q.accepts is None
+
+    def test_accepts_rejects_invalid_regex(self) -> None:
+        """An accepts pattern must be a usable regex."""
+        with pytest.raises(ValidationError):
+            ShortTextQuestion(
+                id="q",
+                text="Name?",
+                type="short_text",
+                accepts="[unclosed",
+            )
+
+    def test_correct_answer_as_code_block(self) -> None:
+        """correct_answer accepts a single code block."""
+        q = ShortTextQuestion(
+            id="q",
+            text="Code?",
+            type="short_text",
+            correct_answer=CodeBlock(language="python", content="x = 1"),
+        )
+        assert isinstance(q.correct_answer, CodeBlock)
+        assert q.correct_answer.content == "x = 1"
+
+    def test_correct_answer_as_code_blocks(self) -> None:
+        """correct_answer accepts a list of code blocks."""
+        q = ParagraphQuestion(
+            id="q",
+            text="Code?",
+            type="paragraph",
+            correct_answer=[
+                CodeBlock(language="python", content="x = 1"),
+                CodeBlock(language="python", content="x = 2"),
+            ],
+        )
+        assert isinstance(q.correct_answer, list)
+        assert len(q.correct_answer) == EXPECTED_SEGMENT_COUNT
+
+    def test_correct_answer_dicts_coerce(self) -> None:
+        """JSON dicts coerce into CodeBlock instances."""
+        q = ShortTextQuestion.model_validate(
+            {
+                "id": "q",
+                "text": "Code?",
+                "type": "short_text",
+                "correct_answer": [
+                    {"language": "python", "content": "x = 1"},
+                    {"language": "python", "content": "x = 2"},
+                ],
+            }
+        )
+        assert isinstance(q.correct_answer, list)
+        assert len(q.correct_answer) == EXPECTED_SEGMENT_COUNT
+
+    def test_code_block_requires_exactly_one_source(self) -> None:
+        """A code block needs exactly one of content or file."""
+        with pytest.raises(ValidationError):
+            CodeBlock(language="python")
+        with pytest.raises(ValidationError):
+            CodeBlock(language="python", content="x = 1", file="a.py")
+
 
 class TestFormDefinition:
     """Tests for the top-level FormDefinition model."""
@@ -353,8 +419,7 @@ class TestExampleForms:
     def test_example_validates(self, filename: str) -> None:
         """Each valid example form file validates without errors."""
         path = self.EXAMPLE_DIR / filename
-        raw = path.read_text(encoding="utf-8")
-        form = FormDefinition.model_validate_json(raw)
+        form = parse_form(path)
         assert form.name
         assert len(form.questions) > 0
 
@@ -403,9 +468,7 @@ class TestQuizShowcase:
 
     def _quiz(self) -> FormDefinition:
         """Load and validate the quiz example file."""
-        return FormDefinition.model_validate_json(
-            self.QUIZ_PATH.read_text(encoding="utf-8")
-        )
+        return parse_form(self.QUIZ_PATH)
 
     def test_gradeable_types_present(self) -> None:
         """The quiz uses every gradeable question type."""
@@ -436,17 +499,31 @@ class TestQuizShowcase:
         assert any(q.url is not None for q in quiz.questions)
 
     def test_regex_answer_matches_canonical_solution(self) -> None:
-        """The regex pattern accepts the canonical lambda answer."""
+        """The accepts pattern accepts the canonical lambda answer."""
         quiz = self._quiz()
         regex_question = next(
             q
             for q in quiz.questions
             if getattr(q, "grading_type", None) == "regex"
         )
-        pattern = getattr(regex_question, "correct_answer", None)
+        pattern = getattr(regex_question, "accepts", None)
         assert isinstance(pattern, str)
         assert re.search(pattern, self.CANONICAL_LAMBDA) is not None
         assert re.search(pattern, self.WRONG_LAMBDA) is None
+
+    def test_code_answer_is_readable(self) -> None:
+        """The regex question shows readable code, not a pattern."""
+        quiz = self._quiz()
+        regex_question = next(
+            q
+            for q in quiz.questions
+            if getattr(q, "grading_type", None) == "regex"
+        )
+        answer = getattr(regex_question, "correct_answer", None)
+        assert isinstance(answer, list)
+        contents = [(block.content or "").strip() for block in answer]
+        assert "lambda x: x * x" in contents
+        assert not any("^lambda" in content for content in contents)
 
     def test_confidence_question_is_pinned(self) -> None:
         """The confidence rating opts out of randomization."""
