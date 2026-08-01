@@ -11,7 +11,6 @@ class FormConfig(BaseModel):
     randomize_questions: bool = False
     auto_grade: bool = False
     allow_multiple_submissions: bool = True
-    show_progress_bar: bool = True
     anonymous: bool = False
     auth: Literal["github"] | None = None
 
