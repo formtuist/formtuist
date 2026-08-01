@@ -3,6 +3,16 @@
 Create, display, and serve JSON-defined forms, surveys, and quizzes — all from
 the terminal or a web browser.
 
+## Overview
+
+Formtuitous is a tool for building the kinds of forms a teacher creates for
+their classes: surveys, quizzes, and attendance sheets. You write a form as a
+JSON file in your normal editor, then fill it out in the terminal or serve it
+in a browser with textual-serve. It is not a generic JSON Schema renderer —
+Formtuitous enforces a specific, Google-Forms-style structure, which is what
+makes GitHub authentication and quiz grading possible. Responses land in a
+SQLite database that you can inspect with sqlite3 or datasette.
+
 ## Installation
 
 ```bash
@@ -226,7 +236,6 @@ Forms are defined as JSON files. Here is a minimal example:
     "randomize_questions": false,
     "auto_grade": false,
     "allow_multiple_submissions": true,
-    "show_progress_bar": true,
     "anonymous": false,
     "auth": null
   },
@@ -248,7 +257,6 @@ Forms are defined as JSON files. Here is a minimal example:
 | `randomize_questions` | boolean | `false` | Show questions in random order |
 | `auto_grade` | boolean | `false` | Grade submissions automatically |
 | `allow_multiple_submissions` | boolean | `true` | Allow the same person to submit more than once |
-| `show_progress_bar` | boolean | `true` | Show the question progress counter |
 | `anonymous` | boolean | `false` | Skip identifying questions |
 | `auth` | `"github"` or `null` | `null` | Require a GitHub token to submit |
 
@@ -316,6 +324,52 @@ The `examples/` directory contains several ready-to-use forms:
 | `quiz.json` | Auto-graded quiz |
 | `all_types.json` | One question of every type |
 | `anonymous_poll.json` | Anonymous response poll |
+
+## Comparison with similar tools
+
+Formtuitous is not the only tool that renders forms in the terminal. Here is
+how it compares to related projects.
+
+### `tui-forms` — generic JSON Schema forms
+
+[tui-forms](https://github.com/collective/tui-forms) takes a JSON Schema
+description of *any* form and renders it as a TUI. It is a general-purpose
+renderer: describe the fields, get a form.
+
+Formtuitous is deliberately different: instead of accepting arbitrary JSON
+Schema, it enforces a **specific, curated schema** designed for surveys,
+quizzes, and attendance — the kinds of forms you would build with Google
+Forms. That fixed schema is what makes the higher-level features possible:
+
+- **Authentication** — require a GitHub token to verify who submitted
+- **Structured storage** — responses saved to a SQLite database with
+  identity columns
+- **Auto-grading** — quizzes with correct answers and partial credit
+- **Web serving** — `textual-serve` gives every visitor their own TUI in a
+  browser
+- **Response browsing** — launch datasette to explore submissions
+
+In short: `tui-forms` renders *any* schema; Formtuitous gives *one* schema
+and all the features a form system needs.
+
+### Other related tools
+
+| Tool | Overlap | Difference from Formtuitous |
+|---|---|---|
+| [textual-forms](https://github.com/rhymiz/textual-forms) | Dynamic forms in Textual | No JSON input, no web serving, no storage |
+| [textual-wtf](https://github.com/holdenweb/textual-wtf) | Declarative forms for Textual | Python-class forms, no JSON schema, no web serving |
+| [fstui](https://github.com/HYChou0515/fstui) | Forms generated from Pydantic | No JSON editor workflow, no web serving |
+| [richforms](https://pypi.org/project/richforms/) | Pydantic models into Rich terminal forms | No JSON schema, no web serving, no storage |
+| [pydantic-studio](https://github.com/invoker-bot/pydantic-studio) | Interactive Pydantic editors | Config-focused, no survey features |
+| [SurveyJS](https://surveyjs.io/) | JSON-defined forms | Web-only (JavaScript), no TUI |
+| [Formbricks](https://formbricks.com/) | Open-source surveys | Web-only, heavier infrastructure |
+| [LimeSurvey](https://www.limesurvey.org/) | Mature survey platform | PHP/web, not terminal-first |
+
+What distinguishes Formtuitous is that it treats the form as a project
+artifact. The form definition lives in a JSON file in your repository, the
+responses live in a SQLite database on your machine, and the identity of the
+person who submitted is verified with a GitHub token. None of the tools
+above combine all of these pieces.
 
 ## License
 
