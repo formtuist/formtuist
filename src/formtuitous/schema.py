@@ -95,6 +95,34 @@ class CodeBlock(BaseModel):
 CodeAnswer = str | CodeBlock | list[CodeBlock]
 
 
+# validate that an accepts pattern compiles as a regular expression
+GRADING_LITERAL = Literal["exact", "regex", "contains"]
+
+
+def _validate_regex_fields(
+    accepts: str | None,
+    grading_type: GRADING_LITERAL | None,
+    correct_answer: CodeAnswer | None,
+) -> None:
+    """Raise when accepts or regex grading fields are misconfigured."""
+    if accepts is not None and grading_type != GRADING_TYPE_REGEX:
+        raise ValueError("accepts requires grading_type to be regex")
+    if grading_type == GRADING_TYPE_REGEX:
+        pattern = accepts
+        if pattern is None and isinstance(correct_answer, str):
+            pattern = correct_answer
+        if pattern is None:
+            raise ValueError(
+                "regex grading requires accepts or a string correct_answer"
+            )
+        try:
+            re.compile(pattern)
+        except re.error as error:
+            raise ValueError(
+                f"regex pattern does not compile: {error}"
+            ) from error
+
+
 def _validate_accepts(v: str | None) -> str | None:
     """Return the pattern when it compiles, otherwise raise a ValueError."""
     if v is not None:
@@ -127,7 +155,7 @@ class ShortTextQuestion(_QuestionBase):
     correct_answer: CodeAnswer | None = None
     accepts: str | None = None
     points: int = 0
-    grading_type: Literal["exact", "regex", "contains"] | None = None
+    grading_type: GRADING_LITERAL | None = None
 
     # ensure an accepts pattern is a usable regular expression
     @field_validator("accepts")
@@ -135,6 +163,15 @@ class ShortTextQuestion(_QuestionBase):
     def _accepts_is_valid_regex(cls, v: str | None) -> str | None:
         """Validate that an accepts pattern compiles as a regex."""
         return _validate_accepts(v)
+
+    # ensure accepts and regex grading agree with each other
+    @model_validator(mode="after")
+    def _regex_fields_valid(self) -> "ShortTextQuestion":
+        """Validate the accepts and regex grading configuration."""
+        _validate_regex_fields(
+            self.accepts, self.grading_type, self.correct_answer
+        )
+        return self
 
 
 class ParagraphQuestion(_QuestionBase):
@@ -144,7 +181,7 @@ class ParagraphQuestion(_QuestionBase):
     correct_answer: CodeAnswer | None = None
     accepts: str | None = None
     points: int = 0
-    grading_type: Literal["exact", "regex", "contains"] | None = None
+    grading_type: GRADING_LITERAL | None = None
 
     # ensure an accepts pattern is a usable regular expression
     @field_validator("accepts")
@@ -152,6 +189,15 @@ class ParagraphQuestion(_QuestionBase):
     def _accepts_is_valid_regex(cls, v: str | None) -> str | None:
         """Validate that an accepts pattern compiles as a regex."""
         return _validate_accepts(v)
+
+    # ensure accepts and regex grading agree with each other
+    @model_validator(mode="after")
+    def _regex_fields_valid(self) -> "ParagraphQuestion":
+        """Validate the accepts and regex grading configuration."""
+        _validate_regex_fields(
+            self.accepts, self.grading_type, self.correct_answer
+        )
+        return self
 
 
 MIN_CHOICES_FOR_MULTIPLE_CHOICE = 2
@@ -175,6 +221,17 @@ class MultipleChoiceQuestion(_QuestionBase):
             raise ValueError("multiple_choice requires at least 2 choices")
         return v
 
+    # the correct answer must always be selectable
+    @model_validator(mode="after")
+    def _correct_answer_in_choices(self) -> "MultipleChoiceQuestion":
+        """Validate that the correct answer is one of the choices."""
+        if (
+            self.correct_answer is not None
+            and self.correct_answer not in self.choices
+        ):
+            raise ValueError("correct_answer must be one of the choices")
+        return self
+
 
 class CheckboxQuestion(_QuestionBase):
     """A multi-select checkbox question."""
@@ -193,6 +250,19 @@ class CheckboxQuestion(_QuestionBase):
         if len(v) < 1:
             raise ValueError("checkbox requires at least 1 choice")
         return v
+
+    # every correct answer must always be selectable
+    @model_validator(mode="after")
+    def _correct_answers_in_choices(self) -> "CheckboxQuestion":
+        """Validate that every correct answer is one of the choices."""
+        if self.correct_answer is not None:
+            missing = set(self.correct_answer) - set(self.choices)
+            if missing:
+                raise ValueError(
+                    "correct_answer includes choices that do not exist: "
+                    f"{sorted(missing)}"
+                )
+        return self
 
 
 class NumericRange(BaseModel):
@@ -271,3 +341,19 @@ class FormDefinition(BaseModel):
         if len(ids) != len(set(ids)):
             raise ValueError("question ids must be unique")
         return v
+
+    # auto-grading needs at least one question with a correct answer
+    @model_validator(mode="after")
+    def _auto_grade_has_graded_question(self) -> "FormDefinition":
+        """Validate that auto-grading has questions to grade."""
+        if self.config.auto_grade:
+            graded = [
+                question
+                for question in self.questions
+                if getattr(question, "correct_answer", None) is not None
+            ]
+            if not graded:
+                raise ValueError(
+                    "auto_grade is enabled but no question has a correct_answer"
+                )
+        return self
