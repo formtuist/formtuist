@@ -22,6 +22,7 @@ from formtuitous.grader import (
     BREAKDOWN_CORRECT_ANSWER_KEY,
     BREAKDOWN_CORRECT_KEY,
     BREAKDOWN_KEY,
+    BREAKDOWN_LANGUAGE_KEY,
     BREAKDOWN_TEXT_KEY,
     MAX_KEY,
     PERCENTAGE_KEY,
@@ -106,7 +107,7 @@ def _format_answer(value: Any) -> str:
 def _code_static(block: CodeBlock, theme: str) -> Static:
     """Return a syntax-highlighted Static for a code block."""
     syntax = Syntax(
-        block.content or "",
+        (block.content or "").rstrip(),
         block.language,
         theme=theme,
         line_numbers=True,
@@ -258,7 +259,7 @@ class FormScreen(Screen):
 
             widget.update(
                 Syntax(
-                    question.code.content or "",
+                    (question.code.content or "").rstrip(),
                     question.code.language,
                     theme=theme_name,
                     line_numbers=True,
@@ -481,11 +482,19 @@ class SubmitScreen(Screen):
             else:
                 yield Static(f"[bold]{GRADE_REVIEW_TITLE}[/bold]")
                 for entry in incorrect:
-                    yield Static(
-                        f"[bold]{entry[BREAKDOWN_TEXT_KEY]}[/bold]"
-                        f"{NEWLINE}{GRADE_YOUR_ANSWER}"
-                        f"{_format_answer(entry[BREAKDOWN_ANSWER_KEY])}"
-                    )
+                    yield Static(f"[bold]{entry[BREAKDOWN_TEXT_KEY]}[/bold]")
+                    language = entry.get(BREAKDOWN_LANGUAGE_KEY)
+                    given = entry[BREAKDOWN_ANSWER_KEY]
+                    if language is not None and isinstance(given, str):
+                        yield Static(GRADE_YOUR_ANSWER)
+                        yield _code_static(
+                            CodeBlock(language=language, content=given),
+                            theme,
+                        )
+                    else:
+                        yield Static(
+                            f"{GRADE_YOUR_ANSWER}{_format_answer(given)}"
+                        )
                     answer = entry[BREAKDOWN_CORRECT_ANSWER_KEY]
                     if isinstance(answer, CodeBlock):
                         yield Static(GRADE_CORRECT_ANSWER)
@@ -496,6 +505,12 @@ class SubmitScreen(Screen):
                         yield Static(GRADE_CORRECT_ANSWERS)
                         for block in answer:
                             yield _code_static(block, theme)
+                    elif language is not None and isinstance(answer, str):
+                        yield Static(GRADE_CORRECT_ANSWER)
+                        yield _code_static(
+                            CodeBlock(language=language, content=answer),
+                            theme,
+                        )
                     else:
                         yield Static(
                             f"{GRADE_CORRECT_ANSWER}{_format_answer(answer)}"
