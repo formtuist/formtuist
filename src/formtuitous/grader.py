@@ -31,6 +31,7 @@ BREAKDOWN_CORRECT_ANSWER_KEY = "correct_answer"
 BREAKDOWN_SCORE_KEY = "score"
 BREAKDOWN_MAX_KEY = "max"
 BREAKDOWN_CORRECT_KEY = "correct"
+BREAKDOWN_LANGUAGE_KEY = "language"
 
 # rounding precision for the percentage score
 PERCENTAGE_DIGITS = 2
@@ -51,6 +52,7 @@ def grade_response(
         score, max_score = _grade_question(question, answer)
         total += score
         max_total += max_score
+        code_block = getattr(question, "code", None)
         breakdown.append(
             {
                 BREAKDOWN_ID_KEY: question.id,
@@ -60,6 +62,9 @@ def grade_response(
                 BREAKDOWN_SCORE_KEY: score,
                 BREAKDOWN_MAX_KEY: max_score,
                 BREAKDOWN_CORRECT_KEY: score == max_score,
+                BREAKDOWN_LANGUAGE_KEY: (
+                    code_block.language if code_block is not None else None
+                ),
             }
         )
     percentage = (
