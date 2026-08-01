@@ -5,7 +5,6 @@
     "randomize_questions": false,
     "auto_grade": false,
     "allow_multiple_submissions": true,
-    "show_progress_bar": false,
     "auth": "github"
   },
   "questions": [

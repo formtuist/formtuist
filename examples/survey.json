@@ -4,8 +4,7 @@
   "config": {
     "randomize_questions": false,
     "auto_grade": false,
-    "allow_multiple_submissions": true,
-    "show_progress_bar": true
+    "allow_multiple_submissions": true
   },
   "questions": [
     {

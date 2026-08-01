@@ -5,7 +5,6 @@
     "randomize_questions": true,
     "auto_grade": false,
     "allow_multiple_submissions": false,
-    "show_progress_bar": true,
     "anonymous": true
   },
   "questions": [
