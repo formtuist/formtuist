@@ -58,9 +58,10 @@ project = "src/formtuitous"
 scripts = "scripts"
 tests = "tests"
 coveragefailunder = "95"
+directtestedfailunder = "75"
 
 [tool.taskipy.tasks]
-all = "task check && task test && task test-coverage"
+all = "task check && task test && task test-coverage && task test-coverage-check && task test-coverage-check-trailmark"
 check = "task lint && task typecheck"
 lint = "task ruff-format && task ruff-check && task vsc && task rumdl-check"
 typecheck = "task mypy && task ty && task pyrefly && task zuban"
@@ -79,6 +80,9 @@ test = "pytest -x -s -vv"
 test-parallel = "pytest -x -s -vv -n auto -p no:sugar"
 test-silent = "pytest -x --show-capture=no -n auto"
 test-coverage = "pytest -s --cov=formtuitous --cov-branch --cov-fail-under={coveragefailunder} --cov-report=term-missing tests/"
+test-coverage-check = "uv run python -m scripts.tsc_treesitter --threshold {directtestedfailunder}"
+test-coverage-check-trailmark = "uv run python -m scripts.tsc_trailmark --threshold {directtestedfailunder}"
+test-coverage-compare = "uv run python -m scripts.tsc_compare tsc.json tsc-trailmark.json"
 test-propertybased = "pytest -x -s -vv -m propertybased"
 test-not-propertybased = "pytest -x -s -vv -m 'not propertybased'"
 display = "uv run formtuitous display"
@@ -116,5 +120,6 @@ precision = 2
 markers = [
     "propertybased: tests using Hypothesis for property-based testing",
 ]
+pythonpath = ["."]
 
 
