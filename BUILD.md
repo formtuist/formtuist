@@ -116,8 +116,7 @@ first module:
 - `test` → `pytest -x -s -vv`
 - `test-parallel` → `pytest -x -s -vv -n auto -p no:sugar`
 - `test-silent` → `pytest -x --show-capture=no -n auto`
-- `test-coverage` → `pytest -s --cov=formtuitous --cov-branch
---cov-fail-under={coveragefailunder} --cov-report=term-missing tests/`
+- `test-coverage` → `pytest -s --cov=formtuitous --cov-branch --cov-fail-under={coveragefailunder} --cov-report=term-missing tests/`
 - `test-propertybased` → `pytest -x -s -vv -m propertybased`
 - `test-not-propertybased` → `pytest -x -s -vv -m 'not propertybased'`
 - `display` → `uv run formtuitous display`
@@ -1015,6 +1014,31 @@ ______________________________________________________________________
 
 - Run `formtuitous check` against all `examples/*.json`.
 - Run `formtuitous display` in headless mode and verify DB write.
+
+### 7.5 Direct-Test Coverage Checkers
+
+Two companion scripts answer the question "how much of the package is
+directly tested?" Both write the same JSON report schema (functions
+keyed by `file:name:line`, a summary, and per-category lists) so their
+results can be diffed directly:
+
+- `scripts/tsc_treesitter.py` (run `uv run task test-coverage-check`):
+  the tree-sitter baseline. It parses CSTs and matches test-suite call
+  names against source function names, so a call like `screen.compose()`
+  credits every function named `compose`.
+- `scripts/tsc_trailmark.py` (run `uv run task test-coverage-check-trailmark`):
+  the trailmark implementation. It parses the whole project into a code
+  graph with `QueryEngine.from_graph` and credits a function only when a
+  test reaches it through a resolved call edge, or when an unresolved
+  call name matches exactly one source function. Ambiguous names such as
+  `compose` (four definitions) are never given blanket credit, so it
+  reports the conservative, provable lower bound.
+
+`uv run task test-coverage-compare` prints a side-by-side summary of
+`tsc-treesitter.json` and `tsc-trailmark.json` plus every per-function status
+disagreement. Both checks fail when the directly tested percentage
+falls below `directtestedfailunder` (75) in `pyproject.toml`, and both
+are part of `task all`.
 
 ______________________________________________________________________
 
