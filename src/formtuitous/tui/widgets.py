@@ -23,7 +23,39 @@ from textual.widgets import (
 )
 from textual.widgets._footer import FooterKey, FooterLabel, KeyGroup
 
-from formtuitous.schema import Question
+from formtuitous.schema import (
+    QUESTION_TYPE_CHECKBOX,
+    QUESTION_TYPE_DATE,
+    QUESTION_TYPE_MULTIPLE_CHOICE,
+    QUESTION_TYPE_NUMERIC,
+    QUESTION_TYPE_PARAGRAPH,
+    QUESTION_TYPE_RATING,
+    QUESTION_TYPE_SHORT_TEXT,
+    QUESTION_TYPE_YES_NO,
+    CheckboxQuestion,
+    DateQuestion,
+    MultipleChoiceQuestion,
+    NumericQuestion,
+    ParagraphQuestion,
+    Question,
+    RatingQuestion,
+    ShortTextQuestion,
+    YesNoQuestion,
+)
+
+# all question type identifiers accepted by the widget factory
+KNOWN_QUESTION_TYPES: frozenset[str] = frozenset(
+    {
+        QUESTION_TYPE_SHORT_TEXT,
+        QUESTION_TYPE_PARAGRAPH,
+        QUESTION_TYPE_MULTIPLE_CHOICE,
+        QUESTION_TYPE_CHECKBOX,
+        QUESTION_TYPE_NUMERIC,
+        QUESTION_TYPE_RATING,
+        QUESTION_TYPE_DATE,
+        QUESTION_TYPE_YES_NO,
+    }
+)
 
 # regex pattern for ISO 8601 date (YYYY-MM-DD)
 DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
@@ -82,27 +114,29 @@ def resolve_code_theme(app: App) -> str:
 
 def make_input_widget(question: Question) -> Widget:
     """Return the appropriate input widget for a question type."""
-    if question.type == "short_text":
+    if question.type not in KNOWN_QUESTION_TYPES:
+        raise ValueError(f"Unknown question type: {question.type}")
+    if isinstance(question, ShortTextQuestion):
         return Input(placeholder="Type your answer...")
-    if question.type == "paragraph":
+    if isinstance(question, ParagraphQuestion):
         return TextArea()
-    if question.type == "multiple_choice":
+    if isinstance(question, MultipleChoiceQuestion):
         return RadioSet(*question.choices)
-    if question.type == "checkbox":
+    if isinstance(question, CheckboxQuestion):
         return SelectionList(*[(c, c, False) for c in question.choices])
-    if question.type == "numeric":
+    if isinstance(question, NumericQuestion):
         return Input(
             placeholder="Type a number...",
             validators=[Integer()],
         )
-    if question.type == "rating":
+    if isinstance(question, RatingQuestion):
         return RadioSet(*question.labels)
-    if question.type == "date":
+    if isinstance(question, DateQuestion):
         return Input(
             placeholder="YYYY-MM-DD",
             validators=[Regex(DATE_PATTERN)],
         )
-    if question.type == "yes_no":
+    if isinstance(question, YesNoQuestion):
         return Switch()
     raise ValueError(f"Unknown question type: {question.type}")
 

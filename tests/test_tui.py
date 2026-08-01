@@ -20,6 +20,7 @@ from textual.widgets import (
 
 from formtuitous.auth import GitHubIdentity
 from formtuitous.schema import (
+    AuthProvider,
     CheckboxQuestion,
     CodeBlock,
     DateQuestion,
@@ -250,7 +251,7 @@ class TestFormScreen:
         """action_submit validates the token and stores the identity."""
         form = FormDefinition(
             name="Auth",
-            config=FormConfig(auth="github"),
+            config=FormConfig(auth=AuthProvider.GITHUB),
             questions=[
                 ShortTextQuestion(id="q1", text="Q?", type="short_text"),
             ],
@@ -303,7 +304,7 @@ class TestFormScreen:
         """action_submit blocks submission when the token is empty."""
         form = FormDefinition(
             name="Auth",
-            config=FormConfig(auth="github"),
+            config=FormConfig(auth=AuthProvider.GITHUB),
             questions=[
                 ShortTextQuestion(id="q1", text="Q?", type="short_text"),
             ],
@@ -331,7 +332,7 @@ class TestFormScreen:
         """action_submit blocks submission when the token is invalid."""
         form = FormDefinition(
             name="Auth",
-            config=FormConfig(auth="github"),
+            config=FormConfig(auth=AuthProvider.GITHUB),
             questions=[
                 ShortTextQuestion(id="q1", text="Q?", type="short_text"),
             ],
@@ -700,7 +701,7 @@ class TestFormScreen:
         """Compose creates the token field when auth is enabled."""
         form = FormDefinition(
             name="Auth",
-            config=FormConfig(auth="github"),
+            config=FormConfig(auth=AuthProvider.GITHUB),
             questions=[
                 ShortTextQuestion(id="a", text="A?", type="short_text"),
             ],
@@ -738,7 +739,7 @@ class TestFormScreen:
         """action_focus_first_input focuses the token field when present."""
         form = FormDefinition(
             name="Auth",
-            config=FormConfig(auth="github"),
+            config=FormConfig(auth=AuthProvider.GITHUB),
             questions=[
                 ShortTextQuestion(id="a", text="A?", type="short_text"),
             ],

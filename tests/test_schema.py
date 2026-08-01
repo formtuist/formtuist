@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from formtuitous.schema import (
+    AuthProvider,
     CheckboxQuestion,
     DateQuestion,
     FormConfig,
@@ -74,13 +75,7 @@ class TestFormConfig:
         assert config.randomize_questions is False
         assert config.auto_grade is False
         assert config.allow_multiple_submissions is True
-        assert config.anonymous is False
         assert config.auth is None
-
-    def test_anonymous_config(self) -> None:
-        """Anonymous flag can be set to true."""
-        config = FormConfig(anonymous=True)
-        assert config.anonymous is True
 
     def test_auth_default_disabled(self) -> None:
         """Auth is disabled (None) by default."""
@@ -89,7 +84,7 @@ class TestFormConfig:
 
     def test_auth_github_enabled(self) -> None:
         """Auth can be set to github."""
-        config = FormConfig(auth="github")
+        config = FormConfig(auth=AuthProvider.GITHUB)
         assert config.auth == "github"
 
     def test_auth_rejects_unknown_provider(self) -> None:
@@ -289,7 +284,6 @@ class TestFormConfigInForm:
                 "randomize_questions": True,
                 "auto_grade": True,
                 "allow_multiple_submissions": False,
-                "anonymous": True,
             },
             "questions": [
                 {"id": "q", "text": "?", "type": "short_text"},
@@ -299,7 +293,6 @@ class TestFormConfigInForm:
         assert form.config.randomize_questions is True
         assert form.config.auto_grade is True
         assert form.config.allow_multiple_submissions is False
-        assert form.config.anonymous is True
 
     def test_default_config_in_form(self) -> None:
         """Form uses default config when none is provided."""

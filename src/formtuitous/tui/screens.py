@@ -14,7 +14,7 @@ from textual.widgets import Button, Header, Input, Label, Static
 
 from formtuitous.auth import GitHubIdentity, fetch_github_identity
 from formtuitous.database import init_db, save_response
-from formtuitous.schema import FormDefinition
+from formtuitous.schema import AuthProvider, FormDefinition
 from formtuitous.tui.widgets import (
     CODE_THEME_AUTO,
     FormtuitousFooter,
@@ -102,7 +102,7 @@ class FormScreen(Screen):
                 yield Static(
                     f"[bold]{self.form.name}[/bold]", id="form-header"
                 )
-                if self.form.config.auth == "github":
+                if self.form.config.auth == AuthProvider.GITHUB:
                     yield Label(
                         "GitHub token (run gh auth token to get one):",
                         id="auth-label",
@@ -235,7 +235,7 @@ class FormScreen(Screen):
         answers: dict[str, Any] = {}
         valid = True
         identity: GitHubIdentity | None = None
-        if self.form.config.auth == "github":
+        if self.form.config.auth == AuthProvider.GITHUB:
             if self.auth_input is None:
                 self.notify(
                     "Authentication is required but no token field exists.",

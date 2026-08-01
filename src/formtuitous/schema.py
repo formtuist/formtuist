@@ -1,8 +1,32 @@
 """Pydantic models for validating JSON form definitions."""
 
+from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class AuthProvider(str, Enum):
+    """The identity providers that a form can require."""
+
+    GITHUB = "github"
+
+
+# question type identifiers used by the widget factory at runtime; the
+# Literal annotations below must stay literal values for type checkers
+QUESTION_TYPE_SHORT_TEXT = "short_text"
+QUESTION_TYPE_PARAGRAPH = "paragraph"
+QUESTION_TYPE_MULTIPLE_CHOICE = "multiple_choice"
+QUESTION_TYPE_CHECKBOX = "checkbox"
+QUESTION_TYPE_NUMERIC = "numeric"
+QUESTION_TYPE_RATING = "rating"
+QUESTION_TYPE_DATE = "date"
+QUESTION_TYPE_YES_NO = "yes_no"
+
+# grading modes for questions that have a correct answer
+GRADING_TYPE_EXACT = "exact"
+GRADING_TYPE_REGEX = "regex"
+GRADING_TYPE_CONTAINS = "contains"
 
 
 class FormConfig(BaseModel):
@@ -11,8 +35,7 @@ class FormConfig(BaseModel):
     randomize_questions: bool = False
     auto_grade: bool = False
     allow_multiple_submissions: bool = True
-    anonymous: bool = False
-    auth: Literal["github"] | None = None
+    auth: AuthProvider | None = None
 
 
 class CodeBlock(BaseModel):
