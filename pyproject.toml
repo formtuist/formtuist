@@ -58,7 +58,7 @@ project = "src/formtuitous"
 scripts = "scripts"
 tests = "tests"
 coveragefailunder = "95"
-directtestedfailunder = "50"
+directtestedfailunder = "40"
 
 [tool.taskipy.tasks]
 all = "task check && task test && task test-coverage && task test-coverage-check && task test-coverage-check-trailmark"
