@@ -42,10 +42,14 @@ def shuffle_questions(
     questions: Sequence[Question],
     seed: int | None = DEFAULT_SEED,
 ) -> list[Question]:
-    """Return a randomly ordered copy of the question list."""
-    ordered = list(questions)
-    random.Random(seed).shuffle(ordered)
-    return ordered
+    """Return a copy with pinned questions kept at their file positions."""
+    movable = [question for question in questions if question.randomize]
+    random.Random(seed).shuffle(movable)
+    movable_iter = iter(movable)
+    return [
+        question if not question.randomize else next(movable_iter)
+        for question in questions
+    ]
 
 
 class WelcomeScreen(Screen):

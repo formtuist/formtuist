@@ -907,6 +907,44 @@ class TestShuffleQuestions:
         second = shuffle_questions(questions, seed)
         assert [q.id for q in first] == [q.id for q in second]
 
+    def test_pinned_questions_keep_positions(self) -> None:
+        """Questions opting out keep their exact file positions."""
+        questions = _build_questions(SHUFFLE_QUESTION_COUNT)
+        questions[2].randomize = False
+        questions[5].randomize = False
+        result = shuffle_questions(questions, SHUFFLE_SEED)
+        assert result[2] is questions[2]
+        assert result[5] is questions[5]
+        assert sorted(q.id for q in result) == sorted(q.id for q in questions)
+
+    def test_all_pinned_keeps_file_order(self) -> None:
+        """With every question pinned the order is unchanged."""
+        questions = _build_questions(SHUFFLE_QUESTION_COUNT)
+        for question in questions:
+            question.randomize = False
+        result = shuffle_questions(questions, SHUFFLE_SEED)
+        assert [q.id for q in result] == [q.id for q in questions]
+
+    @pytest.mark.propertybased
+    @given(st.lists(st.booleans(), min_size=0, max_size=15))
+    def test_anchored_shuffle_preserves_pins(self, flags: list[bool]) -> None:
+        """Pinned questions keep positions and the result is a permutation."""
+        questions = [
+            ShortTextQuestion(
+                id=f"q{index}",
+                text=f"Question {index}?",
+                type="short_text",
+                randomize=flag,
+            )
+            for index, flag in enumerate(flags)
+        ]
+        result = shuffle_questions(questions, SHUFFLE_SEED)
+        assert len(result) == len(questions)
+        assert sorted(q.id for q in result) == sorted(q.id for q in questions)
+        for index, question in enumerate(questions):
+            if not question.randomize:
+                assert result[index] is question
+
 
 class TestRandomizedOrder:
     """Tests for randomized question ordering in FormScreen."""
@@ -999,6 +1037,20 @@ class TestRandomizedOrder:
         assert [q.id for q in first.ordered_questions] != [
             q.id for q in second.ordered_questions
         ]
+
+    def test_pinned_question_keeps_file_position(self) -> None:
+        """A pinned question appears at its file index when shuffled."""
+        form = FormDefinition(
+            name="Pinned",
+            config=FormConfig(randomize_questions=True),
+            questions=_build_questions(SHUFFLE_QUESTION_COUNT),
+        )
+        form.questions[-1].randomize = False
+        screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
+        assert screen.ordered_questions[-1] is form.questions[-1]
+        assert sorted(q.id for q in screen.ordered_questions) == sorted(
+            q.id for q in form.questions
+        )
 
     def test_focus_navigation_follows_shuffled_order(self) -> None:
         """ctrl+j moves focus to the next question in the shuffled order."""

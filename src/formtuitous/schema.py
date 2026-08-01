@@ -51,6 +51,8 @@ class _QuestionBase(BaseModel):
     id: str
     text: str
     required: bool = False
+    # when false, the question keeps its file position during randomization
+    randomize: bool = True
     code: CodeBlock | None = None
     image_path: str | None = None
     url: str | None = None

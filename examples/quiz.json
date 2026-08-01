@@ -62,6 +62,138 @@
       },
       "points": 10,
       "grading_type": "exact"
+    },
+    {
+      "id": "q5_line_with_bug",
+      "text": "The function below is supposed to return the sum of the even numbers from 0 up to and including n. One line contains a logic bug. Which line is incorrect?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "def sum_even(n):",
+        "total = 0",
+        "for i in range(n + 1):",
+        "if i % 2 == 1:",
+        "total += i",
+        "return total"
+      ],
+      "correct_answer": "if i % 2 == 1:",
+      "points": 15,
+      "grading_type": "exact",
+      "code": {
+        "language": "python",
+        "content": "def sum_even(n):\n    total = 0\n    for i in range(n + 1):\n        if i % 2 == 1:\n            total += i\n    return total"
+      }
+    },
+    {
+      "id": "q6_parsons_out_of_order",
+      "text": "This is a Parson's-style problem: the program below is a vowel counter, but one line is out of order. The misplaced line is syntactically valid, yet the program cannot work until that line moves. Which line is out of order?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "word = input(\"Enter a word: \")",
+        "vowels = \"aeiou\"",
+        "count = 0",
+        "for char in word.lower():",
+        "if char in vowels:",
+        "count += 1",
+        "print(f\"Vowels: {count}\")"
+      ],
+      "correct_answer": "count = 0",
+      "points": 15,
+      "grading_type": "exact",
+      "code": {
+        "language": "python",
+        "content": "word = input(\"Enter a word: \")\nvowels = \"aeiou\"\nfor char in word.lower():\n    if char in vowels:\n        count += 1\ncount = 0\nprint(f\"Vowels: {count}\")"
+      }
+    },
+    {
+      "id": "q7_lambda_square",
+      "text": "Write a lambda expression that squares its argument using the multiplication operator. Several spellings are accepted, so watch your spacing and the ** operator.",
+      "type": "short_text",
+      "required": true,
+      "correct_answer": "^lambda\\s+\\w+\\s*:\\s*\\w+\\s*(\\*\\*\\s*2|\\*\\s*\\w+)\\s*$",
+      "points": 15,
+      "grading_type": "regex"
+    },
+    {
+      "id": "q8_immutable_types",
+      "text": "Which of the following Python data types are immutable? Select all that apply.",
+      "type": "checkbox",
+      "required": true,
+      "choices": [
+        "list",
+        "tuple",
+        "frozenset",
+        "dict",
+        "str"
+      ],
+      "correct_answer": [
+        "tuple",
+        "frozenset",
+        "str"
+      ],
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q9_duplicate_keys",
+      "text": "What does the following program print?",
+      "type": "numeric",
+      "required": true,
+      "correct_answer": 2,
+      "points": 10,
+      "grading_type": "exact",
+      "code": {
+        "language": "python",
+        "content": "d = {\"a\": 1, \"b\": 2, \"a\": 3}\nprint(len(d))"
+      }
+    },
+    {
+      "id": "q10_enumerate_url",
+      "text": "Which built-in function returns an iterator of (index, value) pairs for an iterable?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "zip()",
+        "enumerate()",
+        "map()",
+        "filter()"
+      ],
+      "correct_answer": "enumerate()",
+      "points": 10,
+      "grading_type": "exact",
+      "url": "https://docs.python.org/3/library/functions.html#enumerate"
+    },
+    {
+      "id": "q11_none_error",
+      "text": "A student runs code that crashes with \"TypeError: 'NoneType' object is not subscriptable\". In one or two sentences, explain what probably caused the error.",
+      "type": "paragraph",
+      "required": true,
+      "correct_answer": "None",
+      "points": 10,
+      "grading_type": "contains"
+    },
+    {
+      "id": "q12_strings_immutable",
+      "text": "True or False: strings in Python are immutable.",
+      "type": "yes_no",
+      "required": true
+    },
+    {
+      "id": "q13_confidence",
+      "text": "How confident are you in your answers to this quiz?",
+      "type": "rating",
+      "required": true,
+      "randomize": false,
+      "min": 1,
+      "max": 5,
+      "labels": [
+        "Not confident",
+        "Somewhat confident",
+        "Confident",
+        "Very confident",
+        "Fully confident"
+      ]
     }
   ]
 }

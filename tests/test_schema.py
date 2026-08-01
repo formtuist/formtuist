@@ -1,5 +1,6 @@
 """Tests for the form JSON schema validation."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -206,6 +207,18 @@ class TestQuestionModels:
         q = YesNoQuestion(id="q", text="Yes?", type="yes_no")
         assert q.required is False
 
+    def test_randomize_defaults_to_true(self) -> None:
+        """Questions randomize by default."""
+        q = ShortTextQuestion(id="q", text="Name?", type="short_text")
+        assert q.randomize is True
+
+    def test_randomize_can_be_disabled(self) -> None:
+        """A question can opt out of randomization."""
+        q = ShortTextQuestion(
+            id="q", text="Name?", type="short_text", randomize=False
+        )
+        assert q.randomize is False
+
 
 class TestFormDefinition:
     """Tests for the top-level FormDefinition model."""
@@ -271,6 +284,25 @@ class TestFormDefinition:
         restored = FormDefinition.model_validate_json(raw)
         assert restored.name == form.name
         assert len(restored.questions) == len(form.questions)
+
+    def test_pinned_question_parses(self) -> None:
+        """FormDefinition accepts questions that opt out of randomization."""
+        form = FormDefinition.model_validate(
+            {
+                "name": "Pinned",
+                "questions": [
+                    {"id": "a", "text": "A?", "type": "short_text"},
+                    {
+                        "id": "b",
+                        "text": "B?",
+                        "type": "short_text",
+                        "randomize": False,
+                    },
+                ],
+            }
+        )
+        assert form.questions[0].randomize is True
+        assert form.questions[1].randomize is False
 
 
 class TestFormConfigInForm:
@@ -348,3 +380,77 @@ class TestInvalidExampleForms:
         raw = path.read_text(encoding="utf-8")
         with pytest.raises(ValidationError):
             FormDefinition.model_validate_json(raw)
+
+
+class TestQuizShowcase:
+    """Tests that the quiz example showcases the formtuitous format."""
+
+    QUIZ_PATH = (
+        Path(__file__).resolve().parent.parent / "examples" / "quiz.json"
+    )
+
+    # gradeable question types expected in the showcase quiz
+    EXPECTED_GRADEABLE_TYPES = frozenset(
+        {"short_text", "paragraph", "multiple_choice", "checkbox", "numeric"}
+    )
+
+    # grading modes expected in the showcase quiz
+    EXPECTED_GRADING_MODES = frozenset({"exact", "regex", "contains"})
+
+    # canonical answer the regex grading pattern must accept and reject
+    CANONICAL_LAMBDA = "lambda x: x * x"
+    WRONG_LAMBDA = "lambda x: x + x"
+
+    def _quiz(self) -> FormDefinition:
+        """Load and validate the quiz example file."""
+        return FormDefinition.model_validate_json(
+            self.QUIZ_PATH.read_text(encoding="utf-8")
+        )
+
+    def test_gradeable_types_present(self) -> None:
+        """The quiz uses every gradeable question type."""
+        quiz = self._quiz()
+        types = {question.type for question in quiz.questions}
+        assert self.EXPECTED_GRADEABLE_TYPES <= types
+
+    def test_grading_modes_present(self) -> None:
+        """The quiz uses exact, regex, and contains grading."""
+        quiz = self._quiz()
+        modes = {
+            getattr(question, "grading_type", None)
+            for question in quiz.questions
+        }
+        assert self.EXPECTED_GRADING_MODES <= modes
+
+    def test_checkbox_has_list_answer(self) -> None:
+        """The checkbox question grades a list of correct choices."""
+        quiz = self._quiz()
+        checkbox = next(q for q in quiz.questions if q.type == "checkbox")
+        answer = getattr(checkbox, "correct_answer", None)
+        assert isinstance(answer, list)
+
+    def test_code_and_url_media_present(self) -> None:
+        """The quiz displays code blocks and a reference URL."""
+        quiz = self._quiz()
+        assert any(q.code is not None for q in quiz.questions)
+        assert any(q.url is not None for q in quiz.questions)
+
+    def test_regex_answer_matches_canonical_solution(self) -> None:
+        """The regex pattern accepts the canonical lambda answer."""
+        quiz = self._quiz()
+        regex_question = next(
+            q
+            for q in quiz.questions
+            if getattr(q, "grading_type", None) == "regex"
+        )
+        pattern = getattr(regex_question, "correct_answer", None)
+        assert isinstance(pattern, str)
+        assert re.search(pattern, self.CANONICAL_LAMBDA) is not None
+        assert re.search(pattern, self.WRONG_LAMBDA) is None
+
+    def test_confidence_question_is_pinned(self) -> None:
+        """The confidence rating opts out of randomization."""
+        quiz = self._quiz()
+        confidence = next(q for q in quiz.questions if q.type == "rating")
+        assert confidence.randomize is False
+        assert quiz.questions[-1] is confidence
