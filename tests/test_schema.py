@@ -285,6 +285,74 @@ class TestQuestionModels:
         with pytest.raises(ValidationError):
             CodeBlock(language="python", content="x = 1", file="a.py")
 
+    def test_accepts_requires_regex_grading(self) -> None:
+        """An accepts pattern requires regex grading."""
+        with pytest.raises(ValidationError):
+            ShortTextQuestion(
+                id="q",
+                text="Lambda?",
+                type="short_text",
+                correct_answer="lambda x: x * x",
+                accepts=r"^lambda",
+                grading_type="contains",
+            )
+
+    def test_regex_grading_requires_pattern(self) -> None:
+        """Regex grading needs accepts or a string correct_answer."""
+        with pytest.raises(ValidationError):
+            ShortTextQuestion(
+                id="q",
+                text="Code?",
+                type="short_text",
+                correct_answer=CodeBlock(language="python", content="x = 1"),
+                grading_type="regex",
+            )
+
+    def test_regex_string_pattern_must_compile(self) -> None:
+        """A string correct_answer used as a regex must compile."""
+        with pytest.raises(ValidationError):
+            ShortTextQuestion(
+                id="q",
+                text="Start?",
+                type="short_text",
+                correct_answer="[unclosed",
+                grading_type="regex",
+            )
+
+    def test_paragraph_accepts_with_regex_is_clean(self) -> None:
+        """A paragraph with accepts and regex grading is valid."""
+        q = ParagraphQuestion(
+            id="q",
+            text="T?",
+            type="paragraph",
+            correct_answer="lambda x: x * x",
+            accepts=r"^lambda",
+            grading_type="regex",
+        )
+        assert q.accepts == r"^lambda"
+
+    def test_multiple_choice_answer_must_be_a_choice(self) -> None:
+        """A multiple_choice correct answer must be selectable."""
+        with pytest.raises(ValidationError):
+            MultipleChoiceQuestion(
+                id="q",
+                text="Pick?",
+                type="multiple_choice",
+                choices=["tuple", "str"],
+                correct_answer="tupel",
+            )
+
+    def test_checkbox_answers_must_be_choices(self) -> None:
+        """Every checkbox correct answer must be selectable."""
+        with pytest.raises(ValidationError):
+            CheckboxQuestion(
+                id="q",
+                text="Pick?",
+                type="checkbox",
+                choices=["tuple", "str"],
+                correct_answer=["tuple", "tupel"],
+            )
+
 
 class TestFormDefinition:
     """Tests for the top-level FormDefinition model."""
@@ -370,6 +438,19 @@ class TestFormDefinition:
         assert form.questions[0].randomize is True
         assert form.questions[1].randomize is False
 
+    def test_auto_grade_requires_graded_question(self) -> None:
+        """Auto-grading needs at least one question with an answer key."""
+        with pytest.raises(ValidationError):
+            FormDefinition.model_validate(
+                {
+                    "name": "Trap",
+                    "config": {"auto_grade": True},
+                    "questions": [
+                        {"id": "q", "text": "?", "type": "short_text"},
+                    ],
+                }
+            )
+
 
 class TestFormConfigInForm:
     """Tests for FormConfig embedded in FormDefinition."""
@@ -384,7 +465,14 @@ class TestFormConfigInForm:
                 "allow_multiple_submissions": False,
             },
             "questions": [
-                {"id": "q", "text": "?", "type": "short_text"},
+                {
+                    "id": "q",
+                    "text": "?",
+                    "type": "short_text",
+                    "correct_answer": "yes",
+                    "points": 5,
+                    "grading_type": "exact",
+                },
             ],
         }
         form = FormDefinition.model_validate(data)
@@ -432,10 +520,16 @@ class TestInvalidExampleForms:
     @pytest.mark.parametrize(
         "filename",
         [
+            "invalid_accepts_not_regex.json",
+            "invalid_auto_grade_no_answers.json",
+            "invalid_checkbox_answer_not_a_choice.json",
             "invalid_checkbox_no_choices.json",
+            "invalid_correct_answer_not_a_choice.json",
             "invalid_duplicate_ids.json",
             "invalid_multiple_choice_one_choice.json",
             "invalid_rating_max_less_than_min.json",
+            "invalid_regex_bad_pattern.json",
+            "invalid_regex_no_pattern.json",
             "invalid_unknown_question_type.json",
         ],
     )

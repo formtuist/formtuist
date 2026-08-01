@@ -188,8 +188,8 @@ class TestGradeText:
         )
 
     def test_regex_without_pattern_scores_zero(self) -> None:
-        """Regex grading with a code answer and no accepts scores zero."""
-        question = ShortTextQuestion(
+        """Regex grading with no usable pattern scores zero defensively."""
+        question = ShortTextQuestion.model_construct(
             id="q",
             text="Code?",
             type="short_text",

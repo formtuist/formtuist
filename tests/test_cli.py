@@ -71,6 +71,33 @@ class TestCheckCommand:
         assert result.exit_code == 0
         assert "Questions: 2 (1 required, 1 optional)" in _plain(result)
 
+    def test_check_rejects_authoring_trap(self, tmp_path: Path) -> None:
+        """Check exits 1 for a form with an authoring trap."""
+        form = {
+            "name": "Trap",
+            "config": {"auto_grade": True},
+            "questions": [
+                {"id": "q", "text": "?", "type": "short_text"},
+            ],
+        }
+        path = _write_form(tmp_path / "form.json", form)
+        result = runner.invoke(app, ["check", str(path)])
+        assert result.exit_code == 1
+        assert "auto_grade is enabled" in _plain_stderr(result)
+
+    def test_check_clean_form_has_no_warnings(self, tmp_path: Path) -> None:
+        """Check prints no warnings section for a clean form."""
+        form = {
+            "name": "Clean",
+            "questions": [
+                {"id": "q", "text": "?", "type": "short_text"},
+            ],
+        }
+        path = _write_form(tmp_path / "form.json", form)
+        result = runner.invoke(app, ["check", str(path)])
+        assert result.exit_code == 0
+        assert "Warnings:" not in _plain(result)
+
     def test_check_shows_graded(self, tmp_path: Path) -> None:
         """Check reports graded questions and auto-grade status."""
         form = {
