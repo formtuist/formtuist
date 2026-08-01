@@ -2,7 +2,8 @@
   "name": "CS 101 — Week 3 Quiz",
   "description": "A short quiz covering Python fundamentals.",
   "config": {
-    "randomize_questions": false,
+    "auth": "github",
+    "randomize_questions": true,
     "auto_grade": true,
     "allow_multiple_submissions": false
   },
