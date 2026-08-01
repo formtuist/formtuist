@@ -9,6 +9,15 @@ from formtuitous.server import (
     FormtuitousServer,
 )
 
+# the custom HTML template served to browsers for the web interface
+TEMPLATE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "src"
+    / "formtuitous"
+    / "templates"
+    / "app_index.html"
+)
+
 
 class TestFormtuitousServer:
     """Tests for the FormtuitousServer wrapper."""
@@ -38,3 +47,32 @@ class TestFormtuitousServer:
             assert FAVICON_URL_PATH in routes
 
         asyncio.run(run())
+
+
+class TestAppIndexTemplate:
+    """Tests that the served HTML template is well-formed."""
+
+    def test_no_stray_markup_in_head(self) -> None:
+        """The head contains no leftover SVG element fragments."""
+        raw = TEMPLATE_PATH.read_text(encoding="utf-8")
+        head = raw[: raw.index("</head>")]
+        assert "<rect" not in head.lower()
+        assert "</svg>" not in head.lower()
+
+    def test_head_closes_before_body(self) -> None:
+        """Styles and scripts stay in the head, ahead of the body."""
+        raw = TEMPLATE_PATH.read_text(encoding="utf-8")
+        assert raw.index("</head>") < raw.index("<body")
+
+    def test_favicon_link_present_in_head(self) -> None:
+        """The favicon link is served from the template head."""
+        raw = TEMPLATE_PATH.read_text(encoding="utf-8")
+        head = raw[: raw.index("</head>")]
+        assert 'rel="icon"' in head
+        assert "/favicon.png" in head
+
+    def test_terminal_div_in_body(self) -> None:
+        """The terminal element lives directly in the body."""
+        raw = TEMPLATE_PATH.read_text(encoding="utf-8")
+        body = raw[raw.index("<body") :]
+        assert 'id="terminal"' in body
