@@ -29,10 +29,10 @@
     },
     {
       "id": "q2_mutability",
-      "text": "Explain why lists are mutable but tuples are immutable in Python.",
+      "text": "What does it mean if a variable in Python is immutable?",
       "type": "paragraph",
       "required": true,
-      "correct_answer": "immutable",
+      "correct_answer": "cannot change",
       "points": 15,
       "grading_type": "contains"
     },
