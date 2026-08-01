@@ -894,6 +894,11 @@ ______________________________________________________________________
 1. Parse and validate JSON against schema.
 1. Report errors with line numbers if invalid.
 1. Print summary: question count, required vs optional, grading enabled?
+1. Model validation also rejects authoring traps: `auto_grade` enabled
+   with no graded questions, `regex` grading with a missing or broken
+   pattern, `accepts` set without `regex` grading, and `correct_answer`
+   values that are not among a question's choices. The
+   `examples/invalid_*.json` files demonstrate each trap.
 
 ### 5.2 `display <form.json> [--db <responses.db>]`
 
