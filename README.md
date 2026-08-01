@@ -275,6 +275,11 @@ submission with an error message. Questions may also include optional
 `code` blocks (rendered with syntax highlighting), `url` links, and
 `image_path` references.
 
+When `randomize_questions` is enabled, every question is shuffled by
+default. Set `"randomize": false` on a question to keep it at its file
+position while the other questions shuffle around it — useful for a
+closing question such as a confidence rating.
+
 See `examples/` for complete form definitions.
 
 ## Database
