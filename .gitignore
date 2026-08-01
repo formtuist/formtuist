@@ -146,6 +146,7 @@ tests/test_assignment/json
 
 # Treesitter analysis files
 tsc.json
+tsc-trailmark.json
 
 # Coverage files
 coverage.json
