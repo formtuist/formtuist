@@ -1,6 +1,8 @@
 """Screen definitions for the formtuitous TUI workflow."""
 
 import asyncio
+import random
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -14,7 +16,7 @@ from textual.widgets import Button, Header, Input, Label, Static
 
 from formtuitous.auth import GitHubIdentity, fetch_github_identity
 from formtuitous.database import init_db, save_response
-from formtuitous.schema import AuthProvider, FormDefinition
+from formtuitous.schema import AuthProvider, FormDefinition, Question
 from formtuitous.tui.widgets import (
     CODE_THEME_AUTO,
     FormtuitousFooter,
@@ -30,6 +32,20 @@ from formtuitous.tui.widgets import (
 SIDEBAR_TITLE_MAX = 25
 
 NEWLINE = "\n"
+
+
+# default seed for the pseudo-random number generator used when shuffling
+DEFAULT_SEED = None
+
+
+def shuffle_questions(
+    questions: Sequence[Question],
+    seed: int | None = DEFAULT_SEED,
+) -> list[Question]:
+    """Return a randomly ordered copy of the question list."""
+    ordered = list(questions)
+    random.Random(seed).shuffle(ordered)
+    return ordered
 
 
 class WelcomeScreen(Screen):
@@ -75,6 +91,7 @@ class FormScreen(Screen):
         form: FormDefinition,
         db_path: Path,
         code_theme: str = CODE_THEME_AUTO,
+        seed: int | None = DEFAULT_SEED,
     ) -> None:
         """Store the form definition, database path, and initialise input map."""
         self.form = form
@@ -85,6 +102,10 @@ class FormScreen(Screen):
         self.sidebar_items: list[Static] = []
         self.current_index = 0
         self.auth_input: Input | None = None
+        if form.config.randomize_questions:
+            self.ordered_questions = shuffle_questions(form.questions, seed)
+        else:
+            self.ordered_questions = list(form.questions)
         super().__init__()
 
     def compose(self) -> ComposeResult:
@@ -93,7 +114,7 @@ class FormScreen(Screen):
         with Horizontal():
             with Vertical(id="sidebar"):
                 yield Static("[bold]Questions[/bold]", id="sidebar-title")
-                for question in self.form.questions:
+                for question in self.ordered_questions:
                     truncated = self._truncate(question.text)
                     item = Static(truncated, classes="sidebar-item")
                     self.sidebar_items.append(item)
@@ -114,7 +135,7 @@ class FormScreen(Screen):
                     auth_input.id = "auth-input"
                     self.auth_input = auth_input
                     yield auth_input
-                for question in self.form.questions:
+                for question in self.ordered_questions:
                     required = " *" if question.required else ""
                     yield Label(f"{question.text}{required}")
                     code_widget = make_code_widget(question, self.code_theme)
@@ -161,7 +182,7 @@ class FormScreen(Screen):
 
     def _update_code_widgets(self, theme_name: str) -> None:
         """Recreate the Syntax renderables for all code widgets."""
-        for question in self.form.questions:
+        for question in self.ordered_questions:
             if question.code is None:
                 continue
             widget = self.code_widgets.get(question.id)
@@ -204,7 +225,7 @@ class FormScreen(Screen):
         """
         if new_val is None or new_val.id is None:
             return
-        for i, question in enumerate(self.form.questions):
+        for i, question in enumerate(self.ordered_questions):
             if new_val.id == f"input-{question.id}":
                 self.current_index = i
                 self._update_sidebar_and_counter()
@@ -220,7 +241,7 @@ class FormScreen(Screen):
         """Refresh the sidebar highlight and the question counter label."""
         counter = self.query_one("#question-counter", Static)
         counter.update(
-            f"Question {self.current_index + 1} / {len(self.form.questions)}"
+            f"Question {self.current_index + 1} / {len(self.ordered_questions)}"
         )
         for i, item in enumerate(self.sidebar_items):
             item.set_class(i == self.current_index, "current")
@@ -255,7 +276,7 @@ class FormScreen(Screen):
                     severity="error",
                 )
                 return
-        for question in self.form.questions:
+        for question in self.ordered_questions:
             widget = self.inputs[question.id]
             value = get_widget_value(widget)
             if question.required and is_widget_empty(widget):
@@ -289,7 +310,7 @@ class FormScreen(Screen):
         if self.auth_input is not None:
             self.set_focus(self.auth_input)
             return
-        for question in self.form.questions:
+        for question in self.ordered_questions:
             input_widget = self.inputs.get(question.id)
             if input_widget is not None:
                 self.set_focus(input_widget)
@@ -297,16 +318,16 @@ class FormScreen(Screen):
 
     def action_focus_next(self) -> None:
         """Focus the next question input, wrapping around at the end."""
-        next_index = (self.current_index + 1) % len(self.form.questions)
-        question = self.form.questions[next_index]
+        next_index = (self.current_index + 1) % len(self.ordered_questions)
+        question = self.ordered_questions[next_index]
         input_widget = self.inputs.get(question.id)
         if input_widget is not None:
             self.set_focus(input_widget)
 
     def action_focus_previous(self) -> None:
         """Focus the previous question input, wrapping around at the start."""
-        prev_index = (self.current_index - 1) % len(self.form.questions)
-        question = self.form.questions[prev_index]
+        prev_index = (self.current_index - 1) % len(self.ordered_questions)
+        question = self.ordered_questions[prev_index]
         input_widget = self.inputs.get(question.id)
         if input_widget is not None:
             self.set_focus(input_widget)
