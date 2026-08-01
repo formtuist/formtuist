@@ -1102,7 +1102,6 @@ Defer to later:
 - `view` command
 - Custom `QuestionContainer` widget
 - Progress bar
-- Randomized question order
 
 ______________________________________________________________________
 
