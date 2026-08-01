@@ -1,17 +1,17 @@
 # Formtuitous
 
-Create, display, and serve JSON-defined forms, surveys, and quizzes — all from
-the terminal or a web browser.
+Create, display, and serve JSON-defined forms, surveys, and quizzes --- all
+from the terminal or a web browser!
 
 ## Overview
 
 Formtuitous is a tool for building the kinds of forms a teacher creates for
 their classes: surveys, quizzes, and attendance sheets. You write a form as a
 JSON file in your normal editor, then fill it out in the terminal or serve it
-in a browser with textual-serve. It is not a generic JSON Schema renderer —
-Formtuitous enforces a specific, Google-Forms-style structure, which is what
-makes GitHub authentication and quiz grading possible. Responses land in a
-SQLite database that you can inspect with sqlite3 or datasette.
+in a browser with textual-serve. It also is not a generic JSON Schema renderer.
+Instead, Formtuitous enforces a specific, Google-Forms-style structure, which
+is what makes GitHub authentication and quiz grading possible. Responses land
+in a SQLite database that you can inspect with `sqlite3` or `datasette`.
 
 ## Installation
 
@@ -213,16 +213,15 @@ config:
 When `auth` is set to `github`:
 
 1. The TUI shows a masked GitHub token field at the top of the form.
-2. On submit, formtuitous calls the GitHub REST API
+1. On submit, formtuitous calls the GitHub REST API
    (`GET https://api.github.com/user`) with the token as a Bearer header.
-3. The token is validated — if it is invalid, submission is **blocked**.
-4. On success, the person's GitHub username and profile URL are stored on
+1. The token is validated — if it is invalid, submission is **blocked**.
+1. On success, the person's GitHub username and profile URL are stored on
    the response row. The raw token itself is **never** persisted.
 
-Authentication is disabled by default (`auth` is `null`). It can be combined
-with the `anonymous` config flag, though note that `anonymous` only controls
-whether identifying questions are shown — authenticated rows always record
-the GitHub identity.
+Authentication is disabled by default (`auth` is `null`), which means the
+form is anonymous by definition. When `auth` is `"github"`, the response row
+always records the identity of the person who submitted.
 
 ## Form JSON format
 
@@ -236,7 +235,6 @@ Forms are defined as JSON files. Here is a minimal example:
     "randomize_questions": false,
     "auto_grade": false,
     "allow_multiple_submissions": true,
-    "anonymous": false,
     "auth": null
   },
   "questions": [
@@ -257,8 +255,7 @@ Forms are defined as JSON files. Here is a minimal example:
 | `randomize_questions` | boolean | `false` | Show questions in random order |
 | `auto_grade` | boolean | `false` | Grade submissions automatically |
 | `allow_multiple_submissions` | boolean | `true` | Allow the same person to submit more than once |
-| `anonymous` | boolean | `false` | Skip identifying questions |
-| `auth` | `"github"` or `null` | `null` | Require a GitHub token to submit |
+| `auth` | `"github"` or `null` | `null` | Require a GitHub token to submit; `null` means anonymous |
 
 ### Question types
 
