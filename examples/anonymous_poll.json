@@ -4,8 +4,7 @@
   "config": {
     "randomize_questions": true,
     "auto_grade": false,
-    "allow_multiple_submissions": false,
-    "anonymous": true
+    "allow_multiple_submissions": false
   },
   "questions": [
     {
