@@ -1,0 +1,15 @@
+{
+  "name": "Invalid Auto-Grade",
+  "description": "auto_grade is on but no question has a correct_answer.",
+  "config": {
+    "auto_grade": true
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "text": "What is your name?",
+      "type": "short_text",
+      "required": true
+    }
+  ]
+}

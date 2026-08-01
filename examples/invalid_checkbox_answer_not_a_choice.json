@@ -1,0 +1,21 @@
+{
+  "name": "Invalid Checkbox Answer",
+  "description": "A checkbox correct_answer is not one of the choices.",
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Select the immutable types.",
+      "type": "checkbox",
+      "choices": [
+        "tuple",
+        "str"
+      ],
+      "correct_answer": [
+        "tuple",
+        "tupel"
+      ],
+      "points": 10,
+      "grading_type": "exact"
+    }
+  ]
+}

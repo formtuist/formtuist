@@ -1,0 +1,14 @@
+{
+  "name": "Invalid Regex Syntax",
+  "description": "The string pattern used for regex grading does not compile.",
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Answer starting with start.",
+      "type": "short_text",
+      "correct_answer": "[unclosed",
+      "points": 15,
+      "grading_type": "regex"
+    }
+  ]
+}

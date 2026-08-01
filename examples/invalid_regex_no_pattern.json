@@ -1,0 +1,19 @@
+{
+  "name": "Invalid Regex Pattern",
+  "description": "regex grading has no accepts and a code-block answer.",
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Write a lambda that squares its argument.",
+      "type": "short_text",
+      "correct_answer": [
+        {
+          "language": "python",
+          "content": "lambda x: x * x"
+        }
+      ],
+      "points": 15,
+      "grading_type": "regex"
+    }
+  ]
+}

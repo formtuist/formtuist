@@ -1,0 +1,15 @@
+{
+  "name": "Invalid Accepts",
+  "description": "accepts is set but grading_type is not regex.",
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Write a lambda that squares its argument.",
+      "type": "short_text",
+      "correct_answer": "lambda x: x * x",
+      "accepts": "^lambda",
+      "points": 15,
+      "grading_type": "contains"
+    }
+  ]
+}

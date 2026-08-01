@@ -1,0 +1,18 @@
+{
+  "name": "Invalid Choice Answer",
+  "description": "The multiple_choice correct_answer is not one of the choices.",
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Pick the immutable type.",
+      "type": "multiple_choice",
+      "choices": [
+        "tuple",
+        "str"
+      ],
+      "correct_answer": "tupel",
+      "points": 10,
+      "grading_type": "exact"
+    }
+  ]
+}
