@@ -74,7 +74,6 @@ class TestFormConfig:
         assert config.randomize_questions is False
         assert config.auto_grade is False
         assert config.allow_multiple_submissions is True
-        assert config.show_progress_bar is True
         assert config.anonymous is False
         assert config.auth is None
 
@@ -290,7 +289,6 @@ class TestFormConfigInForm:
                 "randomize_questions": True,
                 "auto_grade": True,
                 "allow_multiple_submissions": False,
-                "show_progress_bar": False,
                 "anonymous": True,
             },
             "questions": [
@@ -301,7 +299,6 @@ class TestFormConfigInForm:
         assert form.config.randomize_questions is True
         assert form.config.auto_grade is True
         assert form.config.allow_multiple_submissions is False
-        assert form.config.show_progress_bar is False
         assert form.config.anonymous is True
 
     def test_default_config_in_form(self) -> None:
