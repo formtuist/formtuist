@@ -1,10 +1,13 @@
 """Smoke tests for TUI screens and application construction."""
 
 import asyncio
+from math import factorial
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from pygments.styles import ClassNotFound
 from textual._context import NoActiveAppError
 from textual.app import App
@@ -29,12 +32,18 @@ from formtuitous.schema import (
     MultipleChoiceQuestion,
     NumericQuestion,
     ParagraphQuestion,
+    Question,
     RatingQuestion,
     ShortTextQuestion,
     YesNoQuestion,
 )
 from formtuitous.tui.app import FormtuitousApp
-from formtuitous.tui.screens import FormScreen, SubmitScreen, WelcomeScreen
+from formtuitous.tui.screens import (
+    FormScreen,
+    SubmitScreen,
+    WelcomeScreen,
+    shuffle_questions,
+)
 from formtuitous.tui.widgets import (
     get_widget_value,
     is_widget_empty,
@@ -46,6 +55,31 @@ from formtuitous.tui.widgets import (
 
 MIN_WELCOME_CHILDREN = 3
 MIN_SUBMIT_CHILDREN = 3
+
+# seed and question count used for deterministic shuffle tests
+SHUFFLE_SEED = 42
+SHUFFLE_QUESTION_COUNT = 8
+
+# small list and seed range for the permutation-reachability check
+SMALL_SHUFFLE_COUNT = 3
+SHUFFLE_SEED_RANGE = 150
+
+
+def _build_questions_from_ids(ids: list[str]) -> list[Question]:
+    """Build short_text questions from a list of unique ids."""
+    return [
+        ShortTextQuestion(
+            id=id_,
+            text=f"Question {id_}?",
+            type="short_text",
+        )
+        for id_ in ids
+    ]
+
+
+def _build_questions(count: int) -> list[Question]:
+    """Build a list of short_text questions with sequential ids."""
+    return _build_questions_from_ids([f"q{index}" for index in range(count)])
 
 
 class TestWelcomeScreen:
@@ -795,6 +829,223 @@ class TestFormScreen:
         screen.code_widgets["a"] = mock_static
         screen._update_code_widgets("monokai")
         mock_static.update.assert_called_once()
+
+
+class TestShuffleQuestions:
+    """Tests for the question-order shuffling helper."""
+
+    def test_preserves_all_questions(self) -> None:
+        """Shuffling keeps every question exactly once."""
+        questions = _build_questions(SHUFFLE_QUESTION_COUNT)
+        result = shuffle_questions(questions, SHUFFLE_SEED)
+        assert sorted(q.id for q in result) == sorted(q.id for q in questions)
+        assert len(result) == len(questions)
+
+    def test_deterministic_with_same_seed(self) -> None:
+        """Shuffling with the same seed is reproducible."""
+        questions = _build_questions(SHUFFLE_QUESTION_COUNT)
+        first = shuffle_questions(questions, SHUFFLE_SEED)
+        second = shuffle_questions(questions, SHUFFLE_SEED)
+        assert [q.id for q in first] == [q.id for q in second]
+
+    def test_changes_order_with_seed(self) -> None:
+        """Shuffling with a fixed seed reorders the questions."""
+        questions = _build_questions(SHUFFLE_QUESTION_COUNT)
+        result = shuffle_questions(questions, SHUFFLE_SEED)
+        assert [q.id for q in result] != [q.id for q in questions]
+
+    def test_empty_list(self) -> None:
+        """Shuffling an empty list returns an empty list."""
+        assert shuffle_questions([], SHUFFLE_SEED) == []
+
+    def test_single_question_keeps_position(self) -> None:
+        """A single question is the only possible ordering."""
+        questions = _build_questions(1)
+        result = shuffle_questions(questions, SHUFFLE_SEED)
+        assert [q.id for q in result] == [q.id for q in questions]
+
+    def test_input_list_not_mutated(self) -> None:
+        """Shuffling copies the list and leaves the caller's order intact."""
+        questions = _build_questions(SHUFFLE_QUESTION_COUNT)
+        original_ids = [q.id for q in questions]
+        shuffle_questions(questions, SHUFFLE_SEED)
+        assert [q.id for q in questions] == original_ids
+
+    def test_all_permutations_reachable_across_seeds(self) -> None:
+        """Small lists produce every possible ordering across seeds."""
+        questions = _build_questions(SMALL_SHUFFLE_COUNT)
+        orders = {
+            tuple(q.id for q in shuffle_questions(questions, seed))
+            for seed in range(SHUFFLE_SEED_RANGE)
+        }
+        assert len(orders) == factorial(SMALL_SHUFFLE_COUNT)
+
+    @pytest.mark.propertybased
+    @given(st.lists(st.text(min_size=1), min_size=0, max_size=20, unique=True))
+    def test_size_and_membership_preserved(self, ids: list[str]) -> None:
+        """Shuffling keeps the size and the set of questions unchanged."""
+        questions = _build_questions_from_ids(ids)
+        result = shuffle_questions(questions, SHUFFLE_SEED)
+        assert len(result) == len(questions)
+        assert sorted(q.id for q in result) == sorted(q.id for q in questions)
+
+    @pytest.mark.propertybased
+    @given(st.lists(st.text(min_size=1), min_size=1, max_size=20, unique=True))
+    def test_unseeded_shuffle_is_permutation(self, ids: list[str]) -> None:
+        """The production default seed still produces a permutation."""
+        questions = _build_questions_from_ids(ids)
+        result = shuffle_questions(questions)
+        assert len(result) == len(questions)
+        assert sorted(q.id for q in result) == sorted(q.id for q in questions)
+
+    @pytest.mark.propertybased
+    @given(st.integers(min_value=0, max_value=1_000_000))
+    def test_any_seed_is_reproducible(self, seed: int) -> None:
+        """A fixed seed always yields the same ordering."""
+        questions = _build_questions(SHUFFLE_QUESTION_COUNT)
+        first = shuffle_questions(questions, seed)
+        second = shuffle_questions(questions, seed)
+        assert [q.id for q in first] == [q.id for q in second]
+
+
+class TestRandomizedOrder:
+    """Tests for randomized question ordering in FormScreen."""
+
+    def test_file_order_when_disabled(self) -> None:
+        """FormScreen keeps the file order when randomization is disabled."""
+        form = FormDefinition(
+            name="Fixed",
+            questions=_build_questions(SHUFFLE_QUESTION_COUNT),
+        )
+        screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
+        assert [q.id for q in screen.ordered_questions] == [
+            q.id for q in form.questions
+        ]
+
+    def test_shuffled_order_when_enabled(self) -> None:
+        """FormScreen shuffles the questions when randomization is enabled."""
+        form = FormDefinition(
+            name="Shuffled",
+            config=FormConfig(randomize_questions=True),
+            questions=_build_questions(SHUFFLE_QUESTION_COUNT),
+        )
+        screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
+        shuffled_ids = [q.id for q in screen.ordered_questions]
+        assert shuffled_ids != [q.id for q in form.questions]
+        assert sorted(shuffled_ids) == sorted(q.id for q in form.questions)
+
+    def test_inputs_follow_shuffled_order(self) -> None:
+        """Compose renders the input widgets in the shuffled order."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Shuffled",
+                config=FormConfig(randomize_questions=True),
+                questions=_build_questions(SHUFFLE_QUESTION_COUNT),
+            )
+            app: App = App()
+            async with app.run_test():
+                screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
+                await app.push_screen(screen)
+                rendered = [w.id for w in screen.query(Input)]
+                expected = [f"input-{q.id}" for q in screen.ordered_questions]
+                assert rendered == expected
+
+        asyncio.run(run())
+
+    def test_sidebar_follows_shuffled_order(self) -> None:
+        """The sidebar items appear in the shuffled order."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Shuffled",
+                config=FormConfig(randomize_questions=True),
+                questions=_build_questions(SHUFFLE_QUESTION_COUNT),
+            )
+            app: App = App()
+            async with app.run_test():
+                screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
+                await app.push_screen(screen)
+                expected = [
+                    screen._truncate(q.text) for q in screen.ordered_questions
+                ]
+                actual = [str(item.content) for item in screen.sidebar_items]
+                assert actual == expected
+
+        asyncio.run(run())
+
+    def test_instances_with_same_seed_match(self) -> None:
+        """Two screens with the same seed display the same order."""
+        form = FormDefinition(
+            name="Shuffled",
+            config=FormConfig(randomize_questions=True),
+            questions=_build_questions(SHUFFLE_QUESTION_COUNT),
+        )
+        first = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
+        second = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
+        assert [q.id for q in first.ordered_questions] == [
+            q.id for q in second.ordered_questions
+        ]
+
+    def test_instances_with_different_seeds_differ(self) -> None:
+        """Two screens with different seeds display different orders."""
+        form = FormDefinition(
+            name="Shuffled",
+            config=FormConfig(randomize_questions=True),
+            questions=_build_questions(SHUFFLE_QUESTION_COUNT),
+        )
+        first = FormScreen(form, Path(":memory:"), seed=1)
+        second = FormScreen(form, Path(":memory:"), seed=2)
+        assert [q.id for q in first.ordered_questions] != [
+            q.id for q in second.ordered_questions
+        ]
+
+    def test_focus_navigation_follows_shuffled_order(self) -> None:
+        """ctrl+j moves focus to the next question in the shuffled order."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Shuffled",
+                config=FormConfig(randomize_questions=True),
+                questions=_build_questions(SHUFFLE_QUESTION_COUNT),
+            )
+            app: App = App()
+            async with app.run_test() as pilot:
+                screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
+                await app.push_screen(screen)
+                await pilot.press("ctrl+j")
+                assert screen.focused is not None
+                expected = screen.ordered_questions[1].id
+                assert screen.focused.id == f"input-{expected}"
+
+        asyncio.run(run())
+
+    def test_submit_collects_all_questions_in_shuffled_order(self) -> None:
+        """Submit gathers every question once in the displayed order."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Shuffled",
+                config=FormConfig(randomize_questions=True),
+                questions=_build_questions(SHUFFLE_QUESTION_COUNT),
+            )
+            app: App = App()
+            async with app.run_test():
+                screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
+                await app.push_screen(screen)
+                with patch.object(app, "push_screen"):
+                    with patch("formtuitous.tui.screens.init_db"):
+                        with patch(
+                            "formtuitous.tui.screens.save_response"
+                        ) as mock_save:
+                            await screen.action_submit()
+                answers = mock_save.call_args[0][2]
+                assert sorted(answers) == sorted(q.id for q in form.questions)
+                assert list(answers) == [
+                    q.id for q in screen.ordered_questions
+                ]
+
+        asyncio.run(run())
 
 
 class TestWidgetFactory:
