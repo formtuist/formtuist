@@ -264,7 +264,8 @@ able to view the screenshot, so still save one for the human reviewer.
 
 ### Re-verify after a fix
 
-Edit the template, restart the server with `pkill -f "formtuitous serve"`, start it again, and re-run the measurement. Jinja2 auto-reloads
+Edit the template, then restart the server and re-run the measurement
+after using `pkill -f "formtuitous serve"`. Jinja2 auto-reloads
 templates, so a restart is not strictly required, but it is harmless.
 The human tester must hard-refresh the browser (Ctrl+Shift+R) because
 the browser caches the page. Also confirm the favicon still serves:
