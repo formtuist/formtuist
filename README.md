@@ -48,6 +48,12 @@ Parses and validates the form definition, then prints a summary:
 - Question count (required vs optional)
 - Graded questions and auto-grade status
 
+Validation also rejects common authoring traps, such as auto-grading
+enabled with no graded questions, regex grading with a missing or
+broken pattern, an `accepts` pattern set without regex grading, and
+correct answers that are not among a question's choices. The
+`examples/invalid_*.json` files demonstrate each trap.
+
 Exits with code `0` if valid, `1` if errors are found.
 
 ### `schema` — Show the enforced JSON schema
