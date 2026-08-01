@@ -399,10 +399,12 @@ def classify_and_report(
             "directly_tested": 0,
             "indirectly_tested": 0,
             "untested": 0,
+            "unresolved": 0,
         },
         "indirectly_tested_list": [],
         "directly_tested_list": [],
         "untested_list": [],
+        "unresolved_list": [],
     }
     for func_id, info in sorted(all_functions.items()):
         entry: dict[str, Any] = {
@@ -437,6 +439,8 @@ def classify_and_report(
     s["untested"] = sum(
         1 for v in report["functions"].values() if v["test_status"] == "none"
     )
+    # the tree-sitter checker is name-based and never reports unresolved
+    s["unresolved"] = 0
     return report
 
 
@@ -467,6 +471,11 @@ def print_summary(report: dict[str, Any]) -> None:
         "Untested",
         str(s["untested"]),
         f"{s['untested'] / total * 100:.1f}%",
+    )
+    table.add_row(
+        "Unresolved (maybe)",
+        str(s["unresolved"]),
+        f"{s['unresolved'] / total * 100:.1f}%",
     )
     CONSOLE.print(table)
     if report["indirectly_tested_list"]:

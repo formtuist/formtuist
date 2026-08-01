@@ -1032,8 +1032,10 @@ results can be diffed directly:
   graph with `QueryEngine.from_graph` and credits a function only when a
   test reaches it through a resolved call edge, or when an unresolved
   call name matches exactly one source function. Ambiguous names such as
-  `compose` (four definitions) are never given blanket credit, so it
-  reports the conservative, provable lower bound.
+  `compose` (four definitions) are never given blanket credit; instead
+  every candidate is marked unresolved (possibly tested), and unresolved
+  functions are excluded from the directly-tested percentage so they are
+  not held against the threshold.
 
 `uv run task test-coverage-compare` prints a side-by-side summary of
 `tsc-treesitter.json` and `tsc-trailmark.json` plus every per-function status
@@ -1061,6 +1063,14 @@ ______________________________________________________________________
 
 - Paragraph feedback
 - Checkbox (select all that apply)
+
+### 8.4 `method_invocation_quiz.json`
+
+- A graded quiz about how method calls in Python are resolved to the
+  definitions they invoke, based on `answers/trailmark_demo.py`
+- Multiple choice, checkbox, short text (regex), yes/no, numeric, and
+  paragraph-adjacent questions, plus a confidence rating
+- Embeds the demo program via `answers/trailmark_demo.py`
 - Date field
 
 ______________________________________________________________________

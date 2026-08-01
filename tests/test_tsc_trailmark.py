@@ -12,6 +12,9 @@ UTF8 = "utf-8"
 SOURCE = "src/formtuitous"
 FUNCTION_COUNT = 4
 ALPHA_END_LINE = 3
+UNRESOLVED_COUNT = 2
+SIXTY_PERCENT = 60.0
+FULL_PERCENT = 100.0
 SOURCE_CODE = (
     "def alpha() -> None:\n"
     '    """Alpha docstring."""\n'
@@ -137,7 +140,7 @@ def test_find_direct_test_calls_skips_ambiguous_names(
     test_units = tsc_trailmark.find_test_function_ids(
         graph, project_root / "tests"
     )
-    directly_tested, details, resolution = (
+    directly_tested, details, resolution, maybe_direct = (
         tsc_trailmark.find_direct_test_calls(
             engine, test_units, source_by_id, project_root
         )
@@ -146,6 +149,8 @@ def test_find_direct_test_calls_skips_ambiguous_names(
     assert "alpha" in tested_names
     assert "beta" not in tested_names
     assert "compose" not in tested_names
+    maybe_names = {source_by_id[fid]["name"] for fid in maybe_direct}
+    assert maybe_names == {"compose"}
     assert resolution["resolved_direct_calls"] >= 1
     assert resolution["ambiguous_proxy_calls"] >= 1
     assert details
@@ -178,7 +183,7 @@ def test_find_direct_test_calls_credits_unique_name_proxy(
     test_units = tsc_trailmark.find_test_function_ids(
         graph, tmp_path / "tests"
     )
-    directly_tested, details, resolution = (
+    directly_tested, details, resolution, _ = (
         tsc_trailmark.find_direct_test_calls(
             engine, test_units, source_by_id, tmp_path
         )
@@ -216,12 +221,39 @@ def test_compute_coverage_status_classifies_direct_indirect_none() -> None:
     directly_tested = {"a"}
     call_graph = {"a": {"b"}, "b": {"c"}}
     status = tsc_trailmark.compute_coverage_status(
-        source_ids, directly_tested, call_graph
+        source_ids, directly_tested, call_graph, set()
     )
     assert status["a"] == "direct"
     assert status["b"] == "indirect"
     assert status["c"] == "indirect"
     assert status["d"] == "none"
+
+
+def test_compute_coverage_status_marks_unresolved() -> None:
+    """compute_coverage_status labels maybe functions as unresolved."""
+    source_ids = {"a", "b", "c"}
+    directly_tested = {"a"}
+    call_graph = {"a": {"b"}}
+    maybe_direct = {"b", "c"}
+    status = tsc_trailmark.compute_coverage_status(
+        source_ids, directly_tested, call_graph, maybe_direct
+    )
+    assert status["a"] == "direct"
+    assert status["b"] == "indirect"
+    assert status["c"] == "unresolved"
+
+
+def test_compute_direct_percentage_excludes_unresolved() -> None:
+    """compute_direct_percentage drops unresolved from the denominator."""
+    summary = {
+        "total": 10,
+        "directly_tested": 3,
+        "indirectly_tested": 2,
+        "untested": 5,
+        "unresolved": 5,
+    }
+    assert tsc_trailmark.compute_direct_percentage(summary) == SIXTY_PERCENT
+    assert tsc_trailmark.compute_direct_percentage({}) == FULL_PERCENT
 
 
 def test_classify_and_report_builds_consistent_summary(tmp_path: Path) -> None:
@@ -234,12 +266,14 @@ def test_classify_and_report_builds_consistent_summary(tmp_path: Path) -> None:
     test_units = tsc_trailmark.find_test_function_ids(
         graph, project_root / "tests"
     )
-    directly_tested, details, _ = tsc_trailmark.find_direct_test_calls(
-        engine, test_units, source_by_id, project_root
+    directly_tested, details, _, maybe_direct = (
+        tsc_trailmark.find_direct_test_calls(
+            engine, test_units, source_by_id, project_root
+        )
     )
     call_graph = tsc_trailmark.build_call_graph(engine, source_by_id)
     report = tsc_trailmark.classify_and_report(
-        source_by_id, directly_tested, call_graph, details
+        source_by_id, directly_tested, call_graph, details, maybe_direct
     )
     s = report["summary"]
     assert s["total"] == len(source_by_id)
@@ -247,8 +281,15 @@ def test_classify_and_report_builds_consistent_summary(tmp_path: Path) -> None:
     assert s["directly_tested"] == len(report["directly_tested_list"])
     assert s["indirectly_tested"] == len(report["indirectly_tested_list"])
     assert s["untested"] == len(report["untested_list"])
-    total = s["directly_tested"] + s["indirectly_tested"] + s["untested"]
+    assert s["unresolved"] == len(report["unresolved_list"])
+    total = (
+        s["directly_tested"]
+        + s["indirectly_tested"]
+        + s["untested"]
+        + s["unresolved"]
+    )
     assert total == s["total"]
+    assert s["unresolved"] == UNRESOLVED_COUNT
 
 
 def test_report_uses_shared_function_ids(tmp_path: Path) -> None:
@@ -261,12 +302,14 @@ def test_report_uses_shared_function_ids(tmp_path: Path) -> None:
     test_units = tsc_trailmark.find_test_function_ids(
         graph, project_root / "tests"
     )
-    directly_tested, details, _ = tsc_trailmark.find_direct_test_calls(
-        engine, test_units, source_by_id, project_root
+    directly_tested, details, _, maybe_direct = (
+        tsc_trailmark.find_direct_test_calls(
+            engine, test_units, source_by_id, project_root
+        )
     )
     call_graph = tsc_trailmark.build_call_graph(engine, source_by_id)
     report = tsc_trailmark.classify_and_report(
-        source_by_id, directly_tested, call_graph, details
+        source_by_id, directly_tested, call_graph, details, maybe_direct
     )
     ids = set(report["functions"])
     assert "src/formtuitous/mod.py:alpha:1" in ids

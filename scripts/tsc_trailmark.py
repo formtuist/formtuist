@@ -7,10 +7,11 @@ directly and this could be a sign that the function is not being tested
 as thoroughly as it should be.
 
 This checker is the trailmark implementation of the same analysis that
-scripts.tsc_treesitter performs with tree-sitter. It parses the whole project once
-with the trailmark programmatic API, producing a code graph of
-functions, methods, and call edges, and then classifies every source
-function as directly tested, indirectly tested, or untested.
+scripts.tsc_treesitter performs with tree-sitter. It parses the whole
+project once with the trailmark programmatic API, producing a code
+graph of functions, methods, and call edges, and then classifies every
+source function as directly tested, indirectly tested, possibly
+tested, or untested.
 
 Trailmark resolves cross-file calls to precise node ids (for example
 src.formtuitous.auth:fetch_github_identity). A source function counts
@@ -18,8 +19,11 @@ as directly tested only when a test_* function calls it through a
 resolved call edge. Unresolved dotted or ambiguous calls are credited
 only when the call name matches exactly one source function, so names
 that appear many times (for example compose) are never given blanket
-credit. The report schema is identical to scripts.tsc_treesitter so the two
-approaches can be compared.
+credit. When an ambiguous proxy call may target a function without
+proving it, that function is marked as unresolved (possibly tested)
+instead of untested, and unresolved functions are excluded from the
+directly-tested percentage. The report schema is identical to
+scripts.tsc_treesitter so the two approaches can be compared.
 
 Usage:
     uv run python -m scripts.tsc_trailmark [OPTIONS]
@@ -200,14 +204,18 @@ def find_direct_test_calls(
     test_units: dict[str, CodeUnit],
     source_by_id: dict[str, dict[str, Any]],
     project_root: Path,
-) -> tuple[set[str], dict[str, list[dict[str, Any]]], dict[str, int]]:
+) -> tuple[
+    set[str], dict[str, list[dict[str, Any]]], dict[str, int], set[str]
+]:
     """Scan test functions for direct calls to source functions.
 
     Uses trailmark's callees_of to list every direct callee of each
     test_* function. A callee that resolves to a source function is
     directly tested; an unresolved proxy callee is credited only when
     its name matches exactly one source function (for example
-    server._make_app resolves uniquely, while compose does not).
+    server._make_app resolves uniquely, while compose does not). A
+    proxy callee whose name matches several source functions marks
+    every match as possibly directly tested.
 
     Returns a tuple of:
     - set of directly-tested source function ids
@@ -217,6 +225,7 @@ def find_direct_test_calls(
     - resolution stats counting resolved edges, unique-name matches,
       ambiguous proxy calls that were skipped, and unmatched proxy
       calls
+    - set of source function ids that ambiguous proxy calls may target
 
     """
     source_by_name: dict[str, list[str]] = {}
@@ -229,6 +238,7 @@ def find_direct_test_calls(
         "unmatched_proxy_calls": 0,
     }
     directly_tested: set[str] = set()
+    maybe_direct: set[str] = set()
     func_to_test_details: dict[str, list[dict[str, Any]]] = {}
     for test_id, test_unit in test_units.items():
         detail = _test_detail(test_unit, project_root)
@@ -254,9 +264,10 @@ def find_direct_test_calls(
                         )
                 elif final_name in source_by_name:
                     resolution["ambiguous_proxy_calls"] += 1
+                    maybe_direct.update(source_by_name[final_name])
                 else:
                     resolution["unmatched_proxy_calls"] += 1
-    return directly_tested, func_to_test_details, resolution
+    return directly_tested, func_to_test_details, resolution, maybe_direct
 
 
 def build_call_graph(
@@ -297,6 +308,7 @@ def compute_coverage_status(
     source_ids: set[str],
     directly_tested: set[str],
     call_graph: dict[str, set[str]],
+    maybe_direct: set[str],
 ) -> dict[str, str]:
     """Determine test status for every function.
 
@@ -304,6 +316,8 @@ def compute_coverage_status(
     - "direct" - called directly by at least one test
     - "indirect" - not called directly, but reachable via the
       call graph from a directly-tested function
+    - "unresolved" - no proven coverage, but an ambiguous proxy
+      call may target this function
     - "none" - no test coverage (direct or indirect)
 
     """
@@ -318,10 +332,12 @@ def compute_coverage_status(
             if status[callee] == "unknown":
                 status[callee] = "indirect"
                 queue.append(callee)
-    # remaining unknown functions have no coverage at all
+    # remaining unknown functions are unresolved when a proxy may target them
     for func_id in source_ids:
         if status[func_id] == "unknown":
-            status[func_id] = "none"
+            status[func_id] = (
+                "unresolved" if func_id in maybe_direct else "none"
+            )
     return status
 
 
@@ -388,10 +404,11 @@ def classify_and_report(
     directly_tested: set[str],
     call_graph: dict[str, set[str]],
     func_to_test_details: dict[str, list[dict[str, Any]]],
+    maybe_direct: set[str],
 ) -> dict[str, Any]:
     """Build the coverage report."""
     coverage = compute_coverage_status(
-        set(source_by_id), directly_tested, call_graph
+        set(source_by_id), directly_tested, call_graph, maybe_direct
     )
     indirect_paths = compute_indirect_paths(
         call_graph,
@@ -407,10 +424,12 @@ def classify_and_report(
             "directly_tested": 0,
             "indirectly_tested": 0,
             "untested": 0,
+            "unresolved": 0,
         },
         "indirectly_tested_list": [],
         "directly_tested_list": [],
         "untested_list": [],
+        "unresolved_list": [],
     }
     for node_id, info in sorted(source_by_id.items()):
         entry: dict[str, Any] = {
@@ -429,6 +448,8 @@ def classify_and_report(
             report["indirectly_tested_list"].append(
                 {**info, "indirect_paths": paths}
             )
+        elif coverage[node_id] == "unresolved":
+            report["unresolved_list"].append({**info})
         elif coverage[node_id] == "none":
             report["untested_list"].append({**info})
     s = report["summary"]
@@ -443,6 +464,11 @@ def classify_and_report(
     )
     s["untested"] = sum(
         1 for v in report["functions"].values() if v["test_status"] == "none"
+    )
+    s["unresolved"] = sum(
+        1
+        for v in report["functions"].values()
+        if v["test_status"] == "unresolved"
     )
     return report
 
@@ -475,8 +501,28 @@ def print_summary(report: dict[str, Any]) -> None:
         str(s["untested"]),
         f"{s['untested'] / total * 100:.1f}%",
     )
+    table.add_row(
+        "Unresolved (maybe)",
+        str(s["unresolved"]),
+        f"{s['unresolved'] / total * 100:.1f}%",
+    )
     CONSOLE.print(table)
     if report["indirectly_tested_list"]:
+        CONSOLE.print(Rule("Indirectly Tested Functions", style="yellow"))
+        CONSOLE.print()
+        for entry in report["indirectly_tested_list"]:
+            CONSOLE.print(
+                f"  {entry['name']}  ({entry['file']}:{entry['line']})"
+            )
+    if report["unresolved_list"]:
+        CONSOLE.print()
+        CONSOLE.print(Rule("Possibly Tested Functions", style="cyan"))
+        CONSOLE.print()
+        for entry in report["unresolved_list"]:
+            CONSOLE.print(
+                f"  {entry['name']}  ({entry['file']}:{entry['line']})"
+            )
+    if report["untested_list"]:
         CONSOLE.print(Rule("Indirectly Tested Functions", style="yellow"))
         CONSOLE.print()
         for entry in report["indirectly_tested_list"]:
@@ -493,6 +539,23 @@ def print_summary(report: dict[str, Any]) -> None:
             )
 
 
+def compute_direct_percentage(summary: dict[str, Any]) -> float:
+    """Return the direct-test percentage excluding unresolved functions.
+
+    Unresolved functions are a maybe category: an ambiguous proxy call
+    may target them, so they are removed from the denominator instead
+    of being held against the directly-tested percentage.
+
+    """
+    total = int(summary.get("total", 0))
+    direct = int(summary.get("directly_tested", 0))
+    unresolved = int(summary.get("unresolved", 0))
+    decidable = total - unresolved
+    if decidable <= 0:
+        return MIN_PERCENT
+    return direct / decidable * 100
+
+
 def demo_api(engine: QueryEngine) -> list[str]:
     """Demonstrate the trailmark programmatic API and return lines."""
     lines: list[str] = []
@@ -506,7 +569,7 @@ def demo_api(engine: QueryEngine) -> list[str]:
     return lines
 
 
-def main(  # noqa: PLR0915
+def main(  # noqa: PLR0912, PLR0915
     threshold: int = typer.Option(
         DEFAULT_THRESHOLD,
         "--threshold",
@@ -547,11 +610,15 @@ def main(  # noqa: PLR0915
     analysis_lines.append("")
     analysis_lines.append("Searching for direct calls in test functions ...")
     test_units = find_test_function_ids(graph, test_dir)
-    directly_tested, func_to_test_details, resolution = find_direct_test_calls(
-        engine, test_units, all_functions, project_root
+    directly_tested, func_to_test_details, resolution, maybe_direct = (
+        find_direct_test_calls(engine, test_units, all_functions, project_root)
     )
     analysis_lines.append(
         f"  Found {len(directly_tested)} directly-tested functions."
+    )
+    analysis_lines.append(
+        f"  Found {len(maybe_direct)} possibly-tested functions "
+        f"via ambiguous proxy calls."
     )
     analysis_lines.append(
         f"  Resolution: {resolution['resolved_direct_calls']} resolved "
@@ -578,6 +645,7 @@ def main(  # noqa: PLR0915
         directly_tested,
         call_graph,
         func_to_test_details,
+        maybe_direct,
     )
     report_path.write_text(json.dumps(report, indent=2), encoding=UTF8)
     if verbose:
@@ -587,10 +655,7 @@ def main(  # noqa: PLR0915
         print_summary(report)
         CONSOLE.print()
     # threshold check
-    s = report["summary"]
-    total = s["total"]
-    direct_count = s["directly_tested"]
-    pct = (direct_count / total * 100) if total > 0 else MIN_PERCENT
+    pct = compute_direct_percentage(report["summary"])
     if pct < threshold:
         if verbose:
             CONSOLE.print()
@@ -608,6 +673,11 @@ def main(  # noqa: PLR0915
             for entry in report["untested_list"]:
                 CONSOLE.print(
                     f"  {entry['name']}  ({entry['file']}:{entry['line']})"
+                )
+            for entry in report["unresolved_list"]:
+                CONSOLE.print(
+                    f"  {entry['name']}  ({entry['file']}:{entry['line']})"
+                    f"  [maybe]"
                 )
         raise typer.Exit(code=1)
     if verbose:

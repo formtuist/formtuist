@@ -1,0 +1,171 @@
+{
+  "name": "Method Invocation Quiz",
+  "description": "A short quiz about how method calls in Python are resolved to the definitions they invoke, based on a small demo program.",
+  "config": {
+    "randomize_questions": true,
+    "auto_grade": true,
+    "allow_multiple_submissions": true
+  },
+  "questions": [
+    {
+      "id": "q1_resolvable_call",
+      "text": "In the demo program below, which call resolves unambiguously to the method it invokes?",
+      "type": "multiple_choice",
+      "required": true,
+      "randomize": false,
+      "choices": [
+        "self._check(token)",
+        "auth.verify(token)",
+        "handle_request(token)",
+        "Auth()"
+      ],
+      "correct_answer": "self._check(token)",
+      "points": 10,
+      "grading_type": "exact",
+      "code": {
+        "language": "python",
+        "file": "answers/method_invocation.py"
+      }
+    },
+    {
+      "id": "q2_why_unresolved",
+      "text": "The demo program calls auth.verify(token), where auth is a local variable. Why can a static analyzer not prove which verify method runs?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "The type of auth is not recorded anywhere",
+        "verify is a reserved Python keyword",
+        "Static analyzers never read function bodies",
+        "auth is an imported module"
+      ],
+      "correct_answer": "The type of auth is not recorded anywhere",
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q3_unresolved_record",
+      "text": "When an analyzer cannot resolve a call to a definition, what does it typically record instead?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "An unresolved reference to the call symbol",
+        "The first definition it happens to find",
+        "Nothing at all",
+        "A runtime exception"
+      ],
+      "correct_answer": "An unresolved reference to the call symbol",
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q4_resolvable_shapes",
+      "text": "Which call shapes can a static analyzer usually resolve to an exact definition? Select all that apply.",
+      "type": "checkbox",
+      "required": true,
+      "choices": [
+        "A bare call to a uniquely named function",
+        "self.method() inside a class",
+        "instance.method() where instance is a local variable",
+        "super().method()",
+        "A bare cross-file call to a uniquely named function"
+      ],
+      "correct_answer": [
+        "A bare call to a uniquely named function",
+        "self.method() inside a class",
+        "A bare cross-file call to a uniquely named function"
+      ],
+      "points": 15,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q5_self_method",
+      "text": "True or False: a call to self.method() inside a class always refers to a method of that same class.",
+      "type": "yes_no",
+      "required": true
+    },
+    {
+      "id": "q6_duplicate_names",
+      "text": "The formtuitous TUI defines several methods named compose in screens.py and widgets.py. How many compose method definitions exist in total?",
+      "type": "numeric",
+      "required": true,
+      "correct_answer": 4,
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q7_unresolved_word",
+      "text": "One word: what do we call a call whose target an analyzer cannot determine?",
+      "type": "short_text",
+      "required": true,
+      "accepts": "(?i)^(unresolved|ambiguous)$",
+      "correct_answer": "unresolved",
+      "points": 10,
+      "grading_type": "regex"
+    },
+    {
+      "id": "q8_type_annotation",
+      "text": "The demo program assigns auth = Auth() and later calls auth.verify(token). What extra information would let an analyzer connect auth.verify to Auth.verify?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "The type of auth, for example auth: Auth",
+        "The line number of the call",
+        "The name of the calling function",
+        "The return type of verify"
+      ],
+      "correct_answer": "The type of auth, for example auth: Auth",
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q9_ambiguity",
+      "text": "Suppose several classes each define a method named compose, and a program calls screen.compose(). Which statements are true? Select all that apply.",
+      "type": "checkbox",
+      "required": true,
+      "choices": [
+        "The call is ambiguous without knowing screen's type",
+        "A name-based match credits every compose method",
+        "The analyzer can prove exactly which compose runs",
+        "Knowing screen's type would resolve the call"
+      ],
+      "correct_answer": [
+        "The call is ambiguous without knowing screen's type",
+        "A name-based match credits every compose method",
+        "Knowing screen's type would resolve the call"
+      ],
+      "points": 15,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q10_diagram",
+      "text": "A call-graph diagram of the demo program draws handle_request pointing at an unresolved auth.verify node. Which statement best describes that drawing?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "It records the call as a fact and the target as unknown",
+        "It proves handle_request never invokes verify",
+        "It shows the resolved Auth.verify method",
+        "It means the diagram tool has a bug"
+      ],
+      "correct_answer": "It records the call as a fact and the target as unknown",
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q11_confidence",
+      "text": "How confident are you in your answers to this quiz?",
+      "type": "rating",
+      "required": true,
+      "randomize": false,
+      "min": 1,
+      "max": 5,
+      "labels": [
+        "Not confident",
+        "Somewhat confident",
+        "Confident",
+        "Very confident",
+        "Fully confident"
+      ]
+    }
+  ]
+}

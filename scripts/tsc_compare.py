@@ -4,7 +4,9 @@ Both checkers write the same JSON report schema, so their results can
 be diffed directly. This script prints a side-by-side summary of the
 two reports and then lists every function whose test_status differs
 between them, which is how inconsistencies between the tree-sitter
-approach and the trailmark approach show up.
+approach and the trailmark approach show up. The trailmark report also
+carries an unresolved (possibly tested) category that the tree-sitter
+report always reports as zero.
 
 Usage:
     uv run python -m scripts.tsc_compare tsc-treesitter.json tsc-trailmark.json
@@ -20,7 +22,12 @@ from rich.table import Table
 
 CONSOLE = Console()
 
-STATUS_KEYS = ("directly_tested", "indirectly_tested", "untested")
+STATUS_KEYS = (
+    "directly_tested",
+    "indirectly_tested",
+    "untested",
+    "unresolved",
+)
 
 app = typer.Typer(
     name="tsc-compare",

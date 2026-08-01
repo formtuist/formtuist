@@ -7,7 +7,7 @@ from scripts import tsc_compare
 FULL_PERCENT = 100.0
 THREE_QUARTERS_PERCENT = 75.0
 TOTAL_FUNCTIONS = 4
-STATUS_ROW_COUNT = 3
+STATUS_ROW_COUNT = 4
 
 
 def test_percent_guards_against_zero_total() -> None:
@@ -16,10 +16,15 @@ def test_percent_guards_against_zero_total() -> None:
     assert tsc_compare._percent(3, 4) == THREE_QUARTERS_PERCENT
 
 
-def test_summary_rows_builds_three_status_rows() -> None:
-    """_summary_rows renders the three status categories."""
+def test_summary_rows_builds_four_status_rows() -> None:
+    """_summary_rows renders the four status categories."""
     rows = tsc_compare._summary_rows(
-        {"directly_tested": 3, "indirectly_tested": 1, "untested": 0},
+        {
+            "directly_tested": 3,
+            "indirectly_tested": 1,
+            "untested": 0,
+            "unresolved": 0,
+        },
         TOTAL_FUNCTIONS,
     )
     assert len(rows) == STATUS_ROW_COUNT
