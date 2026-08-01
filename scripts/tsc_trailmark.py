@@ -7,7 +7,7 @@ directly and this could be a sign that the function is not being tested
 as thoroughly as it should be.
 
 This checker is the trailmark implementation of the same analysis that
-scripts.tsc performs with tree-sitter. It parses the whole project once
+scripts.tsc_treesitter performs with tree-sitter. It parses the whole project once
 with the trailmark programmatic API, producing a code graph of
 functions, methods, and call edges, and then classifies every source
 function as directly tested, indirectly tested, or untested.
@@ -18,7 +18,7 @@ as directly tested only when a test_* function calls it through a
 resolved call edge. Unresolved dotted or ambiguous calls are credited
 only when the call name matches exactly one source function, so names
 that appear many times (for example compose) are never given blanket
-credit. The report schema is identical to scripts.tsc so the two
+credit. The report schema is identical to scripts.tsc_treesitter so the two
 approaches can be compared.
 
 Usage:
