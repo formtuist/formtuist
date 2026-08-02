@@ -18,6 +18,7 @@ SUBMITTED_AT_COLUMN = "submitted_at"
 ANSWERS_JSON_COLUMN = "answers_json"
 GITHUB_USERNAME_COLUMN = "github_username"
 GITHUB_URL_COLUMN = "github_url"
+GRADE_JSON_COLUMN = "grade_json"
 RESPONSES_TABLE = "responses"
 
 CREATE_TABLE_SQL = (
@@ -35,6 +36,7 @@ CREATE_TABLE_SQL = (
 EXTRA_COLUMNS: dict[str, str] = {
     GITHUB_USERNAME_COLUMN: "TEXT",
     GITHUB_URL_COLUMN: "TEXT",
+    GRADE_JSON_COLUMN: "TEXT",
 }
 
 PRAGMA_WAL = f"PRAGMA journal_mode={WAL_JOURNAL_MODE};"
@@ -97,32 +99,56 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def save_response(
+def save_response(  # noqa: PLR0913, PLR0917
     conn: sqlite3.Connection,
     form_name: str,
     answers: dict[str, Any],
     github_username: str | None = None,
     github_url: str | None = None,
+    grade: dict[str, Any] | None = None,
 ) -> int:
     """Insert a response row and return the new row id.
 
     The *github_username* and *github_url* identity fields are optional
-    and stored as nullable columns. The raw authentication token is
-    never stored.
+    and stored as nullable columns. The *grade* argument is an optional
+    JSON-safe grade snapshot stored in the grade_json column. The raw
+    authentication token is never stored.
     """
     submitted_at = datetime.now(timezone.utc).isoformat()
     answers_json = json.dumps(answers)
+    grade_json = json.dumps(grade) if grade is not None else None
     cursor = conn.execute(
         f"INSERT INTO {RESPONSES_TABLE} "
         f"({FORM_NAME_COLUMN}, {SUBMITTED_AT_COLUMN}, {ANSWERS_JSON_COLUMN},"
-        f" {GITHUB_USERNAME_COLUMN}, {GITHUB_URL_COLUMN}) "
-        f"VALUES (?, ?, ?, ?, ?)",
-        (form_name, submitted_at, answers_json, github_username, github_url),
+        f" {GITHUB_USERNAME_COLUMN}, {GITHUB_URL_COLUMN},"
+        f" {GRADE_JSON_COLUMN}) "
+        f"VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            form_name,
+            submitted_at,
+            answers_json,
+            github_username,
+            github_url,
+            grade_json,
+        ),
     )
     conn.commit()
     row_id = cursor.lastrowid
     assert row_id is not None
     return row_id
+
+
+def update_response_grade(
+    conn: sqlite3.Connection, response_id: int, grade: dict[str, Any]
+) -> None:
+    """Replace the stored grade snapshot for an existing response."""
+    grade_json = json.dumps(grade)
+    conn.execute(
+        f"UPDATE {RESPONSES_TABLE} SET {GRADE_JSON_COLUMN} = ? "
+        f"WHERE {ID_COLUMN} = ?",
+        (grade_json, response_id),
+    )
+    conn.commit()
 
 
 def get_responses(
@@ -133,14 +159,16 @@ def get_responses(
         rows = conn.execute(
             f"SELECT {ID_COLUMN}, {FORM_NAME_COLUMN}, "
             f"{SUBMITTED_AT_COLUMN}, {ANSWERS_JSON_COLUMN}, "
-            f"{GITHUB_USERNAME_COLUMN}, {GITHUB_URL_COLUMN} "
+            f"{GITHUB_USERNAME_COLUMN}, {GITHUB_URL_COLUMN}, "
+            f"{GRADE_JSON_COLUMN} "
             f"FROM {RESPONSES_TABLE} ORDER BY {ID_COLUMN}"
         ).fetchall()
     else:
         rows = conn.execute(
             f"SELECT {ID_COLUMN}, {FORM_NAME_COLUMN}, "
             f"{SUBMITTED_AT_COLUMN}, {ANSWERS_JSON_COLUMN}, "
-            f"{GITHUB_USERNAME_COLUMN}, {GITHUB_URL_COLUMN} "
+            f"{GITHUB_USERNAME_COLUMN}, {GITHUB_URL_COLUMN}, "
+            f"{GRADE_JSON_COLUMN} "
             f"FROM {RESPONSES_TABLE} "
             f"WHERE {FORM_NAME_COLUMN} = ? ORDER BY {ID_COLUMN}",
             (form_name,),
@@ -153,6 +181,9 @@ def get_responses(
             ANSWERS_JSON_COLUMN: json.loads(row[3]),
             GITHUB_USERNAME_COLUMN: row[4],
             GITHUB_URL_COLUMN: row[5],
+            GRADE_JSON_COLUMN: (
+                json.loads(row[6]) if row[6] is not None else None
+            ),
         }
         for row in rows
     ]
