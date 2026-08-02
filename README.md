@@ -169,10 +169,28 @@ uvx formtuitous view ~/.local/share/formtuitous/responses.db --port 9000
 uvx formtuitous export responses.db
 ```
 
-### `grade` — Grade responses (coming soon)
+### `grade` — Report grades for a quiz
 
 ```bash
 uvx formtuitous grade examples/quiz.json responses.db
+```
+
+Prints a per-question score table with one row per response. When a response
+was submitted to an auto-graded form, the score snapshot recorded at submit
+time is reported as-is, so grades never change retroactively when the form
+file is edited. Responses without a stored snapshot (older databases,
+non-auto-graded forms) are graded on the fly.
+
+**Options:**
+
+| Flag | Description | Default |
+|---|---|---|
+| `--recompute` | Re-grade every response with the current form and update the stored snapshots | `false` |
+
+**Example:**
+
+```bash
+uvx formtuitous grade examples/quiz.json responses.db --recompute
 ```
 
 ## Keyboard shortcuts
