@@ -1,7 +1,9 @@
 """Typer-based CLI entry point for the formtuitous application."""
 
+import sqlite3
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import Any
 
 import typer
 from pydantic import ValidationError
@@ -12,21 +14,26 @@ from rich.table import Table
 from formtuitous.database import (
     ANSWERS_JSON_COLUMN,
     GITHUB_USERNAME_COLUMN,
+    GRADE_JSON_COLUMN,
     ID_COLUMN,
     get_default_db_dir,
     get_responses,
     init_db,
     resolve_db_path,
+    update_response_grade,
 )
 from formtuitous.grader import (
+    BREAKDOWN_ID_KEY,
     BREAKDOWN_KEY,
     BREAKDOWN_SCORE_KEY,
     MAX_KEY,
     PERCENTAGE_KEY,
     TOTAL_KEY,
+    grade_report_to_json,
     grade_response,
 )
 from formtuitous.parser import parse_form
+from formtuitous.schema import FormDefinition
 from formtuitous.version import FORMTUITOUS_VERSION
 
 # rich console for all user-facing output
@@ -57,6 +64,7 @@ GRADE_COLUMN_MAX = "Max"
 GRADE_COLUMN_PERCENT = "%"
 GRADE_QUESTION_COLUMN_PREFIX = "Q"
 GRADE_UNKNOWN_STUDENT = "-"
+GRADE_NO_SCORE = "-"
 GRADE_NO_RESPONSES_PREFIX = "No responses for "
 
 # constants for shared typer argument help strings
@@ -315,6 +323,13 @@ def export(
     raise typer.Exit(code=0)
 
 
+VIEW_START_PREFIX = "Starting datasette for "
+VIEW_START_SUFFIX = " at http://127.0.0.1:"
+VIEW_DATASETTE_MISSING = (
+    "datasette is not installed. Install it with: uv add datasette"
+)
+
+
 @app.command()
 def view(
     responses_path: Path = typer.Argument(
@@ -327,12 +342,18 @@ def view(
     port: int = typer.Option(8001, "--port", help="Port for datasette."),
 ) -> None:
     """Browse responses in a web browser via datasette."""
+    import importlib.util  # noqa: PLC0415
     import subprocess  # noqa: PLC0415
     import sys  # noqa: PLC0415
 
+    # datasette must live in the same environment as formtuitous so the
+    # subprocess below can resolve it through the project virtualenv
+    if importlib.util.find_spec("datasette") is None:
+        console.print(VIEW_DATASETTE_MISSING)
+        raise typer.Exit(code=1)
     console.print(
-        f"Starting datasette for [bold]{responses_path}[/bold]"
-        f" at http://127.0.0.1:{port}"
+        f"{VIEW_START_PREFIX}[bold]{responses_path}[/bold]"
+        f"{VIEW_START_SUFFIX}{port}"
     )
     subprocess.run(
         [
@@ -343,7 +364,7 @@ def view(
             str(responses_path),
             "--port",
             str(port),
-            "--open-browser",
+            "--open",
         ],
         check=False,
     )
@@ -409,6 +430,12 @@ def grade(
         file_okay=False,
         dir_okay=True,
     ),
+    recompute: bool = typer.Option(
+        False,
+        "--recompute",
+        help="Re-grade every response with the current form and update"
+        " stored snapshots.",
+    ),
 ) -> None:
     """Grade responses against a form with correct answers."""
     try:
@@ -417,7 +444,6 @@ def grade(
         raise typer.Exit(code=1)
     conn = init_db(responses_path)
     responses = get_responses(conn, form_name=form.name)
-    conn.close()
     if not responses:
         console.print(f"{GRADE_NO_RESPONSES_PREFIX}{form.name}.")
         raise typer.Exit(code=0)
@@ -440,13 +466,19 @@ def grade(
     table.add_column(GRADE_COLUMN_MAX, justify="right")
     table.add_column(GRADE_COLUMN_PERCENT, justify="right")
     for response in responses:
-        report = grade_response(form, response[ANSWERS_JSON_COLUMN])
+        report = _response_report(conn, form, response, recompute)
         breakdown = report[BREAKDOWN_KEY]
+        by_id = {entry[BREAKDOWN_ID_KEY]: entry for entry in breakdown}
         row = [
             str(response[ID_COLUMN]),
             response[GITHUB_USERNAME_COLUMN] or GRADE_UNKNOWN_STUDENT,
         ]
-        row.extend(str(entry[BREAKDOWN_SCORE_KEY]) for entry in breakdown)
+        row.extend(
+            str(by_id[question.id][BREAKDOWN_SCORE_KEY])
+            if question.id in by_id
+            else GRADE_NO_SCORE
+            for question in graded
+        )
         row.extend(
             [
                 str(report[TOTAL_KEY]),
@@ -455,8 +487,32 @@ def grade(
             ]
         )
         table.add_row(*row)
+    conn.close()
     console.print(table)
     raise typer.Exit(code=0)
+
+
+def _response_report(
+    conn: sqlite3.Connection,
+    form: FormDefinition,
+    response: dict[str, Any],
+    recompute: bool,
+) -> dict[str, Any]:
+    """Return the report for one response, stored or freshly graded.
+
+    The stored snapshot is used when present unless recompute is set.
+    Missing snapshots (legacy rows, non-auto-graded forms) are graded
+    on the fly. Recompute writes the fresh snapshot back to the row.
+    """
+    stored: dict[str, Any] | None = response.get(GRADE_JSON_COLUMN)
+    if not recompute and stored is not None:
+        return stored
+    report = grade_response(form, response[ANSWERS_JSON_COLUMN])
+    if recompute:
+        update_response_grade(
+            conn, response[ID_COLUMN], grade_report_to_json(report)
+        )
+    return report
 
 
 @app.callback()
