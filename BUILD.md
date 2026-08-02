@@ -116,8 +116,7 @@ first module:
 - `test` → `pytest -x -s -vv`
 - `test-parallel` → `pytest -x -s -vv -n auto -p no:sugar`
 - `test-silent` → `pytest -x --show-capture=no -n auto`
-- `test-coverage` → `pytest -s --cov=formtuitous --cov-branch
---cov-fail-under={coveragefailunder} --cov-report=term-missing tests/`
+- `test-coverage` → `pytest -s --cov=formtuitous --cov-branch --cov-fail-under={coveragefailunder} --cov-report=term-missing tests/`
 - `test-propertybased` → `pytest -x -s -vv -m propertybased`
 - `test-not-propertybased` → `pytest -x -s -vv -m 'not propertybased'`
 - `display` → `uv run formtuitous display`
@@ -423,9 +422,15 @@ CREATE TABLE responses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     form_name TEXT NOT NULL,
     submitted_at TEXT NOT NULL,  -- ISO 8601
-    answers_json TEXT NOT NULL   -- JSON object mapping question_id -> answer
+    answers_json TEXT NOT NULL,  -- JSON object mapping question_id -> answer
+    grade_json TEXT              -- JSON grade snapshot (auto-graded forms)
 );
 ```
+
+`answers_json` holds only the raw answers. `grade_json` is a nullable
+column that holds a JSON-safe copy of the grade report for submissions to
+auto-graded forms, snapshotted at submit time (see sections 3.5 and 5.6).
+Both columns are added to older databases by `_ensure_extra_columns()`.
 
 **Concurrency safeguard — WAL mode is mandatory.**
 Since `textual-serve` launches a **separate subprocess per student**, every
@@ -448,8 +453,13 @@ Functions needed:
 
 - `init_db(db_path: Path) -> sqlite3.Connection` — runs WAL + busy_timeout
 - `save_response(conn, form_name: str, answers: dict) -> int`
+- `update_response_grade(conn, response_id: int, grade: dict) -> None`
 - `get_responses(conn, form_name: str | None) -> list[dict]`
 - `get_response_count(conn, form_name: str) -> int`
+
+`save_response` accepts an optional `grade` keyword argument holding a
+JSON-safe report snapshot; `update_response_grade` overwrites the snapshot
+for an existing row (used by `grade --recompute`).
 
 ### 3.4 `exporter.py` — Export Formats
 
@@ -484,7 +494,13 @@ def grade_response(form: FormDefinition, answers: dict[str, Any]) -> dict:
         "percentage": (total / max_total * 100) if max_total else 0,
         "breakdown": results,
     }
+```
 
+The report is converted into a JSON-safe snapshot for storage with
+`grade_report_to_json()`, which turns `NumericRange` and `CodeBlock`
+values into plain dicts and records a `graded_at` timestamp.
+
+```python
 def _grade_question(q, answer):
     if q.type == "multiple_choice":
         return (q.points, q.points) if answer == q.correct_answer else (0, q.points)
@@ -863,7 +879,10 @@ WelcomeScreen  --[Start button]-->  FormScreen
 If `form.config.auto_grade` is true, `SubmitScreen` shows the score and
 a review of every question the student answered incorrectly, including
 the student's answer and the correct answer. When all answers are
-correct, it shows an all-correct message instead.
+correct, it shows an all-correct message instead. The same report is
+persisted as a JSON-safe snapshot in the response row's `grade_json`
+column so the recorded score is immutable and matches what the student
+saw; the `grade` command reports it later (see section 5.6).
 
 ### 4.6.5 Data Passing — `FormApp` Constructor
 
@@ -929,12 +948,20 @@ ______________________________________________________________________
 1. Launch `datasette serve <responses.db>` with optional args.
 1. Print URL to console.
 
-### 5.6 `grade <form.json> <responses.db> [--output <path>]`
+### 5.6 `grade <form.json> <responses.db> [--recompute]`
 
 1. Load form definition (with `correct_answer` fields).
 1. Load all responses from DB.
-1. Run `grader.grade_response()` on each.
-1. Output a grade report (TUI table or CSV/JSON).
+1. For each response, report the stored `grade_json` snapshot when
+   present; responses without a snapshot (older databases,
+   non-auto-graded forms) are graded on the fly with
+   `grader.grade_response()`.
+1. Output a grade report table with per-question and total scores.
+
+`--recompute` re-grades every response with the current form and writes
+the fresh snapshots back to the database. This is the tool to use after
+correcting a question or point value: run it once to refresh all stored
+grades, otherwise editing the form never changes recorded scores.
 
 ______________________________________________________________________
 
