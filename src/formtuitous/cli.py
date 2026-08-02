@@ -443,52 +443,54 @@ def grade(
     except ValidationError:
         raise typer.Exit(code=1)
     conn = init_db(responses_path)
-    responses = get_responses(conn, form_name=form.name)
-    if not responses:
-        console.print(f"{GRADE_NO_RESPONSES_PREFIX}{form.name}.")
-        raise typer.Exit(code=0)
-    graded = [
-        question
-        for question in form.questions
-        if getattr(question, "correct_answer", None) is not None
-    ]
-    table = Table(
-        title=f"{GRADE_TABLE_TITLE_PREFIX}{form.name}",
-        header_style="bold",
-    )
-    table.add_column(GRADE_COLUMN_ID, justify="right")
-    table.add_column(GRADE_COLUMN_STUDENT)
-    for index, _question in enumerate(graded, start=1):
-        table.add_column(
-            f"{GRADE_QUESTION_COLUMN_PREFIX}{index}", justify="right"
-        )
-    table.add_column(GRADE_COLUMN_TOTAL, justify="right")
-    table.add_column(GRADE_COLUMN_MAX, justify="right")
-    table.add_column(GRADE_COLUMN_PERCENT, justify="right")
-    for response in responses:
-        report = _response_report(conn, form, response, recompute)
-        breakdown = report[BREAKDOWN_KEY]
-        by_id = {entry[BREAKDOWN_ID_KEY]: entry for entry in breakdown}
-        row = [
-            str(response[ID_COLUMN]),
-            response[GITHUB_USERNAME_COLUMN] or GRADE_UNKNOWN_STUDENT,
+    try:
+        responses = get_responses(conn, form_name=form.name)
+        if not responses:
+            console.print(f"{GRADE_NO_RESPONSES_PREFIX}{form.name}.")
+            raise typer.Exit(code=0)
+        graded = [
+            question
+            for question in form.questions
+            if getattr(question, "correct_answer", None) is not None
         ]
-        row.extend(
-            str(by_id[question.id][BREAKDOWN_SCORE_KEY])
-            if question.id in by_id
-            else GRADE_NO_SCORE
-            for question in graded
+        table = Table(
+            title=f"{GRADE_TABLE_TITLE_PREFIX}{form.name}",
+            header_style="bold",
         )
-        row.extend(
-            [
-                str(report[TOTAL_KEY]),
-                str(report[MAX_KEY]),
-                f"{report[PERCENTAGE_KEY]:g}",
+        table.add_column(GRADE_COLUMN_ID, justify="right")
+        table.add_column(GRADE_COLUMN_STUDENT)
+        for index, _question in enumerate(graded, start=1):
+            table.add_column(
+                f"{GRADE_QUESTION_COLUMN_PREFIX}{index}", justify="right"
+            )
+        table.add_column(GRADE_COLUMN_TOTAL, justify="right")
+        table.add_column(GRADE_COLUMN_MAX, justify="right")
+        table.add_column(GRADE_COLUMN_PERCENT, justify="right")
+        for response in responses:
+            report = _response_report(conn, form, response, recompute)
+            breakdown = report[BREAKDOWN_KEY]
+            by_id = {entry[BREAKDOWN_ID_KEY]: entry for entry in breakdown}
+            row = [
+                str(response[ID_COLUMN]),
+                response[GITHUB_USERNAME_COLUMN] or GRADE_UNKNOWN_STUDENT,
             ]
-        )
-        table.add_row(*row)
-    conn.close()
-    console.print(table)
+            row.extend(
+                str(by_id[question.id][BREAKDOWN_SCORE_KEY])
+                if question.id in by_id
+                else GRADE_NO_SCORE
+                for question in graded
+            )
+            row.extend(
+                [
+                    str(report[TOTAL_KEY]),
+                    str(report[MAX_KEY]),
+                    f"{report[PERCENTAGE_KEY]:g}",
+                ]
+            )
+            table.add_row(*row)
+        console.print(table)
+    finally:
+        conn.close()
     raise typer.Exit(code=0)
 
 
