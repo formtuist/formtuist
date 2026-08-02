@@ -27,6 +27,7 @@ from formtuitous.grader import (
     MAX_KEY,
     PERCENTAGE_KEY,
     TOTAL_KEY,
+    grade_report_to_json,
     grade_response,
 )
 from formtuitous.schema import (
@@ -361,6 +362,11 @@ class FormScreen(Screen):
             answers[question.id] = value
         if not valid:
             return
+        grade_report = None
+        grade_json = None
+        if self.form.config.auto_grade:
+            grade_report = grade_response(self.form, answers)
+            grade_json = grade_report_to_json(grade_report)
         conn = init_db(self.db_path)
         save_response(
             conn,
@@ -368,11 +374,9 @@ class FormScreen(Screen):
             answers,
             identity.username if identity is not None else None,
             identity.profile_url if identity is not None else None,
+            grade=grade_json,
         )
         conn.close()
-        grade_report = None
-        if self.form.config.auto_grade:
-            grade_report = grade_response(self.form, answers)
         self.app.push_screen(
             SubmitScreen(self.form, self.db_path, identity, grade_report)
         )
