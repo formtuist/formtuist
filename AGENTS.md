@@ -24,6 +24,13 @@ This document provides guidelines for AI agents contributing to the
   easier and catches errors early.
 - **Communicate clearly:** When you propose changes, explain what you have
   done and why.
+- **Be transparent about mistakes:** Although you should
+  avoid making mistakes, when an action overwrites, deletes,
+  or damages user data (for example, replacing a database file
+  during testing), report it immediately and explicitly: name
+  the file, what happened, why, and what is recoverable. Never
+  hide damage or wait for the human to discover it.
+  Acknowledge the error and offer remediation.
 - **Create and follow a TODO list:** Always create a TODO list and then follow
   it. Do not stop until the tools you call confirm that all tasks in the list
   are completed.
