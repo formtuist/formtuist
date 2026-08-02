@@ -1,5 +1,6 @@
 """Tests for the auto-grading logic."""
 
+import json
 from typing import Literal
 
 from formtuitous.grader import (
@@ -14,6 +15,7 @@ from formtuitous.grader import (
     PERCENTAGE_KEY,
     TOTAL_KEY,
     _grade_question,
+    grade_report_to_json,
     grade_response,
 )
 from formtuitous.schema import (
@@ -568,3 +570,138 @@ class TestGradeResponse:
         }
         assert by_id["q"][BREAKDOWN_LANGUAGE_KEY] == "python"
         assert by_id["plain"][BREAKDOWN_LANGUAGE_KEY] is None
+
+
+class TestGradeReportToJson:
+    """Tests for converting a grade report into a JSON-safe snapshot."""
+
+    def _report(self) -> dict:
+        """Build a rich report with every answer shape present."""
+        form = FormDefinition(
+            name="Shapes",
+            questions=[
+                MultipleChoiceQuestion(
+                    id="mc",
+                    text="Pick?",
+                    type="multiple_choice",
+                    choices=["a", "b"],
+                    correct_answer="a",
+                    points=10,
+                ),
+                CheckboxQuestion(
+                    id="cb",
+                    text="Pick all?",
+                    type="checkbox",
+                    choices=["x", "y", "z"],
+                    correct_answer=["x", "z"],
+                    points=10,
+                ),
+                NumericQuestion(
+                    id="num",
+                    text="How many?",
+                    type="numeric",
+                    correct_answer=NumericRange(min=2, max=4),
+                    points=10,
+                ),
+                ShortTextQuestion(
+                    id="code",
+                    text="Write code?",
+                    type="short_text",
+                    correct_answer=CodeBlock(language="python", content="x=1"),
+                    points=10,
+                    grading_type="exact",
+                ),
+                ShortTextQuestion(
+                    id="multi_code",
+                    text="One of?",
+                    type="short_text",
+                    correct_answer=[
+                        CodeBlock(language="python", content="a=1"),
+                        CodeBlock(language="python", content="b=2"),
+                    ],
+                    points=10,
+                    grading_type="exact",
+                ),
+            ],
+        )
+        return grade_response(form, {"mc": "b", "cb": ["x", "y"]})
+
+    def test_totals_preserved(self) -> None:
+        """The snapshot keeps total, max, and percentage."""
+        report = self._report()
+        stored = grade_report_to_json(report)
+        assert stored[TOTAL_KEY] == report[TOTAL_KEY]
+        assert stored[MAX_KEY] == report[MAX_KEY]
+        assert stored[PERCENTAGE_KEY] == report[PERCENTAGE_KEY]
+
+    def test_graded_at_timestamp(self) -> None:
+        """The snapshot records when it was created."""
+        stored = grade_report_to_json(self._report())
+        assert "graded_at" in stored
+        assert stored["graded_at"].endswith("+00:00")
+
+    def test_range_converted_to_dict(self) -> None:
+        """A numeric range becomes a plain min/max dict."""
+        stored = grade_report_to_json(self._report())
+        entry = next(
+            e for e in stored[BREAKDOWN_KEY] if e[BREAKDOWN_ID_KEY] == "num"
+        )
+        assert entry[BREAKDOWN_CORRECT_ANSWER_KEY] == {"min": 2, "max": 4}
+
+    def test_code_block_converted_to_dict(self) -> None:
+        """A code block becomes a language/content dict."""
+        stored = grade_report_to_json(self._report())
+        entry = next(
+            e for e in stored[BREAKDOWN_KEY] if e[BREAKDOWN_ID_KEY] == "code"
+        )
+        assert entry[BREAKDOWN_CORRECT_ANSWER_KEY] == {
+            "language": "python",
+            "content": "x=1",
+        }
+
+    def test_code_block_list_converted(self) -> None:
+        """A list of code blocks becomes a list of dicts."""
+        stored = grade_report_to_json(self._report())
+        entry = next(
+            e
+            for e in stored[BREAKDOWN_KEY]
+            if e[BREAKDOWN_ID_KEY] == "multi_code"
+        )
+        assert entry[BREAKDOWN_CORRECT_ANSWER_KEY] == [
+            {"language": "python", "content": "a=1"},
+            {"language": "python", "content": "b=2"},
+        ]
+
+    def test_list_answer_untouched(self) -> None:
+        """A plain list answer survives the conversion unchanged."""
+        stored = grade_report_to_json(self._report())
+        entry = next(
+            e for e in stored[BREAKDOWN_KEY] if e[BREAKDOWN_ID_KEY] == "cb"
+        )
+        assert entry[BREAKDOWN_ANSWER_KEY] == ["x", "y"]
+        assert entry[BREAKDOWN_CORRECT_ANSWER_KEY] == ["x", "z"]
+
+    def test_snapshot_is_json_serializable(self) -> None:
+        """The snapshot survives a full JSON round trip."""
+        stored = grade_report_to_json(self._report())
+        round_tripped = json.loads(json.dumps(stored))
+        assert round_tripped == stored
+
+    def test_empty_breakdown(self) -> None:
+        """A form without graded questions stores an empty breakdown."""
+        form = FormDefinition(
+            name="Empty",
+            questions=[
+                RatingQuestion(
+                    id="r",
+                    text="Rate?",
+                    type="rating",
+                    min=1,
+                    max=5,
+                    labels=["1", "2", "3", "4", "5"],
+                ),
+            ],
+        )
+        stored = grade_report_to_json(grade_response(form, {"r": 3}))
+        assert stored[BREAKDOWN_KEY] == []
+        assert stored[TOTAL_KEY] == 0

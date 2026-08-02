@@ -1,6 +1,7 @@
 """Smoke tests for TUI screens and application construction."""
 
 import asyncio
+import json
 from math import factorial
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
@@ -236,7 +237,12 @@ class TestFormScreen:
                         asyncio.run(screen.action_submit())
         mock_init.assert_called_once()
         mock_save.assert_called_once_with(
-            mock_init.return_value, "Minimal", {"q1": "Alice"}, None, None
+            mock_init.return_value,
+            "Minimal",
+            {"q1": "Alice"},
+            None,
+            None,
+            grade=None,
         )
         mock_app.push_screen.assert_called_once()
         mock_notify.assert_not_called()
@@ -293,7 +299,7 @@ class TestFormScreen:
                         asyncio.run(screen.action_submit())
         mock_init.assert_called_once()
         mock_save.assert_called_once_with(
-            mock_init.return_value, "Test", {"q1": ""}, None, None
+            mock_init.return_value, "Test", {"q1": ""}, None, None, grade=None
         )
         mock_app.push_screen.assert_called_once()
         mock_notify.assert_not_called()
@@ -365,6 +371,49 @@ class TestFormScreen:
         assert pushed.grade_report[TOTAL_KEY] == GRADE_TOTAL
         mock_notify.assert_not_called()
 
+    def test_action_submit_persists_grade_snapshot(self) -> None:
+        """action_submit stores a JSON-safe grade snapshot when auto-grading."""
+        form = FormDefinition(
+            name="Auto",
+            config=FormConfig(auto_grade=True),
+            questions=[
+                ShortTextQuestion(
+                    id="q1",
+                    text="Capital?",
+                    type="short_text",
+                    correct_answer="Paris",
+                    points=GRADE_POINTS,
+                    grading_type="exact",
+                ),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "Paris"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuitous.tui.screens.init_db"):
+                    with patch(
+                        "formtuitous.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        asyncio.run(screen.action_submit())
+        saved_grade = mock_save.call_args.kwargs["grade"]
+        assert saved_grade is not None
+        assert saved_grade[TOTAL_KEY] == GRADE_TOTAL
+        assert len(saved_grade["breakdown"]) == 1
+        assert saved_grade["breakdown"][0]["correct"] is True
+        assert saved_grade["breakdown"][0]["answer"] == "Paris"
+        assert "graded_at" in saved_grade
+        json.dumps(saved_grade)
+        mock_notify.assert_not_called()
+
     def test_action_submit_with_github_auth(self) -> None:
         """action_submit validates the token and stores the identity."""
         form = FormDefinition(
@@ -408,6 +457,7 @@ class TestFormScreen:
             {"q1": "answer"},
             "octocat",
             "https://github.com/octocat",
+            grade=None,
         )
         mock_app.push_screen.assert_called_once()
         pushed_screen = mock_app.push_screen.call_args[0][0]

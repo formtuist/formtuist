@@ -1,5 +1,6 @@
 """Tests for the SQLite database storage layer."""
 
+import json
 from pathlib import Path
 
 from formtuitous.database import (
@@ -11,6 +12,7 @@ from formtuitous.database import (
     init_db,
     resolve_db_path,
     save_response,
+    update_response_grade,
 )
 
 EXPECTED_TWO_RESPONSES = 2
@@ -425,3 +427,100 @@ class TestGitHubIdentityColumns:
         assert "github_username" in columns
         assert "github_url" in columns
         assert results[0]["github_username"] is None
+
+
+class TestGradeColumn:
+    """Tests for the grade_json column on the responses table."""
+
+    def test_init_creates_grade_column(self, tmp_path: Path) -> None:
+        """init_db creates the grade_json column."""
+        conn = init_db(tmp_path / "test.db")
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(responses)").fetchall()
+        }
+        conn.close()
+        assert "grade_json" in columns
+
+    def test_save_response_stores_grade(self, tmp_path: Path) -> None:
+        """save_response stores a JSON-safe grade snapshot."""
+        conn = init_db(tmp_path / "test.db")
+        grade = {
+            "total": 10,
+            "max": 20,
+            "percentage": 50.0,
+            "breakdown": [
+                {"id": "q1", "score": 10, "max": 10, "correct": True}
+            ],
+            "graded_at": "2026-08-01T00:00:00+00:00",
+        }
+        save_response(conn, "Quiz", {"q1": "a"}, grade=grade)
+        results = get_responses(conn)
+        conn.close()
+        assert results[0]["grade_json"] == grade
+
+    def test_save_response_without_grade(self, tmp_path: Path) -> None:
+        """save_response stores NULL grade when not provided."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(conn, "FormA", {"q1": "answer"})
+        results = get_responses(conn)
+        conn.close()
+        assert results[0]["grade_json"] is None
+
+    def test_existing_db_gets_grade_column(self, tmp_path: Path) -> None:
+        """An older database is migrated to add the grade column."""
+        db_path = tmp_path / "old.db"
+        conn = init_db(db_path)
+        conn.execute("DROP TABLE responses")
+        conn.execute(
+            "CREATE TABLE responses ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "form_name TEXT NOT NULL,"
+            "submitted_at TEXT NOT NULL,"
+            "answers_json TEXT NOT NULL"
+            ")"
+        )
+        conn.execute(
+            "INSERT INTO responses (form_name, submitted_at, answers_json)"
+            " VALUES ('Old', '2024-01-01', '{}')"
+        )
+        conn.commit()
+        conn.close()
+        conn2 = init_db(db_path)
+        columns = {
+            row[1]
+            for row in conn2.execute("PRAGMA table_info(responses)").fetchall()
+        }
+        results = get_responses(conn2)
+        conn2.close()
+        assert "grade_json" in columns
+        assert results[0]["grade_json"] is None
+
+    def test_update_response_grade_replaces_snapshot(
+        self, tmp_path: Path
+    ) -> None:
+        """update_response_grade overwrites the stored grade snapshot."""
+        conn = init_db(tmp_path / "test.db")
+        row_id = save_response(conn, "Quiz", {"q1": "a"})
+        first = {"total": 10, "max": 10, "percentage": 100.0}
+        second = {"total": 0, "max": 10, "percentage": 0.0}
+        update_response_grade(conn, row_id, first)
+        update_response_grade(conn, row_id, second)
+        results = get_responses(conn)
+        conn.close()
+        assert results[0]["grade_json"]["total"] == 0
+
+    def test_update_response_grade_round_trip(self, tmp_path: Path) -> None:
+        """An updated snapshot survives a JSON round trip."""
+        conn = init_db(tmp_path / "test.db")
+        row_id = save_response(conn, "Quiz", {"q1": "a"})
+        grade = {
+            "total": 8,
+            "max": 10,
+            "percentage": 80.0,
+            "breakdown": [{"id": "q1", "score": 8, "correct": False}],
+        }
+        update_response_grade(conn, row_id, grade)
+        results = get_responses(conn)
+        conn.close()
+        assert json.loads(json.dumps(results[0]["grade_json"])) == grade

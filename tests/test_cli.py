@@ -2,6 +2,7 @@
 
 import json
 import re
+import sys
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from unittest.mock import patch
@@ -10,13 +11,21 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from formtuitous.cli import _display_db_dir, _package_version, app, main
-from formtuitous.database import init_db, save_response
+from formtuitous.database import get_responses, init_db, save_response
 
 # regex to strip ANSI SGR escape sequences that Rich embeds in captured output
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
 
 runner = CliRunner()
+
+# expected scores shared by the grade command tests
+EXPECTED_MC_POINTS = 10
+EXPECTED_TEXT_POINTS = 10
+EXPECTED_GRADE_TOTAL_PARTIAL = 10
+EXPECTED_GRADE_TOTAL_FULL = 20
+EXPECTED_GRADE_MAX = 20
+EXPECTED_GRADE_PERCENT_PARTIAL = 50.0
 
 
 def _plain(result: Result) -> str:
@@ -193,14 +202,26 @@ class TestStubCommands:
         assert result.exit_code == 0
 
     def test_view_with_file(self, tmp_path: Path) -> None:
-        """View command launches datasette."""
+        """View launches datasette with the open flag from the venv."""
         db = _write_form(tmp_path / "resp.db", {"dummy": True})
         with patch("subprocess.run") as mock_run:
             result = runner.invoke(app, ["view", str(db)])
             assert result.exit_code == 0
             mock_run.assert_called_once()
             args = mock_run.call_args[0][0]
-            assert "datasette" in args
+            assert args[0] == sys.executable
+            assert args[1:3] == ["-m", "datasette"]
+            assert "--open" in args
+            assert "--open-browser" not in args
+
+    def test_view_missing_datasette(self, tmp_path: Path) -> None:
+        """View explains when datasette is not installed."""
+        db = _write_form(tmp_path / "resp.db", {"dummy": True})
+        with patch("importlib.util.find_spec", return_value=None) as mock_find:
+            result = runner.invoke(app, ["view", str(db)])
+        assert result.exit_code == 1
+        assert "uv add datasette" in _plain(result)
+        mock_find.assert_called_once_with("datasette")
 
 
 class TestGradeCommand:
@@ -289,6 +310,98 @@ class TestGradeCommand:
         db = self._responses_db(tmp_path)
         result = runner.invoke(app, ["grade", str(form), str(db)])
         assert result.exit_code == 1
+
+    def test_grade_uses_stored_snapshot(self, tmp_path: Path) -> None:
+        """Grade reports the stored snapshot instead of re-grading."""
+        form = self._quiz_form(tmp_path)
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        stored = {
+            "total": 20,
+            "max": 20,
+            "percentage": 100.0,
+            "breakdown": [
+                {
+                    "id": "mc",
+                    "text": "Pick?",
+                    "answer": "a",
+                    "correct_answer": "a",
+                    "score": 10,
+                    "max": 10,
+                    "correct": True,
+                    "language": None,
+                },
+                {
+                    "id": "text",
+                    "text": "Type?",
+                    "answer": "wrong",
+                    "correct_answer": "wrong",
+                    "score": 10,
+                    "max": 10,
+                    "correct": True,
+                    "language": None,
+                },
+            ],
+            "graded_at": "2026-08-01T00:00:00+00:00",
+        }
+        save_response(
+            conn,
+            "Quiz",
+            {"mc": "a", "text": "wrong"},
+            github_username="alice",
+            grade=stored,
+        )
+        conn.close()
+        result = runner.invoke(app, ["grade", str(form), str(db_path)])
+        assert result.exit_code == 0
+        # the stored percentage 100 must appear, never a recomputed 50
+        assert "100" in _plain(result)
+
+    def test_grade_computes_without_writing(self, tmp_path: Path) -> None:
+        """Grade computes missing snapshots but leaves the row unchanged."""
+        form = self._quiz_form(tmp_path)
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        save_response(
+            conn,
+            "Quiz",
+            {"mc": "a", "text": "wrong"},
+            github_username="alice",
+        )
+        conn.close()
+        result = runner.invoke(app, ["grade", str(form), str(db_path)])
+        assert result.exit_code == 0
+        assert "50" in _plain(result)
+        conn = init_db(db_path)
+        row = get_responses(conn)[0]
+        conn.close()
+        assert row["grade_json"] is None
+
+    def test_grade_recompute_writes_snapshot(self, tmp_path: Path) -> None:
+        """Grade --recompute re-grades and persists fresh snapshots."""
+        form = self._quiz_form(tmp_path)
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        save_response(
+            conn,
+            "Quiz",
+            {"mc": "a", "text": "wrong"},
+            github_username="alice",
+        )
+        conn.close()
+        result = runner.invoke(
+            app, ["grade", str(form), str(db_path), "--recompute"]
+        )
+        assert result.exit_code == 0
+        conn = init_db(db_path)
+        row = get_responses(conn)[0]
+        conn.close()
+        assert row["grade_json"] is not None
+        assert row["grade_json"]["total"] == EXPECTED_GRADE_TOTAL_PARTIAL
+        assert row["grade_json"]["max"] == EXPECTED_GRADE_MAX
+        assert (
+            row["grade_json"]["percentage"] == EXPECTED_GRADE_PERCENT_PARTIAL
+        )
 
     def test_check_with_code_dir(self, tmp_path: Path) -> None:
         """Check resolves code files against --code-dir."""
