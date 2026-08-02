@@ -1,6 +1,7 @@
 """Auto-grading logic for quizzes with correct answers."""
 
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from formtuitous.schema import (
@@ -23,6 +24,11 @@ MAX_KEY = "max"
 PERCENTAGE_KEY = "percentage"
 BREAKDOWN_KEY = "breakdown"
 
+# keys for the JSON-safe forms of numeric ranges and code blocks
+RANGE_MIN_KEY = "min"
+RANGE_MAX_KEY = "max"
+CODE_CONTENT_KEY = "content"
+
 # keys for a single graded question entry in the breakdown
 BREAKDOWN_ID_KEY = "id"
 BREAKDOWN_TEXT_KEY = "text"
@@ -35,6 +41,9 @@ BREAKDOWN_LANGUAGE_KEY = "language"
 
 # rounding precision for the percentage score
 PERCENTAGE_DIGITS = 2
+
+# timestamp key added to the stored grade snapshot
+GRADED_AT_KEY = "graded_at"
 
 
 def grade_response(
@@ -76,6 +85,50 @@ def grade_response(
         PERCENTAGE_KEY: percentage,
         BREAKDOWN_KEY: breakdown,
     }
+
+
+def grade_report_to_json(report: dict[str, Any]) -> dict[str, Any]:
+    """Return a JSON-safe copy of a grade report for database storage.
+
+    Pydantic models such as NumericRange and CodeBlock are converted to
+    plain dicts so the snapshot survives a JSON round trip. A graded_at
+    timestamp records when the snapshot was created.
+    """
+    return {
+        TOTAL_KEY: report[TOTAL_KEY],
+        MAX_KEY: report[MAX_KEY],
+        PERCENTAGE_KEY: report[PERCENTAGE_KEY],
+        BREAKDOWN_KEY: [
+            {
+                BREAKDOWN_ID_KEY: entry[BREAKDOWN_ID_KEY],
+                BREAKDOWN_TEXT_KEY: entry[BREAKDOWN_TEXT_KEY],
+                BREAKDOWN_ANSWER_KEY: _json_safe(entry[BREAKDOWN_ANSWER_KEY]),
+                BREAKDOWN_CORRECT_ANSWER_KEY: _json_safe(
+                    entry[BREAKDOWN_CORRECT_ANSWER_KEY]
+                ),
+                BREAKDOWN_SCORE_KEY: entry[BREAKDOWN_SCORE_KEY],
+                BREAKDOWN_MAX_KEY: entry[BREAKDOWN_MAX_KEY],
+                BREAKDOWN_CORRECT_KEY: entry[BREAKDOWN_CORRECT_KEY],
+                BREAKDOWN_LANGUAGE_KEY: entry[BREAKDOWN_LANGUAGE_KEY],
+            }
+            for entry in report[BREAKDOWN_KEY]
+        ],
+        GRADED_AT_KEY: datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert pydantic models in an answer value to plain JSON data."""
+    if isinstance(value, NumericRange):
+        return {RANGE_MIN_KEY: value.min, RANGE_MAX_KEY: value.max}
+    if isinstance(value, CodeBlock):
+        return {
+            BREAKDOWN_LANGUAGE_KEY: value.language,
+            CODE_CONTENT_KEY: value.content or "",
+        }
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def _grade_question(question: Question, answer: Any) -> tuple[int, int]:
