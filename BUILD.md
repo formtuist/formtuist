@@ -1,6 +1,6 @@
-# Build Plan for Formtuitous
+# Build Plan for Formtuist
 
-This document records all the steps required to build Formtuitous, a JSON-defined
+This document records all the steps required to build Formtuist, a JSON-defined
 form/survey/quiz tool with a Textual TUI, web serving, and response management.
 
 ______________________________________________________________________
@@ -9,8 +9,8 @@ ______________________________________________________________________
 
 ### 1.1 Initialize Python Project with `uv`
 
-- Run `uv init --package formtuitous` to scaffold a modern Python package.
-- This creates `pyproject.toml`, `src/formtuitous/`, and the basic package
+- Run `uv init --package formtuist` to scaffold a modern Python package.
+- This creates `pyproject.toml`, `src/formtuist/`, and the basic package
   structure.
 
 ### 1.2 Configure `pyproject.toml`
@@ -24,9 +24,9 @@ Structure inspired by `gatorgrade`:
 
 ```toml
 [project]
-name = "formtuitous"
+name = "formtuist"
 version = "0.1.0"
-description = "Formtuitous — JSON-defined forms for terminal and web."
+description = "Formtuist — JSON-defined forms for terminal and web."
 requires-python = ">=3.10,<4.0"
 readme = "README.md"
 dependencies = [
@@ -39,7 +39,7 @@ dependencies = [
 ]
 
 [project.scripts]
-formtuitous = "formtuitous.cli:main"
+formtuist = "formtuist.cli:main"
 
 [dependency-groups]
 dev = [
@@ -92,7 +92,7 @@ first module:
 
 **`[tool.taskipy.variables]`** — reusable path and command fragments:
 
-- `project = "formtuitous"`
+- `project = "formtuist"`
 - `tests = "tests"`
 - `coveragefailunder = "95"`
 - `ruff-check-command`, `ruff-format-command`, `mypy-command`, `ty-command`,
@@ -116,14 +116,14 @@ first module:
 - `test` → `pytest -x -s -vv`
 - `test-parallel` → `pytest -x -s -vv -n auto -p no:sugar`
 - `test-silent` → `pytest -x --show-capture=no -n auto`
-- `test-coverage` → `pytest -s --cov=formtuitous
+- `test-coverage` → `pytest -s --cov=formtuist
 --cov-branch --cov-fail-under={coveragefailunder}
 --cov-report=term-missing tests/`
 - `test-propertybased` → `pytest -x -s -vv -m propertybased`
 - `test-not-propertybased` → `pytest -x -s -vv -m 'not propertybased'`
-- `display` → `uv run formtuitous display`
-- `serve` → `uv run formtuitous serve`
-- `check-form` → `uv run formtuitous check`
+- `display` → `uv run formtuist display`
+- `serve` → `uv run formtuist serve`
+- `check-form` → `uv run formtuist check`
 
 **`[tool.ruff]`** — line-length 79, select `E`, `D`, `I`, `F`, `PL`, `Q`,
 `RUF`, `W`, `T201`; ignore `D203`, `D213`, `E501`.
@@ -133,7 +133,7 @@ first module:
 
 **`[tool.pyrefly]`** — `preset = "legacy"`, `ignore-missing-imports = ["*"]`.
 
-**`[tool.coverage.run]`** — `source = ["formtuitous"]`, `branch = true`,
+**`[tool.coverage.run]`** — `source = ["formtuist"]`, `branch = true`,
 omit `tests/*` and `**/__init__.py`.
 
 **`[tool.coverage.report]`** — `fail_under = 95`, `show_missing = true`,
@@ -152,11 +152,11 @@ tests.
 
 This means the build order is:
 
-1. `uv init --package formtuitous`
+1. `uv init --package formtuist`
 1. Write `pyproject.toml` with all tool configs
 1. Run `task lint` and `task typecheck` against the empty package to confirm
    the toolchain is wired correctly
-1. Only then write `src/formtuitous/__init__.py`, `schema.py`, etc.
+1. Only then write `src/formtuist/__init__.py`, `schema.py`, etc.
 
 Every new module added to the project must satisfy the four type checkers
 before the PR / commit is considered valid.
@@ -164,13 +164,13 @@ before the PR / commit is considered valid.
 ### 1.5 Directory Structure
 
 ```text
-formtuitous/
+formtuist/
 ├── pyproject.toml
 ├── README.md
 ├── PLAN.md
 ├── BUILD.md
 ├── src/
-│   └── formtuitous/
+│   └── formtuist/
 │       ├── __init__.py
 │       ├── cli.py              # Click-based CLI entry point
 │       ├── schema.py           # Pydantic models for form JSON
@@ -547,7 +547,7 @@ ______________________________________________________________________
   indirection without reducing boilerplate.
 - `textual-wtf` lacks first-class support for `RadioSet` (visible options),
   `SelectionList` (multi-select), rating scales, and date entry — all
-  required for Formtuitous v1.
+  required for Formtuist v1.
 - Media display (code blocks with syntax highlighting, image hints,
   clickable URLs) needs fine-grained layout control that `textual-wtf`'s
   `layout()` helpers cannot easily accommodate.
@@ -569,7 +569,7 @@ ______________________________________________________________________
 
 ### 4.0 Target Platform — Laptop-Only
 
-**Scope constraint:** Formtuitous is designed for students filling out forms
+**Scope constraint:** Formtuist is designed for students filling out forms
 on **laptops or desktop computers**. It is **not** targeting phones, tablets,
 or other mobile devices.
 
@@ -653,7 +653,7 @@ fallback to showing the image filename/path as text.
 
 ```text
 +--------------------------------------------------+
-|  󰋼 Formtuitous — CS 101 Attendance          1/3   |
+|  󰋼 Formtuist — CS 101 Attendance          1/3   |
 +--------------------------------------------------+
 |                                                  |
 |  ┌─ Question 1 ─────────────────────────────┐   |
@@ -972,7 +972,7 @@ ______________________________________________________________________
 ### 6.1 How `textual-serve` Fits
 
 - `textual-serve` launches a **new subprocess per visitor** via WebSocket.
-- This means 30 students hitting the URL = 30 independent `formtuitous display`
+- This means 30 students hitting the URL = 30 independent `formtuist display`
   processes.
 - Each process has its own SQLite connection. SQLite handles concurrent reads
   well; writes may block briefly but are safe.
@@ -991,7 +991,7 @@ from textual_serve.server import Server
 @click.option("--db", default="responses.db")
 def serve(form_path: str, host: str, port: int, db: str) -> None:
     form = parse_form(Path(form_path))
-    cmd = f"formtuitous display {form_path} --db {db}"
+    cmd = f"formtuist display {form_path} --db {db}"
     server = Server(
         cmd,
         host=host,
@@ -1042,8 +1042,8 @@ ______________________________________________________________________
 
 ### 7.4 Integration Tests
 
-- Run `formtuitous check` against all `examples/*.json`.
-- Run `formtuitous display` in headless mode and verify DB write.
+- Run `formtuist check` against all `examples/*.json`.
+- Run `formtuist display` in headless mode and verify DB write.
 
 ### 7.5 Direct-Test Coverage Checkers
 
@@ -1106,7 +1106,7 @@ ______________________________________________________________________
 
 ## 9. Known Similar Tools (Research Notes)
 
-The following tools overlap with Formtuitous but do **not** match the exact
+The following tools overlap with Formtuist but do **not** match the exact
 combination of JSON-defined + Textual TUI + web-serve + SQLite + datasette:
 
 | Tool | Overlap | Difference |
@@ -1118,7 +1118,7 @@ combination of JSON-defined + Textual TUI + web-serve + SQLite + datasette:
 | Formbricks | Open-source surveys | Web-only, heavy infrastructure |
 | LimeSurvey | Mature survey platform | PHP/web, not TUI-first |
 
-Formtuitous is unique in targeting the **terminal-first, JSON-edited, professor
+Formtuist is unique in targeting the **terminal-first, JSON-edited, professor
 workflow** with trivial web deployment via `textual-serve`.
 
 ______________________________________________________________________
