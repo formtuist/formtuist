@@ -295,9 +295,11 @@ Forms are defined as JSON files. Here is a minimal example:
 | `yes_no` | `Switch` | INTEGER (0/1) |
 
 `numeric` and `date` inputs are validated on submit — invalid values block
-submission with an error message. Questions may also include optional
-`code` blocks (rendered with syntax highlighting), `url` links, and
-`image_path` references.
+submission with an error message. In an auto-graded form, a `yes_no` question
+can carry a boolean `correct_answer` (`true` or `false`) and a `points` value,
+so true/false quiz questions are scored automatically. Questions may also
+include optional `code` blocks (rendered with syntax highlighting), `url`
+links, and `image_path` references.
 
 Code blocks may be written inline (`content`) or reference a file that
 holds the source code (`file`) — handy for multi-line snippets, which
@@ -357,6 +359,8 @@ The `examples/` directory contains several ready-to-use forms:
 | `attendance.json` | Daily attendance check-in |
 | `survey.json` | Feedback survey with various types |
 | `quiz.json` | Auto-graded quiz |
+| `method_invocation_quiz.json` | Auto-graded quiz about Python method resolution |
+| `yes_no_quiz.json` | Auto-graded true/false quiz (all yes_no questions) |
 | `all_types.json` | One question of every type |
 | `anonymous_poll.json` | Anonymous response poll |
 
