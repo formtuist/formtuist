@@ -1,28 +1,28 @@
-# Formtuitous
+# Formtuist
 
 Create, display, and serve JSON-defined forms, surveys, and quizzes --- all
 from the terminal or a web browser!
 
 ## Overview
 
-Formtuitous is a tool for building the kinds of forms a teacher creates for
+Formtuist is a tool for building the kinds of forms a teacher creates for
 their classes: surveys, quizzes, and attendance sheets. You write a form as a
 JSON file in your normal editor, then fill it out in the terminal or serve it
 in a browser with textual-serve. It also is not a generic JSON Schema renderer.
-Instead, Formtuitous enforces a specific, Google-Forms-style structure, which
+Instead, Formtuist enforces a specific, Google-Forms-style structure, which
 is what makes GitHub authentication and quiz grading possible. Responses land
 in a SQLite database that you can inspect with `sqlite3` or `datasette`.
 
 ## Installation
 
 ```bash
-uvx formtuitous
+uvx formtuist
 ```
 
 Or, if you have cloned this repository, then with `uv` in a local project:
 
 ```bash
-uv run formtuitous check examples/minimal.json
+uv run formtuist check examples/minimal.json
 ```
 
 ## Usage
@@ -30,16 +30,16 @@ uv run formtuitous check examples/minimal.json
 ### `--version` — Show version information
 
 ```bash
-uvx formtuitous --version
+uvx formtuist --version
 ```
 
-Prints the formtuitous version and the versions of the main dependencies
+Prints the formtuist version and the versions of the main dependencies
 (pydantic, textual, rich, etc.), extracted dynamically. Exits cleanly.
 
 ### `check` — Validate a form JSON file
 
 ```bash
-uvx formtuitous check examples/survey.json
+uvx formtuist check examples/survey.json
 ```
 
 Parses and validates the form definition, then prints a summary:
@@ -59,10 +59,10 @@ Exits with code `0` if valid, `1` if errors are found.
 ### `schema` — Show the enforced JSON schema
 
 ```bash
-uvx formtuitous schema
+uvx formtuist schema
 ```
 
-Prints the JSON schema that formtuitous enforces, with syntax highlighting.
+Prints the JSON schema that formtuist enforces, with syntax highlighting.
 The schema is generated directly from the Pydantic models, so it always
 reflects exactly what `check` validates against. This is useful when a form
 file does not validate — compare it against the schema to find the mismatch.
@@ -78,16 +78,16 @@ file does not validate — compare it against the schema to find the mismatch.
 
 ```bash
 # Print the schema with a light theme
-uvx formtuitous schema --theme ansi_light
+uvx formtuist schema --theme ansi_light
 
 # Save the schema for use in editors or CI
-uvx formtuitous schema --output schema.json
+uvx formtuist schema --output schema.json
 ```
 
 ### `display` — Fill out a form in the TUI
 
 ```bash
-uvx formtuitous display examples/minimal.json
+uvx formtuist display examples/minimal.json
 ```
 
 Opens a Textual terminal UI where you can fill out and submit the form.
@@ -97,24 +97,24 @@ Responses are saved to a SQLite database.
 
 | Flag | Description | Default |
 |---|---|---|
-| `--db-dir` | Directory for the responses database | `~/.local/share/formtuitous/` |
+| `--db-dir` | Directory for the responses database | `~/.local/share/formtuist/` |
 | `--database-name` | Name of the database file | `responses.db` |
 
 **Examples:**
 
 ```bash
 # Local TUI, custom database directory
-uvx formtuitous display examples/quiz.json --db-dir ~/survey-data
+uvx formtuist display examples/quiz.json --db-dir ~/survey-data
 
 # Separate databases per form (same directory)
-uvx formtuitous display examples/attendance.json --database-name attendance.db
-uvx formtuitous display examples/quiz.json --database-name quiz.db
+uvx formtuist display examples/attendance.json --database-name attendance.db
+uvx formtuist display examples/quiz.json --database-name quiz.db
 ```
 
 ### `serve` — Serve a form as a web app
 
 ```bash
-uvx formtuitous serve examples/survey.json
+uvx formtuist serve examples/survey.json
 ```
 
 Serves the form as a web application via textual-serve. Each visitor gets
@@ -126,26 +126,26 @@ their own TUI instance in the browser.
 |---|---|---|
 | `--host` | Host address for the web server | `0.0.0.0` |
 | `--port` | Port for the web server | `8000` |
-| `--db-dir` | Directory for the responses database | `~/.local/share/formtuitous/` |
+| `--db-dir` | Directory for the responses database | `~/.local/share/formtuist/` |
 | `--database-name` | Name of the database file | `responses.db` |
 
 **Examples:**
 
 ```bash
 # Serve on the default address and port
-uvx formtuitous serve examples/survey.json
+uvx formtuist serve examples/survey.json
 
 # Serve on a specific address and port (e.g., via NetBird)
-uvx formtuitous serve examples/quiz.json --host 100.xx.xx.xx --port 9000
+uvx formtuist serve examples/quiz.json --host 100.xx.xx.xx --port 9000
 
 # Save responses to a dedicated database
-uvx formtuitous serve examples/attendance.json --database-name attendance.db
+uvx formtuist serve examples/attendance.json --database-name attendance.db
 ```
 
 ### `view` — Browse responses in a web browser
 
 ```bash
-uvx formtuitous view ~/.local/share/formtuitous/responses.db
+uvx formtuist view ~/.local/share/formtuist/responses.db
 ```
 
 Launches [datasette](https://datasette.io/) to let you browse, filter, and
@@ -160,19 +160,19 @@ query responses in your browser.
 **Example:**
 
 ```bash
-uvx formtuitous view ~/.local/share/formtuitous/responses.db --port 9000
+uvx formtuist view ~/.local/share/formtuist/responses.db --port 9000
 ```
 
 ### `export` — Export responses (coming soon)
 
 ```bash
-uvx formtuitous export responses.db
+uvx formtuist export responses.db
 ```
 
 ### `grade` — Report grades for a quiz
 
 ```bash
-uvx formtuitous grade examples/quiz.json responses.db
+uvx formtuist grade examples/quiz.json responses.db
 ```
 
 Prints a per-question score table with one row per response. When a response
@@ -190,7 +190,7 @@ non-auto-graded forms) are graded on the fly.
 **Example:**
 
 ```bash
-uvx formtuitous grade examples/quiz.json responses.db --recompute
+uvx formtuist grade examples/quiz.json responses.db --recompute
 ```
 
 ## Keyboard shortcuts
@@ -237,7 +237,7 @@ config:
 When `auth` is set to `github`:
 
 1. The TUI shows a masked GitHub token field at the top of the form.
-1. On submit, formtuitous calls the GitHub REST API
+1. On submit, formtuist calls the GitHub REST API
    (`GET https://api.github.com/user`) with the token as a Bearer header.
 1. The token is validated — if it is invalid, submission is **blocked**.
 1. On success, the person's GitHub username and profile URL are stored on
@@ -329,19 +329,19 @@ Responses are stored in a SQLite database with a single `responses` table:
 | `github_url` | TEXT | GitHub profile URL (when auth is enabled) |
 
 The database is created in the platform-appropriate data directory
-(`~/.local/share/formtuitous/` on Linux). Use `--db-dir` to override.
+(`~/.local/share/formtuist/` on Linux). Use `--db-dir` to override.
 Existing databases are migrated automatically when new columns are added.
 
 Browse saved responses with:
 
 ```bash
-uvx formtuitous view ~/.local/share/formtuitous/responses.db
+uvx formtuist view ~/.local/share/formtuist/responses.db
 ```
 
 Or peek with `sqlite3`:
 
 ```bash
-sqlite3 -header -column ~/.local/share/formtuitous/responses.db \
+sqlite3 -header -column ~/.local/share/formtuist/responses.db \
   "SELECT id, form_name, github_username, submitted_at FROM responses;"
 ```
 
@@ -362,7 +362,7 @@ The `examples/` directory contains several ready-to-use forms:
 
 ## Comparison with similar tools
 
-Formtuitous is not the only tool that renders forms in the terminal. Here is
+Formtuist is not the only tool that renders forms in the terminal. Here is
 how it compares to related projects.
 
 ### `tui-forms` — generic JSON Schema forms
@@ -371,7 +371,7 @@ how it compares to related projects.
 description of *any* form and renders it as a TUI. It is a general-purpose
 renderer: describe the fields, get a form.
 
-Formtuitous is deliberately different: instead of accepting arbitrary JSON
+Formtuist is deliberately different: instead of accepting arbitrary JSON
 Schema, it enforces a **specific, curated schema** designed for surveys,
 quizzes, and attendance — the kinds of forms you would build with Google
 Forms. That fixed schema is what makes the higher-level features possible:
@@ -384,12 +384,12 @@ Forms. That fixed schema is what makes the higher-level features possible:
   browser
 - **Response browsing** — launch datasette to explore submissions
 
-In short: `tui-forms` renders *any* schema; Formtuitous gives *one* schema
+In short: `tui-forms` renders *any* schema; Formtuist gives *one* schema
 and all the features a form system needs.
 
 ### Other related tools
 
-| Tool | Overlap | Difference from Formtuitous |
+| Tool | Overlap | Difference from Formtuist |
 |---|---|---|
 | [textual-forms](https://github.com/rhymiz/textual-forms) | Dynamic forms in Textual | No JSON input, no web serving, no storage |
 | [textual-wtf](https://github.com/holdenweb/textual-wtf) | Declarative forms for Textual | Python-class forms, no JSON schema, no web serving |
@@ -400,7 +400,7 @@ and all the features a form system needs.
 | [Formbricks](https://formbricks.com/) | Open-source surveys | Web-only, heavier infrastructure |
 | [LimeSurvey](https://www.limesurvey.org/) | Mature survey platform | PHP/web, not terminal-first |
 
-What distinguishes Formtuitous is that it treats the form as a project
+What distinguishes Formtuist is that it treats the form as a project
 artifact. The form definition lives in a JSON file in your repository, the
 responses live in a SQLite database on your machine, and the identity of the
 person who submitted is verified with a GitHub token. None of the tools
