@@ -23,7 +23,7 @@ from textual.widgets import (
 )
 from textual.widgets._footer import FooterKey, FooterLabel, KeyGroup
 
-from formtuitous.schema import (
+from formtuist.schema import (
     QUESTION_TYPE_CHECKBOX,
     QUESTION_TYPE_DATE,
     QUESTION_TYPE_MULTIPLE_CHOICE,
@@ -200,7 +200,7 @@ def is_widget_valid(widget: Widget) -> bool:
     return True
 
 
-class FormtuitousFooter(Footer):
+class FormtuistFooter(Footer):
     """Footer that groups form navigation bindings together.
 
     Textual renders footer keys in the order that bindings are registered.

@@ -9,7 +9,7 @@ from trailmark.query.api import QueryEngine
 from scripts import tsc_trailmark
 
 UTF8 = "utf-8"
-SOURCE = "src/formtuitous"
+SOURCE = "src/formtuist"
 FUNCTION_COUNT = 4
 ALPHA_END_LINE = 3
 UNRESOLVED_COUNT = 2
@@ -36,7 +36,7 @@ SOURCE_CODE = (
     "        return None\n"
 )
 TEST_CODE = (
-    "from formtuitous.mod import alpha\n"
+    "from formtuist.mod import alpha\n"
     "\n"
     "\n"
     "def test_alpha() -> None:\n"
@@ -85,11 +85,11 @@ def test_find_source_functions_records_functions_and_methods(
     alpha = next(
         info for info in functions.values() if info["name"] == "alpha"
     )
-    assert alpha["id"] == "src/formtuitous/mod.py:alpha:1"
-    assert alpha["file"] == "src/formtuitous/mod.py"
+    assert alpha["id"] == "src/formtuist/mod.py:alpha:1"
+    assert alpha["file"] == "src/formtuist/mod.py"
     assert alpha["line"] == 1
     assert alpha["end_line"] == ALPHA_END_LINE
-    assert alpha["trailmark_id"] == "src.formtuitous.mod:alpha"
+    assert alpha["trailmark_id"] == "src.formtuist.mod:alpha"
 
 
 def test_find_source_functions_skips_init_files_and_dunders(
@@ -162,18 +162,18 @@ def test_find_direct_test_calls_credits_unique_name_proxy(
     """find_direct_test_calls credits a unique dotted call by name."""
     _write(
         tmp_path / SOURCE / "server.py",
-        "class FormtuitousServer:\n"
+        "class FormtuistServer:\n"
         "    def _make_app(self) -> None:\n"
         '        """Build the web app."""\n'
         "        return None\n",
     )
     _write(
         tmp_path / "tests" / "test_server.py",
-        "import formtuitous.server as server\n"
+        "import formtuist.server as server\n"
         "\n"
         "\n"
         "def test_make_app() -> None:\n"
-        "    obj = server.FormtuitousServer()\n"
+        "    obj = server.FormtuistServer()\n"
         "    obj._make_app()\n",
     )
     graph, engine = _parse(tmp_path)
@@ -312,6 +312,6 @@ def test_report_uses_shared_function_ids(tmp_path: Path) -> None:
         source_by_id, directly_tested, call_graph, details, maybe_direct
     )
     ids = set(report["functions"])
-    assert "src/formtuitous/mod.py:alpha:1" in ids
-    assert "src/formtuitous/mod.py:compose:12" in ids
-    assert "src/formtuitous/mod.py:compose:17" in ids
+    assert "src/formtuist/mod.py:alpha:1" in ids
+    assert "src/formtuist/mod.py:compose:12" in ids
+    assert "src/formtuist/mod.py:compose:17" in ids

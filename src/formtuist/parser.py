@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.rule import Rule
 
-from formtuitous.schema import CODE_DIR_CONTEXT_KEY, FormDefinition
+from formtuist.schema import CODE_DIR_CONTEXT_KEY, FormDefinition
 
 # rich console directed to stderr so error reports stay separate from regular output
 console = Console(stderr=True)

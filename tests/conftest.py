@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from formtuitous.schema import FormDefinition, ShortTextQuestion
+from formtuist.schema import FormDefinition, ShortTextQuestion
 
 
 @pytest.fixture()

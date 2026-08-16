@@ -85,7 +85,7 @@
     },
     {
       "id": "q6_duplicate_names",
-      "text": "The formtuitous TUI defines several methods named compose in screens.py and widgets.py. How many compose method definitions exist in total?",
+      "text": "The formtuist TUI defines several methods named compose in screens.py and widgets.py. How many compose method definitions exist in total?",
       "type": "numeric",
       "required": true,
       "correct_answer": 4,

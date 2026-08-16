@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from formtuitous.parser import parse_form
-from formtuitous.schema import (
+from formtuist.parser import parse_form
+from formtuist.schema import (
     AuthProvider,
     CheckboxQuestion,
     CodeBlock,
@@ -542,7 +542,7 @@ class TestInvalidExampleForms:
 
 
 class TestQuizShowcase:
-    """Tests that the quiz example showcases the formtuitous format."""
+    """Tests that the quiz example showcases the formtuist format."""
 
     QUIZ_PATH = (
         Path(__file__).resolve().parent.parent / "examples" / "quiz.json"

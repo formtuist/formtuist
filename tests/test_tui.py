@@ -24,9 +24,9 @@ from textual.widgets import (
     TextArea,
 )
 
-from formtuitous.auth import GitHubIdentity
-from formtuitous.grader import TOTAL_KEY, grade_response
-from formtuitous.schema import (
+from formtuist.auth import GitHubIdentity
+from formtuist.grader import TOTAL_KEY, grade_response
+from formtuist.schema import (
     AuthProvider,
     CheckboxQuestion,
     CodeBlock,
@@ -42,14 +42,14 @@ from formtuitous.schema import (
     ShortTextQuestion,
     YesNoQuestion,
 )
-from formtuitous.tui.app import FormtuitousApp
-from formtuitous.tui.screens import (
+from formtuist.tui.app import FormtuistApp
+from formtuist.tui.screens import (
     FormScreen,
     SubmitScreen,
     WelcomeScreen,
     shuffle_questions,
 )
-from formtuitous.tui.widgets import (
+from formtuist.tui.widgets import (
     get_widget_value,
     is_widget_empty,
     is_widget_valid,
@@ -65,7 +65,7 @@ MIN_SUBMIT_CHILDREN = 3
 STYLESHEET_PATH = (
     Path(__file__).resolve().parent.parent
     / "src"
-    / "formtuitous"
+    / "formtuist"
     / "tui"
     / "styles.tcss"
 )
@@ -229,9 +229,9 @@ class TestFormScreen:
         ) as mock_prop:
             mock_prop.return_value = mock_app
             with patch.object(FormScreen, "notify") as mock_notify:
-                with patch("formtuitous.tui.screens.init_db") as mock_init:
+                with patch("formtuist.tui.screens.init_db") as mock_init:
                     with patch(
-                        "formtuitous.tui.screens.save_response"
+                        "formtuist.tui.screens.save_response"
                     ) as mock_save:
                         mock_save.return_value = 1
                         asyncio.run(screen.action_submit())
@@ -262,7 +262,7 @@ class TestFormScreen:
         ) as mock_prop:
             mock_prop.return_value = mock_app
             with patch.object(FormScreen, "notify") as mock_notify:
-                with patch("formtuitous.tui.screens.init_db") as mock_init:
+                with patch("formtuist.tui.screens.init_db") as mock_init:
                     asyncio.run(screen.action_submit())
         mock_init.assert_not_called()
         mock_notify.assert_called_once()
@@ -291,9 +291,9 @@ class TestFormScreen:
         ) as mock_prop:
             mock_prop.return_value = mock_app
             with patch.object(FormScreen, "notify") as mock_notify:
-                with patch("formtuitous.tui.screens.init_db") as mock_init:
+                with patch("formtuist.tui.screens.init_db") as mock_init:
                     with patch(
-                        "formtuitous.tui.screens.save_response"
+                        "formtuist.tui.screens.save_response"
                     ) as mock_save:
                         mock_save.return_value = 1
                         asyncio.run(screen.action_submit())
@@ -319,9 +319,9 @@ class TestFormScreen:
         ) as mock_prop:
             mock_prop.return_value = mock_app
             with patch.object(FormScreen, "notify") as mock_notify:
-                with patch("formtuitous.tui.screens.init_db"):
+                with patch("formtuist.tui.screens.init_db"):
                     with patch(
-                        "formtuitous.tui.screens.save_response"
+                        "formtuist.tui.screens.save_response"
                     ) as mock_save:
                         mock_save.return_value = 1
                         asyncio.run(screen.action_submit())
@@ -358,9 +358,9 @@ class TestFormScreen:
         ) as mock_prop:
             mock_prop.return_value = mock_app
             with patch.object(FormScreen, "notify") as mock_notify:
-                with patch("formtuitous.tui.screens.init_db"):
+                with patch("formtuist.tui.screens.init_db"):
                     with patch(
-                        "formtuitous.tui.screens.save_response"
+                        "formtuist.tui.screens.save_response"
                     ) as mock_save:
                         mock_save.return_value = 1
                         asyncio.run(screen.action_submit())
@@ -398,9 +398,9 @@ class TestFormScreen:
         ) as mock_prop:
             mock_prop.return_value = mock_app
             with patch.object(FormScreen, "notify") as mock_notify:
-                with patch("formtuitous.tui.screens.init_db"):
+                with patch("formtuist.tui.screens.init_db"):
                     with patch(
-                        "formtuitous.tui.screens.save_response"
+                        "formtuist.tui.screens.save_response"
                     ) as mock_save:
                         mock_save.return_value = 1
                         asyncio.run(screen.action_submit())
@@ -437,13 +437,13 @@ class TestFormScreen:
         ) as mock_prop:
             mock_prop.return_value = mock_app
             with patch.object(FormScreen, "notify") as mock_notify:
-                with patch("formtuitous.tui.screens.init_db") as mock_init:
+                with patch("formtuist.tui.screens.init_db") as mock_init:
                     with patch(
-                        "formtuitous.tui.screens.save_response"
+                        "formtuist.tui.screens.save_response"
                     ) as mock_save:
                         mock_save.return_value = 1
                         with patch(
-                            "formtuitous.tui.screens.fetch_github_identity",
+                            "formtuist.tui.screens.fetch_github_identity",
                             return_value=GitHubIdentity(
                                 username="octocat",
                                 profile_url="https://github.com/octocat",
@@ -490,7 +490,7 @@ class TestFormScreen:
         ) as mock_prop:
             mock_prop.return_value = mock_app
             with patch.object(FormScreen, "notify") as mock_notify:
-                with patch("formtuitous.tui.screens.init_db") as mock_init:
+                with patch("formtuist.tui.screens.init_db") as mock_init:
                     asyncio.run(screen.action_submit())
         mock_init.assert_not_called()
         mock_notify.assert_called_once()
@@ -518,9 +518,9 @@ class TestFormScreen:
         ) as mock_prop:
             mock_prop.return_value = mock_app
             with patch.object(FormScreen, "notify") as mock_notify:
-                with patch("formtuitous.tui.screens.init_db") as mock_init:
+                with patch("formtuist.tui.screens.init_db") as mock_init:
                     with patch(
-                        "formtuitous.tui.screens.fetch_github_identity",
+                        "formtuist.tui.screens.fetch_github_identity",
                         return_value=None,
                     ):
                         asyncio.run(screen.action_submit())
@@ -1250,9 +1250,9 @@ class TestRandomizedOrder:
                 screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
                 await app.push_screen(screen)
                 with patch.object(app, "push_screen"):
-                    with patch("formtuitous.tui.screens.init_db"):
+                    with patch("formtuist.tui.screens.init_db"):
                         with patch(
-                            "formtuitous.tui.screens.save_response"
+                            "formtuist.tui.screens.save_response"
                         ) as mock_save:
                             await screen.action_submit()
                 answers = mock_save.call_args[0][2]
@@ -1493,7 +1493,7 @@ class TestResolveCodeTheme:
         app.theme = "custom-theme"
         app.current_theme.dark = True
         with patch(
-            "formtuitous.tui.widgets.get_style_by_name",
+            "formtuist.tui.widgets.get_style_by_name",
             side_effect=ClassNotFound("custom-theme"),
         ):
             assert resolve_code_theme(app) == "ansi_dark"
@@ -1902,13 +1902,13 @@ class TestSubmitScreen:
         asyncio.run(run())
 
 
-class TestFormtuitousApp:
+class TestFormtuistApp:
     """Tests for the main application class."""
 
     def test_construct(self, minimal_form_path: Path) -> None:
-        """FormtuitousApp stores form path and parses the form."""
+        """FormtuistApp stores form path and parses the form."""
         db_path = Path(":memory:")
-        app = FormtuitousApp(minimal_form_path, db_path)
+        app = FormtuistApp(minimal_form_path, db_path)
         assert app.form_path == minimal_form_path
         assert app.db_path == db_path
         assert app.form.name is not None
@@ -1916,7 +1916,7 @@ class TestFormtuitousApp:
     def test_on_mount(self, minimal_form_path: Path) -> None:
         """on_mount pushes the welcome screen."""
         db_path = Path(":memory:")
-        tui_app = FormtuitousApp(minimal_form_path, db_path)
+        tui_app = FormtuistApp(minimal_form_path, db_path)
         tui_app.push_screen = MagicMock()
         tui_app.on_mount()
         tui_app.push_screen.assert_called_once()
@@ -1925,9 +1925,7 @@ class TestFormtuitousApp:
         """The custom footer shows ctrl+j and ctrl+k adjacent."""
 
         async def run() -> None:
-            app = FormtuitousApp(
-                Path("examples/minimal.json"), Path(":memory:")
-            )
+            app = FormtuistApp(Path("examples/minimal.json"), Path(":memory:"))
             async with app.run_test():
                 footer = app.screen.query_one(Footer)
                 actions = [
@@ -1946,9 +1944,7 @@ class TestFormtuitousApp:
         """The command palette binding stays at the end of the footer."""
 
         async def run() -> None:
-            app = FormtuitousApp(
-                Path("examples/minimal.json"), Path(":memory:")
-            )
+            app = FormtuistApp(Path("examples/minimal.json"), Path(":memory:"))
             async with app.run_test():
                 footer = app.screen.query_one(Footer)
                 actions = [

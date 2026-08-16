@@ -7,11 +7,11 @@ from aiohttp import web
 from textual_serve.server import Server
 
 # favicon image shipped with the package and its URL path
-FAVICON_FILENAME = "Formtuitous-Icon.png"
+FAVICON_FILENAME = "Formtuist-Icon.png"
 FAVICON_URL_PATH = "/favicon.png"
 
 
-class FormtuitousServer(Server):
+class FormtuistServer(Server):
     """A textual-serve Server that also serves a favicon image."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:

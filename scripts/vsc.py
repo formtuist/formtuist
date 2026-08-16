@@ -1,7 +1,7 @@
-"""Check that the formtuitous version in version.py matches pyproject.toml.
+"""Check that the formtuist version in version.py matches pyproject.toml.
 
-Uses Tree-sitter to parse src/formtuitous/version.py into a Concrete
-Syntax Tree (CST) to extract the FORMTUITOUS_VERSION constant, and uses the
+Uses Tree-sitter to parse src/formtuist/version.py into a Concrete
+Syntax Tree (CST) to extract the FORMTUIST_VERSION constant, and uses the
 toml library to read the project version from pyproject.toml. The
 version lives in version.py (not cli.py) so that other modules can
 import it without creating a circular dependency.
@@ -20,8 +20,8 @@ import typer
 from rich.console import Console
 from tree_sitter import Language, Node, Parser
 
-VERSION_VAR = "FORMTUITOUS_VERSION"
-VERSION_PATH = Path("src/formtuitous/version.py")
+VERSION_VAR = "FORMTUIST_VERSION"
+VERSION_PATH = Path("src/formtuist/version.py")
 PY_LANGUAGE = Language(tspython.language())
 
 console = Console(stderr=False)
@@ -30,14 +30,14 @@ err_console = Console(stderr=True)
 app = typer.Typer(
     name="version-check",
     help=(
-        "Check that the FORMTUITOUS_VERSION in version.py matches the"
+        "Check that the FORMTUIST_VERSION in version.py matches the"
         " project version in pyproject.toml."
     ),
 )
 
 
 def _extract_version_from_main(main_path: Path, parser: Parser) -> str | None:
-    """Return the string assigned to FORMTUITOUS_VERSION in main_path, or None."""
+    """Return the string assigned to FORMTUIST_VERSION in main_path, or None."""
     source = main_path.read_bytes()
     tree = parser.parse(source)
     found: list[str] = []
@@ -109,7 +109,7 @@ def check() -> None:
 
 
 def _update_version_file(main_path: Path, new_version: str) -> bool:
-    """Update the FORMTUITOUS_VERSION string in version.py. Return True if changed."""
+    """Update the FORMTUIST_VERSION string in version.py. Return True if changed."""
     text = main_path.read_text(encoding="utf-8")
     lines = text.splitlines(keepends=True)
     changed = False
@@ -127,7 +127,7 @@ def _update_version_file(main_path: Path, new_version: str) -> bool:
 
 @app.command()
 def fix() -> None:
-    """Update version.py so FORMTUITOUS_VERSION matches the pyproject.toml version."""
+    """Update version.py so FORMTUIST_VERSION matches the pyproject.toml version."""
     main_path = VERSION_PATH
     pyproject_path = Path("pyproject.toml")
     pyproject_version = _extract_version_from_pyproject(pyproject_path)

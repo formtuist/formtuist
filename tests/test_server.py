@@ -1,33 +1,33 @@
-"""Tests for the formtuitous textual-serve server wrapper."""
+"""Tests for the formtuist textual-serve server wrapper."""
 
 import asyncio
 from pathlib import Path
 
-from formtuitous.server import (
+from formtuist.server import (
     FAVICON_FILENAME,
     FAVICON_URL_PATH,
-    FormtuitousServer,
+    FormtuistServer,
 )
 
 # the custom HTML template served to browsers for the web interface
 TEMPLATE_PATH = (
     Path(__file__).resolve().parent.parent
     / "src"
-    / "formtuitous"
+    / "formtuist"
     / "templates"
     / "app_index.html"
 )
 
 
-class TestFormtuitousServer:
-    """Tests for the FormtuitousServer wrapper."""
+class TestFormtuistServer:
+    """Tests for the FormtuistServer wrapper."""
 
     def test_favicon_file_exists(self) -> None:
         """The favicon image ships with the package."""
         favicon = (
             Path(__file__).resolve().parent.parent
             / "src"
-            / "formtuitous"
+            / "formtuist"
             / "templates"
             / FAVICON_FILENAME
         )
@@ -35,7 +35,7 @@ class TestFormtuitousServer:
 
     def test_favicon_route_registered(self) -> None:
         """_make_app registers the favicon route."""
-        server = FormtuitousServer("echo hello", port=8123)
+        server = FormtuistServer("echo hello", port=8123)
 
         async def run() -> None:
             app = await server._make_app()

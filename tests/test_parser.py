@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from formtuitous.parser import parse_form
-from formtuitous.schema import CODE_DIR_CONTEXT_KEY, CodeBlock
+from formtuist.parser import parse_form
+from formtuist.schema import CODE_DIR_CONTEXT_KEY, CodeBlock
 
 ALL_QUESTION_TYPES_COUNT = 8
 

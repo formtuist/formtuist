@@ -1,17 +1,17 @@
-"""Tests for the formtuitous CLI commands."""
+"""Tests for the formtuist CLI commands."""
 
 import json
 import re
 import sys
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner, Result
 
-from formtuitous.cli import _display_db_dir, _package_version, app, main
-from formtuitous.database import get_responses, init_db, save_response
+from formtuist.cli import _display_db_dir, _package_version, app, main
+from formtuist.database import get_responses, init_db, save_response
 
 # regex to strip ANSI SGR escape sequences that Rich embeds in captured output
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
@@ -45,7 +45,7 @@ def _write_form(path: Path, data: dict) -> Path:
 
 
 class TestCheckCommand:
-    """Tests for the `formtuitous check` subcommand."""
+    """Tests for the `formtuist check` subcommand."""
 
     def test_check_valid_minimal(self, tmp_path: Path) -> None:
         """Check exits 0 and prints summary for a valid form."""
@@ -188,7 +188,7 @@ class TestStubCommands:
         form = _write_form(
             tmp_path / "form.json", {"name": "T", "questions": []}
         )
-        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
+        with patch("formtuist.server.FormtuistServer") as mock_server_cls:
             mock_instance = mock_server_cls.return_value
             result = runner.invoke(app, ["serve", str(form)])
             assert result.exit_code == 0
@@ -225,7 +225,7 @@ class TestStubCommands:
 
 
 class TestGradeCommand:
-    """Tests for the `formtuitous grade` subcommand."""
+    """Tests for the `formtuist grade` subcommand."""
 
     def _quiz_form(self, tmp_path: Path) -> Path:
         """Write a small graded quiz form to a temp file."""
@@ -290,6 +290,21 @@ class TestGradeCommand:
         result = runner.invoke(app, ["grade", str(form), str(db_path)])
         assert result.exit_code == 0
         assert "No responses for Quiz." in _plain(result)
+
+    def test_grade_closes_connection_without_responses(
+        self, tmp_path: Path
+    ) -> None:
+        """Grade closes the connection on the empty path too."""
+        form = self._quiz_form(tmp_path)
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        conn.close()
+        with patch("formtuist.cli.init_db") as mock_init:
+            mock_conn = MagicMock()
+            mock_init.return_value = mock_conn
+            result = runner.invoke(app, ["grade", str(form), str(db_path)])
+        assert result.exit_code == 0
+        mock_conn.close.assert_called_once()
 
     def test_grade_filters_responses_by_form_name(
         self, tmp_path: Path
@@ -453,7 +468,7 @@ class TestGradeCommand:
         form = _write_form(
             tmp_path / "form.json", {"name": "T", "questions": []}
         )
-        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
+        with patch("formtuist.server.FormtuistServer") as mock_server_cls:
             result = runner.invoke(
                 app,
                 ["serve", str(form), "--code-dir", str(code_dir)],
@@ -464,7 +479,7 @@ class TestGradeCommand:
 
 
 class TestExampleFormsCLI:
-    """Integration tests: formtuitous check against all example files."""
+    """Integration tests: formtuist check against all example files."""
 
     EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 
@@ -510,16 +525,16 @@ class TestMainFunction:
     """Tests for the main entry point."""
 
     def test_app_help(self) -> None:
-        """Running formtuitous --help shows usage."""
+        """Running formtuist --help shows usage."""
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "formtuitous" in _plain(result)
+        assert "formtuist" in _plain(result)
 
     def test_version_flag(self) -> None:
-        """Running formtuitous --version shows version info and exits."""
+        """Running formtuist --version shows version info and exits."""
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0
-        assert "formtuitous 0.1.0" in _plain(result)
+        assert "formtuist 0.1.0" in _plain(result)
         assert "Component" in _plain(result)
         assert "Version" in _plain(result)
         assert "textual" in _plain(result)
@@ -551,23 +566,23 @@ class TestMainFunction:
     def test_package_version_unknown(self) -> None:
         """_package_version returns unknown for missing packages."""
         with patch(
-            "formtuitous.cli.version",
+            "formtuist.cli.version",
             side_effect=PackageNotFoundError("missing"),
         ):
             assert _package_version("not-a-real-package") == "unknown"
 
     def test_display_db_dir_outside_home(self) -> None:
         """_display_db_dir falls back to the full path outside home."""
-        outside = Path("/opt/formtuitous-data")
+        outside = Path("/opt/formtuist-data")
         with patch(
-            "formtuitous.cli.get_default_db_dir",
+            "formtuist.cli.get_default_db_dir",
             return_value=outside,
         ):
             result = _display_db_dir()
         # compare against str(Path(...)) so the test is platform-agnostic
         # (Windows renders the path with backslashes)
         assert result == str(outside)
-        assert "formtuitous-data" in result
+        assert "formtuist-data" in result
 
     def test_serve_help(self) -> None:
         """Serve command accepts --help."""
@@ -598,13 +613,13 @@ class TestDisplayCommand:
     """Tests for the display command body using mocking."""
 
     def test_display_valid_form_mocks_run(self, tmp_path: Path) -> None:
-        """Display validates form and calls FormtuitousApp.run."""
+        """Display validates form and calls FormtuistApp.run."""
         form = _write_form(
             tmp_path / "form.json",
             {"name": "T", "description": "d", "questions": []},
         )
         db_dir = tmp_path / "db_out"
-        with patch("formtuitous.tui.app.FormtuitousApp") as mock_app_cls:
+        with patch("formtuist.tui.app.FormtuistApp") as mock_app_cls:
             mock_instance = mock_app_cls.return_value
             result = runner.invoke(
                 app, ["display", str(form), "--db-dir", str(db_dir)]
@@ -617,14 +632,14 @@ class TestDisplayCommand:
     def test_display_invalid_form_exits(self, tmp_path: Path) -> None:
         """Display exits 1 for an invalid form."""
         path = _write_form(tmp_path / "bad.json", {"bad": "data"})
-        with patch("formtuitous.tui.app.FormtuitousApp") as mock_app_cls:
+        with patch("formtuist.tui.app.FormtuistApp") as mock_app_cls:
             result = runner.invoke(app, ["display", str(path)])
             assert result.exit_code == 1
             mock_app_cls.assert_not_called()
 
     def test_main_calls_app(self) -> None:
         """main() invokes the typer app."""
-        with patch("formtuitous.cli.app") as mock_app:
+        with patch("formtuist.cli.app") as mock_app:
             main()
             mock_app.assert_called_once()
 
@@ -634,7 +649,7 @@ class TestDisplayCommand:
             tmp_path / "form.json",
             {"name": "T", "questions": []},
         )
-        with patch("formtuitous.tui.app.FormtuitousApp") as mock_app_cls:
+        with patch("formtuist.tui.app.FormtuistApp") as mock_app_cls:
             result = runner.invoke(app, ["display", str(form), "--serve"])
             assert result.exit_code != 0
             mock_app_cls.assert_not_called()
@@ -649,7 +664,7 @@ class TestServeCommand:
             tmp_path / "form.json",
             {"name": "ServedForm", "questions": []},
         )
-        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
+        with patch("formtuist.server.FormtuistServer") as mock_server_cls:
             mock_instance = mock_server_cls.return_value
             result = runner.invoke(app, ["serve", str(form)])
             assert result.exit_code == 0
@@ -663,7 +678,7 @@ class TestServeCommand:
             {"name": "ServedForm", "questions": []},
         )
         db_dir = tmp_path / "custom_db"
-        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
+        with patch("formtuist.server.FormtuistServer") as mock_server_cls:
             result = runner.invoke(
                 app,
                 ["serve", str(form), "--db-dir", str(db_dir)],
@@ -679,7 +694,7 @@ class TestServeCommand:
             tmp_path / "form.json",
             {"name": "ServedForm", "questions": []},
         )
-        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
+        with patch("formtuist.server.FormtuistServer") as mock_server_cls:
             result = runner.invoke(
                 app,
                 [
@@ -700,7 +715,7 @@ class TestServeCommand:
             tmp_path / "form.json",
             {"name": "ServedForm", "questions": []},
         )
-        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
+        with patch("formtuist.server.FormtuistServer") as mock_server_cls:
             mock_instance = mock_server_cls.return_value
             result = runner.invoke(
                 app,
@@ -768,7 +783,7 @@ class TestSchemaCommand:
     def test_serve_invalid_form_exits(self, tmp_path: Path) -> None:
         """Serve exits 1 for an invalid form."""
         path = _write_form(tmp_path / "bad.json", {"bad": "data"})
-        with patch("formtuitous.server.FormtuitousServer") as mock_server_cls:
+        with patch("formtuist.server.FormtuistServer") as mock_server_cls:
             result = runner.invoke(app, ["serve", str(path)])
             assert result.exit_code == 1
             mock_server_cls.assert_not_called()
@@ -780,7 +795,7 @@ class TestSchemaCommand:
             {"name": "T", "questions": []},
         )
         db_dir = tmp_path / "db_out"
-        with patch("formtuitous.tui.app.FormtuitousApp") as mock_app_cls:
+        with patch("formtuist.tui.app.FormtuistApp") as mock_app_cls:
             mock_instance = mock_app_cls.return_value
             result = runner.invoke(
                 app,

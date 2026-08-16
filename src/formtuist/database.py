@@ -44,8 +44,8 @@ PRAGMA_BUSY_TIMEOUT = f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS};"
 
 
 def get_default_db_dir() -> Path:
-    """Return the platform-appropriate directory for formtuitous data."""
-    return Path(platformdirs.user_data_dir("formtuitous"))
+    """Return the platform-appropriate directory for formtuist data."""
+    return Path(platformdirs.user_data_dir("formtuist"))
 
 
 def ensure_db_dir(db_dir: Path) -> Path:

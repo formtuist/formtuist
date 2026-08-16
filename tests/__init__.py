@@ -1,1 +1,1 @@
-"""Tests for the formtuitous package."""
+"""Tests for the formtuist package."""

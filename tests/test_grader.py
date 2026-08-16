@@ -3,7 +3,7 @@
 import json
 from typing import Literal
 
-from formtuitous.grader import (
+from formtuist.grader import (
     BREAKDOWN_ANSWER_KEY,
     BREAKDOWN_CORRECT_ANSWER_KEY,
     BREAKDOWN_CORRECT_KEY,
@@ -18,7 +18,7 @@ from formtuitous.grader import (
     grade_report_to_json,
     grade_response,
 )
-from formtuitous.schema import (
+from formtuist.schema import (
     CheckboxQuestion,
     CodeBlock,
     FormDefinition,

@@ -1,4 +1,4 @@
-"""Typer-based CLI entry point for the formtuitous application."""
+"""Typer-based CLI entry point for the formtuist application."""
 
 import sqlite3
 from importlib.metadata import PackageNotFoundError, version
@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
-from formtuitous.database import (
+from formtuist.database import (
     ANSWERS_JSON_COLUMN,
     GITHUB_USERNAME_COLUMN,
     GRADE_JSON_COLUMN,
@@ -22,7 +22,7 @@ from formtuitous.database import (
     resolve_db_path,
     update_response_grade,
 )
-from formtuitous.grader import (
+from formtuist.grader import (
     BREAKDOWN_ID_KEY,
     BREAKDOWN_KEY,
     BREAKDOWN_SCORE_KEY,
@@ -32,9 +32,9 @@ from formtuitous.grader import (
     grade_report_to_json,
     grade_response,
 )
-from formtuitous.parser import parse_form
-from formtuitous.schema import FormDefinition
-from formtuitous.version import FORMTUITOUS_VERSION
+from formtuist.parser import parse_form
+from formtuist.schema import FormDefinition
+from formtuist.version import FORMTUIST_VERSION
 
 # rich console for all user-facing output
 console = Console()
@@ -77,7 +77,7 @@ CODE_DIR_HELP = (
 APP_HELP = "Creating forms with JSON and a TUI is an unexpected success for programmers and agents!"
 
 app = typer.Typer(
-    name="formtuitous",
+    name="formtuist",
     help=APP_HELP,
 )
 
@@ -95,7 +95,7 @@ DEPENDENCY_NAMES = [
     "platformdirs",
 ]
 
-VERSION_TITLE = f"formtuitous {FORMTUITOUS_VERSION}"
+VERSION_TITLE = f"formtuist {FORMTUIST_VERSION}"
 COMPONENT_COLUMN = "Component"
 VERSION_COLUMN = "Version"
 
@@ -236,9 +236,9 @@ def display(
 
     db_path = resolve_db_path(db_dir, database_name)
 
-    from formtuitous.tui.app import FormtuitousApp  # noqa: PLC0415
+    from formtuist.tui.app import FormtuistApp  # noqa: PLC0415
 
-    app_ui = FormtuitousApp(form_path, db_path)
+    app_ui = FormtuistApp(form_path, db_path)
     app_ui.run()
 
 
@@ -288,9 +288,9 @@ def serve(  # noqa: PLR0913, PLR0917
     except ValidationError:
         raise typer.Exit(code=1)
 
-    from formtuitous.server import FormtuitousServer  # noqa: PLC0415
+    from formtuist.server import FormtuistServer  # noqa: PLC0415
 
-    cmd = f"formtuitous display {form_path}"
+    cmd = f"formtuist display {form_path}"
     if db_dir is not None:
         cmd += f" --db-dir {db_dir}"
     if database_name is not None:
@@ -298,7 +298,7 @@ def serve(  # noqa: PLR0913, PLR0917
     if code_dir is not None:
         cmd += f" --code-dir {code_dir}"
     templates_dir = Path(__file__).parent / "templates"
-    server = FormtuitousServer(
+    server = FormtuistServer(
         cmd,
         host=host,
         port=port,
@@ -346,7 +346,7 @@ def view(
     import subprocess  # noqa: PLC0415
     import sys  # noqa: PLC0415
 
-    # datasette must live in the same environment as formtuitous so the
+    # datasette must live in the same environment as formtuist so the
     # subprocess below can resolve it through the project virtualenv
     if importlib.util.find_spec("datasette") is None:
         console.print(VIEW_DATASETTE_MISSING)
@@ -390,12 +390,12 @@ def schema(
         help=SCHEMA_THEME_HELP,
     ),
 ) -> None:
-    """Display the JSON schema that formtuitous enforces."""
+    """Display the JSON schema that formtuist enforces."""
     import json  # noqa: PLC0415
 
     from rich.syntax import Syntax  # noqa: PLC0415
 
-    from formtuitous.schema import FormDefinition  # noqa: PLC0415
+    from formtuist.schema import FormDefinition  # noqa: PLC0415
 
     schema_json = json.dumps(FormDefinition.model_json_schema(), indent=2)
     if output is not None:
@@ -527,9 +527,9 @@ def _app_callback(
         help="Show version information and exit.",
     ),
 ) -> None:
-    """Display help for the formtuitous command-line interface."""
+    """Display help for the formtuist command-line interface."""
 
 
 def main() -> None:
-    """Entry point for the formtuitous CLI."""
+    """Entry point for the formtuist CLI."""
     app()

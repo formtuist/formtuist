@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from formtuitous.database import (
+from formtuist.database import (
     DATABASE_FILENAME,
     ensure_db_dir,
     get_default_db_dir,
@@ -306,10 +306,10 @@ class TestDbDirectory:
     """Tests for database directory resolution and platformdirs integration."""
 
     def test_get_default_db_dir_returns_path(self) -> None:
-        """get_default_db_dir returns a Path ending with formtuitous."""
+        """get_default_db_dir returns a Path ending with formtuist."""
         db_dir = get_default_db_dir()
         assert isinstance(db_dir, Path)
-        assert "formtuitous" in db_dir.parts
+        assert "formtuist" in db_dir.parts
 
     def test_ensure_db_dir_creates_directory(self, tmp_path: Path) -> None:
         """ensure_db_dir creates the directory tree."""
@@ -336,7 +336,7 @@ class TestDbDirectory:
         """resolve_db_path with no arg uses the platform-appropriate dir."""
         full_path = resolve_db_path()
         assert full_path.name == DATABASE_FILENAME
-        assert "formtuitous" in full_path.parts
+        assert "formtuist" in full_path.parts
 
     def test_resolve_db_path_with_name(self, tmp_path: Path) -> None:
         """resolve_db_path uses a custom database name."""
@@ -349,7 +349,7 @@ class TestDbDirectory:
         """resolve_db_path with a name uses the platform dir and that name."""
         full_path = resolve_db_path(db_name="quiz.db")
         assert full_path.name == "quiz.db"
-        assert "formtuitous" in full_path.parts
+        assert "formtuist" in full_path.parts
 
     def test_resolve_db_path_distinct_names(self, tmp_path: Path) -> None:
         """Two database names resolve to distinct files in the same dir."""

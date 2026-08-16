@@ -1,4 +1,4 @@
-"""Screen definitions for the formtuitous TUI workflow."""
+"""Screen definitions for the formtuist TUI workflow."""
 
 import asyncio
 import random
@@ -15,9 +15,9 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Button, Header, Input, Label, Static
 
-from formtuitous.auth import GitHubIdentity, fetch_github_identity
-from formtuitous.database import init_db, save_response
-from formtuitous.grader import (
+from formtuist.auth import GitHubIdentity, fetch_github_identity
+from formtuist.database import init_db, save_response
+from formtuist.grader import (
     BREAKDOWN_ANSWER_KEY,
     BREAKDOWN_CORRECT_ANSWER_KEY,
     BREAKDOWN_CORRECT_KEY,
@@ -30,17 +30,17 @@ from formtuitous.grader import (
     grade_report_to_json,
     grade_response,
 )
-from formtuitous.schema import (
+from formtuist.schema import (
     AuthProvider,
     CodeBlock,
     FormDefinition,
     NumericRange,
     Question,
 )
-from formtuitous.tui.widgets import (
+from formtuist.tui.widgets import (
     CODE_THEME_AUTO,
     CODE_THEME_FALLBACK_DARK,
-    FormtuitousFooter,
+    FormtuistFooter,
     get_widget_value,
     is_widget_empty,
     is_widget_valid,
@@ -133,7 +133,7 @@ class WelcomeScreen(Screen):
             yield Static(self.form.description, id="form-desc")
         yield Static(f"Questions: {len(self.form.questions)}", id="form-count")
         yield Button("Start", id="start", variant="primary")
-        yield FormtuitousFooter()
+        yield FormtuistFooter()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Transition to the form screen on start."""
@@ -220,7 +220,7 @@ class FormScreen(Screen):
                     yield input_widget
                 yield Static(id="question-counter")
                 yield Button("Submit", id="submit", variant="primary")
-        yield FormtuitousFooter()
+        yield FormtuistFooter()
 
     def on_mount(self) -> None:
         """Focus the first input and hide scrollbars after mounting."""
@@ -460,7 +460,7 @@ class SubmitScreen(Screen):
         )
         yield Button("Restart", id="restart", variant="primary")
         yield Button("Quit", id="quit", variant="default")
-        yield FormtuitousFooter()
+        yield FormtuistFooter()
 
     def _compose_grade_review(self) -> ComposeResult:
         """Yield the score summary and the incorrect-answer review."""

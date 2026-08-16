@@ -1,4 +1,4 @@
-"""Check which functions in formtuitous are directly tested vs. indirectly tested.
+"""Check which functions in formtuist are directly tested vs. indirectly tested.
 
 If a function is indirectly covered that means that a test case calls a
 function that transitively calls that function. Importantly, a function
@@ -14,7 +14,7 @@ source function as directly tested, indirectly tested, possibly
 tested, or untested.
 
 Trailmark resolves cross-file calls to precise node ids (for example
-src.formtuitous.auth:fetch_github_identity). A source function counts
+src.formtuist.auth:fetch_github_identity). A source function counts
 as directly tested only when a test_* function calls it through a
 resolved call edge. Unresolved dotted or ambiguous calls are credited
 only when the call name matches exactly one source function, so names
@@ -71,7 +71,7 @@ DUNDER_SUFFIX = "__"
 TEST_FILE_PREFIX = "test_"
 TEST_FUNC_PREFIX = "test_"
 INIT_FILE = "__init__.py"
-SOURCE_DIR = "formtuitous"
+SOURCE_DIR = "formtuist"
 FUNCTION_KINDS = (NodeKind.FUNCTION, NodeKind.METHOD)
 REPORT_TOOL = "trailmark"
 

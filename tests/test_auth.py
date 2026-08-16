@@ -6,7 +6,7 @@ import urllib.error
 from email.message import Message
 from unittest.mock import MagicMock, patch
 
-from formtuitous.auth import create_ssl_context, fetch_github_identity
+from formtuist.auth import create_ssl_context, fetch_github_identity
 
 
 class TestFetchGithubIdentity:
@@ -86,7 +86,7 @@ class TestFetchGithubIdentity:
         assert headers["Authorization"] == "Bearer ghp_secret_token"
         # urllib capitalizes header keys (User-Agent becomes User-agent)
         user_agent = headers.get("User-Agent") or headers.get("User-agent")
-        assert user_agent == "formtuitous"
+        assert user_agent == "formtuist"
 
 
 class TestCreateSslContext:

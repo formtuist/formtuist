@@ -1,4 +1,4 @@
-"""Check which functions in formtuitous are directly tested vs. indirectly tested.
+"""Check which functions in formtuist are directly tested vs. indirectly tested.
 
 If a function is indirectly covered that means that a test case calls a
 function that transitively calls that function. Importantly, a function
@@ -59,7 +59,7 @@ DUNDER_SUFFIX = "__"
 TEST_FILE_PREFIX = "test_"
 TEST_FUNC_PREFIX = "test_"
 INIT_FILE = "__init__.py"
-SOURCE_DIR = "formtuitous"
+SOURCE_DIR = "formtuist"
 FUNCTION_DEFINITION = "function_definition"
 IDENTIFIER = "identifier"
 ATTRIBUTE = "attribute"

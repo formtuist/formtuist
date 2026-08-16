@@ -5,7 +5,7 @@ from pathlib import Path
 from scripts import tsc_treesitter
 
 UTF8 = "utf-8"
-SOURCE = "src/formtuitous"
+SOURCE = "src/formtuist"
 FUNCTION_COUNT = 4
 ALPHA_END_LINE = 3
 TEST_ALPHA_START_LINE = 4
@@ -31,7 +31,7 @@ SOURCE_CODE = (
     "        return None\n"
 )
 TEST_CODE = (
-    "from formtuitous.mod import alpha\n"
+    "from formtuist.mod import alpha\n"
     "\n"
     "\n"
     "def test_alpha() -> None:\n"
@@ -71,14 +71,14 @@ def test_find_function_definitions_finds_functions_and_locations(
         project_root / SOURCE, project_root
     )
     assert len(functions) == FUNCTION_COUNT
-    assert "src/formtuitous/mod.py:alpha:1" in functions
-    assert "src/formtuitous/mod.py:beta:6" in functions
-    alpha = functions["src/formtuitous/mod.py:alpha:1"]
+    assert "src/formtuist/mod.py:alpha:1" in functions
+    assert "src/formtuist/mod.py:beta:6" in functions
+    alpha = functions["src/formtuist/mod.py:alpha:1"]
     assert alpha["name"] == "alpha"
-    assert alpha["file"] == "src/formtuitous/mod.py"
+    assert alpha["file"] == "src/formtuist/mod.py"
     assert alpha["line"] == 1
     assert alpha["end_line"] == ALPHA_END_LINE
-    assert alpha["id"] == "src/formtuitous/mod.py:alpha:1"
+    assert alpha["id"] == "src/formtuist/mod.py:alpha:1"
 
 
 def test_find_function_definitions_keeps_duplicate_names_distinct(
@@ -89,8 +89,8 @@ def test_find_function_definitions_keeps_duplicate_names_distinct(
     functions = tsc_treesitter.find_function_definitions(
         project_root / SOURCE, project_root
     )
-    assert "src/formtuitous/mod.py:compose:12" in functions
-    assert "src/formtuitous/mod.py:compose:17" in functions
+    assert "src/formtuist/mod.py:compose:12" in functions
+    assert "src/formtuist/mod.py:compose:17" in functions
 
 
 def test_find_function_definitions_skips_dunder_methods(

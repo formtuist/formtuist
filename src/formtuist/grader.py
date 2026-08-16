@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from formtuitous.schema import (
+from formtuist.schema import (
     GRADING_TYPE_CONTAINS,
     GRADING_TYPE_REGEX,
     CheckboxQuestion,

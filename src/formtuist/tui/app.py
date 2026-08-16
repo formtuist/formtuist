@@ -1,4 +1,4 @@
-"""Main Textual application class for formtuitous."""
+"""Main Textual application class for formtuist."""
 
 from pathlib import Path
 from typing import ClassVar
@@ -6,13 +6,13 @@ from typing import ClassVar
 from textual.app import App
 from textual.binding import Binding
 
-from formtuitous.parser import parse_form
+from formtuist.parser import parse_form
 
 
-class FormtuitousApp(App):
+class FormtuistApp(App):
     """Textual application that runs the form-filling workflow."""
 
-    TITLE = "formtuitous"
+    TITLE = "formtuist"
     CSS_PATH = "styles.tcss"
 
     BINDINGS: ClassVar[
@@ -31,6 +31,6 @@ class FormtuitousApp(App):
 
     def on_mount(self) -> None:
         """Push the form screen directly on startup, skipping the welcome screen."""
-        from formtuitous.tui.screens import FormScreen  # noqa: PLC0415
+        from formtuist.tui.screens import FormScreen  # noqa: PLC0415
 
         self.push_screen(FormScreen(self.form, self.db_path))

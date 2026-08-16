@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 # endpoint that returns the authenticated GitHub user for a token
 GITHUB_API_USER_URL = "https://api.github.com/user"
-GITHUB_USER_AGENT = "formtuitous"
+GITHUB_USER_AGENT = "formtuist"
 GITHUB_API_TIMEOUT_SECONDS = 10
 
 # common locations for the system CA certificate bundle; Python builds on

@@ -1,5 +1,5 @@
 {
-  "name": "Formtuitous — Kitchen Sink Demo",
+  "name": "Formtuist — Kitchen Sink Demo",
   "description": "Every question type and media feature in a single form. Use this to verify the TUI widget factory and media rendering.",
   "config": {
     "randomize_questions": false,
@@ -37,7 +37,7 @@
     },
     {
       "id": "features",
-      "text": "Which features of Formtuitous interest you? (Select all that apply.)",
+      "text": "Which features of Formtuist interest you? (Select all that apply.)",
       "type": "checkbox",
       "required": false,
       "choices": [
@@ -112,7 +112,7 @@
       "text": "For more context, see the project README.",
       "type": "short_text",
       "required": false,
-      "url": "https://github.com/gkapfhammer/formtuitous"
+      "url": "https://github.com/gkapfhammer/formtuist"
     }
   ]
 }
