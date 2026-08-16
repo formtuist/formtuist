@@ -155,3 +155,6 @@ coverage.json
 
 # Default SQLite database
 responses.db
+
+# Example files and directories
+quiztest
