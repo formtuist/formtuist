@@ -1,7 +1,7 @@
 [project]
-name = "formtuitous"
+name = "formtuist"
 version = "0.1.0"
-description = "Formtuitous: Creating forms with JSON and a TUI is an unexpected success for programmers and agents!"
+description = "Programmers and agents can use formtuist to create and complete forms."
 authors = [
     { name = "Gregory M. Kapfhammer", email = "gkapfham@allegheny.edu" }
 ]
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
-formtuitous = "formtuitous.cli:main"
+formtuist = "formtuist.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -54,7 +54,7 @@ dev = [
 use_vars = true
 
 [tool.taskipy.variables]
-project = "src/formtuitous"
+project = "src/formtuist"
 scripts = "scripts"
 tests = "tests"
 coveragefailunder = "95"
@@ -74,20 +74,20 @@ mypy = "mypy {project} {scripts}"
 ty = "ty check {project} {tests} {scripts}"
 pyrefly = "pyrefly check {project} {tests} {scripts}"
 zuban = "zuban check {project} {tests} {scripts}"
-vsc = { cmd = "uv run -m scripts.vsc check", help = "Check that the formtuitous version in version.py matches the version in pyproject.toml" }
-vsc-fix = { cmd = "uv run -m scripts.vsc fix", help = "Fix version.py so the formtuitous version matches pyproject.toml" }
+vsc = { cmd = "uv run -m scripts.vsc check", help = "Check that the formtuist version in version.py matches the version in pyproject.toml" }
+vsc-fix = { cmd = "uv run -m scripts.vsc fix", help = "Fix version.py so the formtuist version matches pyproject.toml" }
 test = "pytest -x -s -vv"
 test-parallel = "pytest -x -s -vv -n auto -p no:sugar"
 test-silent = "pytest -x --show-capture=no -n auto"
-test-coverage = "pytest -s --cov=formtuitous --cov-branch --cov-fail-under={coveragefailunder} --cov-report=term-missing tests/"
+test-coverage = "pytest -s --cov=formtuist --cov-branch --cov-fail-under={coveragefailunder} --cov-report=term-missing tests/"
 test-coverage-check = "uv run python -m scripts.tsc_treesitter --threshold {directtestedfailunder}"
 test-coverage-check-trailmark = "uv run python -m scripts.tsc_trailmark --threshold {directtestedfailunder}"
 test-coverage-compare = "uv run python -m scripts.tsc_compare tsc-treesitter.json tsc-trailmark.json"
 test-propertybased = "pytest -x -s -vv -m propertybased"
 test-not-propertybased = "pytest -x -s -vv -m 'not propertybased'"
-display = "uv run formtuitous display"
-serve = "uv run formtuitous serve"
-check-form = "uv run formtuitous check"
+display = "uv run formtuist display"
+serve = "uv run formtuist serve"
+check-form = "uv run formtuist check"
 
 [tool.ruff]
 line-length = 79
@@ -107,7 +107,7 @@ preset = "legacy"
 ignore-missing-imports = ["*"]
 
 [tool.coverage.run]
-source = ["formtuitous"]
+source = ["formtuist"]
 branch = true
 omit = ["tests/*", "**/__init__.py"]
 
@@ -121,5 +121,3 @@ markers = [
     "propertybased: tests using Hypothesis for property-based testing",
 ]
 pythonpath = ["."]
-
-
