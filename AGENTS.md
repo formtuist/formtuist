@@ -1,7 +1,7 @@
 # AGENTS.md
 
 This document provides guidelines for AI agents contributing to the
-**Formtuitous** repository.
+**Formtuist** repository.
 
 ## Overview of Instructions
 
@@ -100,7 +100,7 @@ All Python code must follow these standards:
   the established docstring style.
 - **Comments:** Start with a lowercase letter. Preserve existing comments
   during refactoring. The only exception is when the first word is a proper
-  noun (e.g., `Formtuitous`, `GitHub`) or an identifier that must be
+  noun (e.g., `Formtuist`, `GitHub`) or an identifier that must be
   capitalized (e.g., `GITHUB_ENV`).
 - **Sentences in comments:** Use exactly one space between the period and the
   following sentence.
@@ -109,7 +109,7 @@ All Python code must follow these standards:
   formatting in `.md` files only. Refer to identifiers plainly
   (e.g., "transformers" not "`transformers`").
 - **Imports:** Group in this order: standard library, third-party, local.
-  Use absolute imports (`from formtuitous.module import <name>`). Place all
+  Use absolute imports (`from formtuist.module import <name>`). Place all
   imports at the top of the file. Never place imports inside functions or
   classes.
 - **Formatting:** `ruff format` enforces line length 79. Use trailing commas.
@@ -128,7 +128,7 @@ All Python code must follow these standards:
 
 ## Project Structure Requirements
 
-- Source code lives in `src/formtuitous/`.
+- Source code lives in `src/formtuist/`.
 - Tests live in `tests/` with structure mirroring the source modules.
 - Use `uv` for dependency management, virtual environments, and task running.
 - Supports Python `>=3.10, <4.0` on macOS, Linux, and Windows.
@@ -155,7 +155,7 @@ When the `textual-serve` web interface has a layout or rendering bug (for
 example, content cut off at the bottom of the page), verify the fix in a
 real browser before reporting completion. Unit tests cannot catch
 browser-only problems because the web page is generated from the HTML
-template at `src/formtuitous/templates/app_index.html` and then laid out
+template at `src/formtuist/templates/app_index.html` and then laid out
 by browser CSS engines. Run all commands in this section from the
 repository root.
 
@@ -164,18 +164,18 @@ repository root.
 Run the server in the background on a fixed port and confirm it is up:
 
 ```bash
-nohup uv run formtuitous serve examples/attendance.json --port 8020 \
-  > /tmp/formtuitous-serve.log 2>&1 &
+nohup uv run formtuist serve examples/attendance.json --port 8020 \
+  > /tmp/formtuist-serve.log 2>&1 &
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8020/
 ```
 
-Use `pkill -f "formtuitous serve"` before restarting the server after a
+Use `pkill -f "formtuist serve"` before restarting the server after a
 fix.
 
 ### Inspect the served HTML
 
 The page is rendered from a Jinja template. The `serve` command passes
-`templates_path` pointing at `src/formtuitous/templates/`, so the served
+`templates_path` pointing at `src/formtuist/templates/`, so the served
 HTML comes from `app_index.html` in that directory. Compare it against
 the upstream textual-serve template at
 `.venv/lib/python3.14/site-packages/textual_serve/templates/app_index.html`
@@ -191,7 +191,7 @@ Run it with `uv run --with` so it is never added to project dependencies:
 uv run --with html5lib python -c "
 import html5lib
 
-raw = open('src/formtuitous/templates/app_index.html', encoding='utf-8').read()
+raw = open('src/formtuist/templates/app_index.html', encoding='utf-8').read()
 doc = html5lib.parse(raw)
 
 
@@ -254,7 +254,7 @@ async def main() -> None:
             };
         }""")
         print(json.dumps(metrics, indent=2))
-        await page.screenshot(path="/tmp/formtuitous_page.png")
+        await page.screenshot(path="/tmp/formtuist_page.png")
         await browser.close()
 
 
@@ -272,7 +272,7 @@ able to view the screenshot, so still save one for the human reviewer.
 ### Re-verify after a fix
 
 Edit the template, then restart the server and re-run the measurement
-after using `pkill -f "formtuitous serve"`. Jinja2 auto-reloads
+after using `pkill -f "formtuist serve"`. Jinja2 auto-reloads
 templates, so a restart is not strictly required, but it is harmless.
 The human tester must hard-refresh the browser (Ctrl+Shift+R) because
 the browser caches the page. Also confirm the favicon still serves:
