@@ -1,0 +1,66 @@
+{
+  "name": "Python True/False Quiz",
+  "description": "A short auto-graded quiz of yes_no (true/false) questions.",
+  "config": {
+    "auth": null,
+    "randomize_questions": true,
+    "auto_grade": true,
+    "allow_multiple_submissions": false
+  },
+  "questions": [
+    {
+      "id": "q1_interpreted",
+      "text": "Python is an interpreted, dynamically typed language.",
+      "type": "yes_no",
+      "required": true,
+      "correct_answer": true,
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q2_list_immutable",
+      "text": "A Python list is immutable once it is created.",
+      "type": "yes_no",
+      "required": true,
+      "correct_answer": false,
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q3_len",
+      "text": "The len() function returns the number of items in a collection.",
+      "type": "yes_no",
+      "required": true,
+      "correct_answer": true,
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q4_dict_keys",
+      "text": "Dictionary keys must be unique within a single dictionary.",
+      "type": "yes_no",
+      "required": true,
+      "correct_answer": true,
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q5_braces",
+      "text": "Python code blocks are delimited by curly braces.",
+      "type": "yes_no",
+      "required": true,
+      "correct_answer": false,
+      "points": 10,
+      "grading_type": "exact"
+    },
+    {
+      "id": "q6_elif",
+      "text": "The keyword elif is a contraction of else if.",
+      "type": "yes_no",
+      "required": true,
+      "correct_answer": true,
+      "points": 10,
+      "grading_type": "exact"
+    }
+  ]
+}
