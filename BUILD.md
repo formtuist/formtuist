@@ -271,6 +271,8 @@ Each question may optionally include:
 - For `checkbox`: `correct_answer` is a list of correct indices/labels.
 - For `numeric`: `correct_answer` is a number (exact match) or a dict with
   `min`/`max` for range grading.
+- For `yes_no`: `correct_answer` is a boolean (`true` or `false`) that is
+  compared directly against the Switch value the student submits.
 - For `short_text`/`paragraph`: `grading_type` selects exact, regex, or
   substring matching. `correct_answer` may be a plain string, a code block,
   or a list of code blocks when several answers are acceptable. An optional
@@ -1101,6 +1103,12 @@ ______________________________________________________________________
   paragraph-adjacent questions, plus a confidence rating
 - Embeds the demo program via `answers/trailmark_demo.py`
 - Date field
+
+### 8.5 `yes_no_quiz.json`
+
+- A short auto-graded quiz where every question is a `yes_no` question
+  with a `correct_answer` of `true` or `false` and a `points` value
+- Demonstrates automatic true/false grading against the Switch answer
 
 ______________________________________________________________________
 
