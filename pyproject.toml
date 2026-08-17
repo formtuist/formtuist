@@ -16,6 +16,7 @@ dependencies = [
     "click>=8.0.0",
     "typer>=0.27.0",
     "platformdirs>=4.0.0",
+    "bitbang>=0.1.55",
 ]
 
 [project.scripts]
@@ -87,6 +88,7 @@ test-propertybased = "pytest -x -s -vv -m propertybased"
 test-not-propertybased = "pytest -x -s -vv -m 'not propertybased'"
 display = "uv run formtuist display"
 serve = "uv run formtuist serve"
+publish = "uv run formtuist publish"
 check-form = "uv run formtuist check"
 
 [tool.ruff]
