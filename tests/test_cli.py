@@ -492,8 +492,10 @@ class TestExampleFormsCLI:
             "authenticated.json",
             "minimal.json",
             "minimal_auth.json",
+            "method_invocation_quiz.json",
             "quiz.json",
             "survey.json",
+            "yes_no_quiz.json",
         ],
     )
     def test_valid_example_exits_zero(self, filename: str) -> None:

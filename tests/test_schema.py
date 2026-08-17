@@ -209,6 +209,24 @@ class TestQuestionModels:
         """YesNoQuestion requires only id, text, and type."""
         q = YesNoQuestion(id="q", text="Yes?", type="yes_no")
         assert q.required is False
+        assert q.correct_answer is None
+        assert q.points == 0
+        assert q.grading_type == "exact"
+
+    def test_yes_no_with_grading(self) -> None:
+        """YesNoQuestion accepts boolean grading fields."""
+        q = YesNoQuestion(
+            id="q",
+            text="Yes?",
+            type="yes_no",
+            correct_answer=True,
+            points=10,
+            grading_type="exact",
+        )
+        assert q.correct_answer is True
+        assert q.points == EXPECTED_POINTS
+        assert q.grading_type == "exact"
+        assert q.required is False
 
     def test_randomize_defaults_to_true(self) -> None:
         """Questions randomize by default."""
@@ -451,6 +469,29 @@ class TestFormDefinition:
                 }
             )
 
+    def test_auto_grade_accepts_yes_no(self) -> None:
+        """Auto-grading accepts a graded yes_no question."""
+        form = FormDefinition.model_validate(
+            {
+                "name": "TrueFalse",
+                "config": {"auto_grade": True},
+                "questions": [
+                    {
+                        "id": "q",
+                        "text": "Sky is blue?",
+                        "type": "yes_no",
+                        "correct_answer": True,
+                        "points": 10,
+                        "grading_type": "exact",
+                    },
+                ],
+            }
+        )
+        assert form.config.auto_grade is True
+        question = form.questions[0]
+        assert isinstance(question, YesNoQuestion)
+        assert question.correct_answer is True
+
 
 class TestFormConfigInForm:
     """Tests for FormConfig embedded in FormDefinition."""
@@ -500,8 +541,10 @@ class TestExampleForms:
             "authenticated.json",
             "minimal.json",
             "minimal_auth.json",
+            "method_invocation_quiz.json",
             "quiz.json",
             "survey.json",
+            "yes_no_quiz.json",
         ],
     )
     def test_example_validates(self, filename: str) -> None:
@@ -550,7 +593,14 @@ class TestQuizShowcase:
 
     # gradeable question types expected in the showcase quiz
     EXPECTED_GRADEABLE_TYPES = frozenset(
-        {"short_text", "paragraph", "multiple_choice", "checkbox", "numeric"}
+        {
+            "short_text",
+            "paragraph",
+            "multiple_choice",
+            "checkbox",
+            "numeric",
+            "yes_no",
+        }
     )
 
     # grading modes expected in the showcase quiz
@@ -625,3 +675,36 @@ class TestQuizShowcase:
         confidence = next(q for q in quiz.questions if q.type == "rating")
         assert confidence.randomize is False
         assert quiz.questions[-1] is confidence
+
+
+class TestYesNoQuizExample:
+    """Tests that the yes_no example showcases graded true/false questions."""
+
+    QUIZ_PATH = (
+        Path(__file__).resolve().parent.parent
+        / "examples"
+        / "yes_no_quiz.json"
+    )
+
+    def _quiz(self) -> FormDefinition:
+        """Load and validate the yes_no example file."""
+        return parse_form(self.QUIZ_PATH)
+
+    def test_all_questions_are_graded_yes_no(self) -> None:
+        """Every question is a yes_no with an answer key and points."""
+        quiz = self._quiz()
+        assert quiz.config.auto_grade is True
+        assert len(quiz.questions) > 0
+        for question in quiz.questions:
+            assert isinstance(question, YesNoQuestion)
+            assert question.correct_answer is not None
+            assert question.points > 0
+
+    def test_grades_both_directions(self) -> None:
+        """The example has both true and false correct answers."""
+        quiz = self._quiz()
+        answers = {
+            getattr(question, "correct_answer", None)
+            for question in quiz.questions
+        }
+        assert answers == {True, False}

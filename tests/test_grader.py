@@ -418,6 +418,63 @@ class TestGradeNumeric:
         assert _grade_question(self._range(), "1011") == (0, EXPECTED_POINTS)
 
 
+class TestGradeYesNo:
+    """Tests for grading true/false answers."""
+
+    def _yes_no(self, correct_answer: bool) -> YesNoQuestion:
+        """Build a yes_no question for grading tests."""
+        return YesNoQuestion(
+            id="q",
+            text="Yes?",
+            type="yes_no",
+            correct_answer=correct_answer,
+            points=EXPECTED_POINTS,
+            grading_type="exact",
+        )
+
+    def test_true_answer_full_credit(self) -> None:
+        """A true answer to a true question scores full credit."""
+        assert _grade_question(self._yes_no(True), True) == (
+            EXPECTED_POINTS,
+            EXPECTED_POINTS,
+        )
+
+    def test_false_answer_full_credit(self) -> None:
+        """A false answer to a false question scores full credit."""
+        assert _grade_question(self._yes_no(False), False) == (
+            EXPECTED_POINTS,
+            EXPECTED_POINTS,
+        )
+
+    def test_wrong_answer_scores_zero(self) -> None:
+        """The opposite of the correct answer scores zero."""
+        assert _grade_question(self._yes_no(True), False) == (
+            0,
+            EXPECTED_POINTS,
+        )
+        assert _grade_question(self._yes_no(False), True) == (
+            0,
+            EXPECTED_POINTS,
+        )
+
+    def test_no_answer_scores_zero(self) -> None:
+        """A missing answer scores zero."""
+        assert _grade_question(self._yes_no(True), None) == (
+            0,
+            EXPECTED_POINTS,
+        )
+
+    def test_missing_correct_answer_scores_zero(self) -> None:
+        """A yes_no question without a correct answer scores zero."""
+        question = YesNoQuestion(
+            id="q",
+            text="Yes?",
+            type="yes_no",
+            points=EXPECTED_POINTS,
+        )
+        assert _grade_question(question, True) == (0, EXPECTED_POINTS)
+
+
 class TestGradeResponse:
     """Tests for grading a full response."""
 
@@ -570,6 +627,33 @@ class TestGradeResponse:
         }
         assert by_id["q"][BREAKDOWN_LANGUAGE_KEY] == "python"
         assert by_id["plain"][BREAKDOWN_LANGUAGE_KEY] is None
+
+    def test_grades_yes_no_question(self) -> None:
+        """A yes_no question with a correct answer is graded."""
+        form = FormDefinition(
+            name="TrueFalse",
+            questions=[
+                YesNoQuestion(
+                    id="tf",
+                    text="Sky is blue?",
+                    type="yes_no",
+                    correct_answer=True,
+                    points=EXPECTED_POINTS,
+                    grading_type="exact",
+                ),
+            ],
+        )
+        report = grade_response(form, {"tf": True})
+        assert report[TOTAL_KEY] == EXPECTED_POINTS
+        assert report[MAX_KEY] == EXPECTED_POINTS
+        assert report[PERCENTAGE_KEY] == EXPECTED_PERCENT_FULL
+        by_id = {
+            entry[BREAKDOWN_ID_KEY]: entry for entry in report[BREAKDOWN_KEY]
+        }
+        assert by_id["tf"][BREAKDOWN_CORRECT_KEY] is True
+        assert by_id["tf"][BREAKDOWN_ANSWER_KEY] is True
+        assert by_id["tf"][BREAKDOWN_CORRECT_ANSWER_KEY] is True
+        assert by_id["tf"][BREAKDOWN_SCORE_KEY] == EXPECTED_POINTS
 
 
 class TestGradeReportToJson:

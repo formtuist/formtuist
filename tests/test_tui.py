@@ -371,6 +371,47 @@ class TestFormScreen:
         assert pushed.grade_report[TOTAL_KEY] == GRADE_TOTAL
         mock_notify.assert_not_called()
 
+    def test_action_submit_auto_grades_yes_no(self) -> None:
+        """action_submit grades a yes_no answer from a Switch widget."""
+        form = FormDefinition(
+            name="TrueFalse",
+            config=FormConfig(auto_grade=True),
+            questions=[
+                YesNoQuestion(
+                    id="tf",
+                    text="Sky is blue?",
+                    type="yes_no",
+                    correct_answer=True,
+                    points=GRADE_POINTS,
+                    grading_type="exact",
+                ),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_switch = MagicMock(spec=Switch)
+        mock_switch.value = True
+        screen.inputs["tf"] = mock_switch
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db"):
+                    with patch(
+                        "formtuist.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        asyncio.run(screen.action_submit())
+        mock_app.push_screen.assert_called_once()
+        pushed = mock_app.push_screen.call_args[0][0]
+        assert isinstance(pushed, SubmitScreen)
+        assert pushed.grade_report is not None
+        assert pushed.grade_report[TOTAL_KEY] == GRADE_POINTS
+        assert pushed.grade_report["breakdown"][0]["correct"] is True
+        assert pushed.grade_report["breakdown"][0]["answer"] is True
+        mock_notify.assert_not_called()
+
     def test_action_submit_persists_grade_snapshot(self) -> None:
         """action_submit stores a JSON-safe grade snapshot when auto-grading."""
         form = FormDefinition(
