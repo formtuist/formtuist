@@ -16,6 +16,7 @@ from formtuist.schema import (
     ParagraphQuestion,
     Question,
     ShortTextQuestion,
+    YesNoQuestion,
 )
 
 # report keys for the grade response
@@ -135,15 +136,19 @@ def _grade_question(question: Question, answer: Any) -> tuple[int, int]:
     """Return the (score, max_score) pair for one graded question."""
     max_score = getattr(question, "points", 0)
     if isinstance(question, MultipleChoiceQuestion):
-        if answer == question.correct_answer:
-            return (max_score, max_score)
-        return (0, max_score)
-    if isinstance(question, CheckboxQuestion):
+        matched = answer == question.correct_answer
+    elif isinstance(question, CheckboxQuestion):
         return _grade_checkbox(question, answer)
-    if isinstance(question, NumericQuestion):
+    elif isinstance(question, NumericQuestion):
         return _grade_numeric(question, answer)
-    if isinstance(question, (ShortTextQuestion, ParagraphQuestion)):
+    elif isinstance(question, (ShortTextQuestion, ParagraphQuestion)):
         return _grade_text(question, answer)
+    elif isinstance(question, YesNoQuestion):
+        return _grade_yes_no(question, answer)
+    else:
+        matched = False
+    if matched:
+        return (max_score, max_score)
     return (0, max_score)
 
 
@@ -174,6 +179,16 @@ def _grade_numeric(question: NumericQuestion, answer: Any) -> tuple[int, int]:
             return (max_score, max_score)
         return (0, max_score)
     if correct is not None and value == correct:
+        return (max_score, max_score)
+    return (0, max_score)
+
+
+def _grade_yes_no(question: YesNoQuestion, answer: Any) -> tuple[int, int]:
+    """Grade a true/false answer against a boolean correct answer."""
+    max_score = question.points
+    if question.correct_answer is None:
+        return (0, max_score)
+    if answer == question.correct_answer:
         return (max_score, max_score)
     return (0, max_score)
 
