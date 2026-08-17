@@ -191,7 +191,10 @@
       "id": "q12_strings_immutable",
       "text": "True or False: strings in Python are immutable.",
       "type": "yes_no",
-      "required": true
+      "required": true,
+      "correct_answer": true,
+      "points": 10,
+      "grading_type": "exact"
     },
     {
       "id": "q13_confidence",
