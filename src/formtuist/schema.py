@@ -308,6 +308,9 @@ class YesNoQuestion(_QuestionBase):
     """A yes or no question using a binary switch."""
 
     type: Literal["yes_no"]
+    correct_answer: bool | None = None
+    points: int = 0
+    grading_type: Literal["exact"] | None = "exact"
 
 
 # discriminated union: selects the correct model class based on the type field
