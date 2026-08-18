@@ -1564,7 +1564,8 @@ class TestSubmitScreen:
         screen = SubmitScreen(form, db_path)
         children = list(screen.compose())
         texts = [str(c.content) for c in children if hasattr(c, "content")]
-        assert any("/custom/path/responses.db" in t for t in texts)
+        # compare against str(db_path) because Windows renders backslashes
+        assert any(str(db_path) in t for t in texts)
 
     def test_compose_shows_tip(self) -> None:
         """SubmitScreen includes the command palette tip."""
