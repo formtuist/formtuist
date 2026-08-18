@@ -142,6 +142,36 @@ uvx formtuist serve examples/quiz.json --host 100.xx.xx.xx --port 9000
 uvx formtuist serve examples/attendance.json --database-name attendance.db
 ```
 
+### `publish` — Publish a form through a bitbang URL
+
+```bash
+uvx formtuist publish examples/survey.json
+```
+
+Starts the local textual-serve application and publishes it through the
+peer-to-peer [bitbang](https://github.com/joeychua/bitbang) WebRTC tunnel.
+The command prints a URL and QR code that can be opened from another browser
+without port forwarding or a public server. The local textual-serve process
+continues running until the bitbang session is stopped.
+
+**Options:**
+
+| Flag | Description | Default |
+|---|---|---|
+| `--host` | Local host address for textual-serve | `127.0.0.1` |
+| `--port` | Local port for textual-serve | `8000` |
+| `--signaling` | Bitbang signaling server | `bitba.ng` |
+| `--pin` | Optional access PIN | — |
+| `--ephemeral` | Use a new temporary bitbang identity | off |
+| `--db-dir` | Directory for the responses database | platform default |
+| `--database-name` | Name of the responses database | `responses.db` |
+
+For example, publish a quiz with a temporary identity and PIN:
+
+```bash
+uvx formtuist publish examples/quiz.json --ephemeral --pin 1234
+```
+
 ### `view` — Browse responses in a web browser
 
 ```bash
@@ -163,11 +193,57 @@ query responses in your browser.
 uvx formtuist view ~/.local/share/formtuist/responses.db --port 9000
 ```
 
-### `export` — Export responses (coming soon)
+### `export` — Export responses
 
 ```bash
-uvx formtuist export responses.db
+uvx formtuist export ~/.local/share/formtuist/responses.db \
+  --format csv --output responses.csv
 ```
+
+Exports every response in the database (or just one form's responses with
+`--form-name`) to a flat file. The default `csv` format is handy for a
+spreadsheet, `json` writes a single JSON array, `jsonl` writes one JSON
+object per line, and `sqlite` writes a flat `responses_flat` table that
+`view`/datasette can browse directly.
+
+Every format shares the same flat row shape: the response id, form name,
+submitted timestamp, GitHub identity, and the stored grade totals (`total`,
+`max`, `percentage`), followed by one column per question id. Missing
+answers and grades are empty cells in CSV, `null` in JSON, and NULL in
+SQLite. List answers (checkboxes) are JSON-encoded in CSV and SQLite cells
+and stay native arrays in JSON.
+
+**Options:**
+
+| Flag | Description | Default |
+|---|---|---|
+| `--output` / `-o` | Output file path (required) | — |
+| `--format` | `csv`, `json`, `jsonl`, or `sqlite` | `csv` |
+| `--form-name` | Only export responses for this form | all forms |
+
+**Examples:**
+
+```bash
+# CSV for a spreadsheet (the default format)
+uvx formtuist export responses.db --output responses.csv
+
+# A JSON array for other tools
+uvx formtuist export responses.db --format json --output responses.json
+
+# JSON-lines for streaming or line-oriented tools
+uvx formtuist export responses.db --format jsonl --output responses.jsonl
+
+# A flat SQLite table that datasette can browse
+uvx formtuist export responses.db --format sqlite --output flat.db
+uvx formtuist view flat.db
+
+# Only the responses for one form in a shared database
+uvx formtuist export responses.db --format csv --form-name "CS 101 Quiz" \
+  --output cs101.csv
+```
+
+The grade columns come from the snapshot stored at submit time, so exports
+never change retroactively when the form file is edited.
 
 ### `grade` — Report grades for a quiz
 
