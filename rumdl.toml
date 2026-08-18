@@ -1,0 +1,10 @@
+# rumdl configuration for the formtuist repository.
+# The README intentionally opens with a centered logo banner that uses
+# inline HTML for styling, so MD033 allows those elements and MD041
+# permits the preamble before the first level one heading.
+
+[MD033]
+allowed-elements = ["div", "img"]
+
+[MD041]
+allow-preamble = true
