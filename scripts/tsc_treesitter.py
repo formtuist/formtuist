@@ -142,7 +142,7 @@ def find_function_definitions(
             tree = parser.parse(bytes(py_file.read_text(encoding=UTF8), UTF8))
         except (SyntaxError, UnicodeDecodeError):
             continue
-        relative_file = str(py_file.relative_to(project_root))
+        relative_file = py_file.relative_to(project_root).as_posix()
         for node in _walk_node(tree.root_node):
             if node.type == FUNCTION_DEFINITION:
                 name = _get_func_name(node)
@@ -188,7 +188,7 @@ def find_direct_test_calls(
             tree = parser.parse(bytes(py_file.read_text(encoding=UTF8), UTF8))
         except (SyntaxError, UnicodeDecodeError):
             continue
-        relative_file = str(py_file.relative_to(project_root))
+        relative_file = py_file.relative_to(project_root).as_posix()
 
         def _walk_scope(
             node: Node,
