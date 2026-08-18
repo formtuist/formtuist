@@ -33,6 +33,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "textual>=1.0.0",
     "textual-serve>=1.1.0",
+    "bitbang>=0.1.55",
     "rich>=13.0.0",
     "datasette>=0.64.0",
     "click>=8.0.0",
@@ -70,6 +71,7 @@ build-backend = "hatchling.build"
 - `pydantic` — JSON form schema validation
 - `textual` — TUI framework
 - `textual-serve` — web serving of Textual apps
+- `bitbang` — peer-to-peer WebRTC publishing of local web apps
 - `rich` — rendering and formatting
 - `datasette` — response browsing
 - `click` — CLI entry point
@@ -123,6 +125,7 @@ first module:
 - `test-not-propertybased` → `pytest -x -s -vv -m 'not propertybased'`
 - `display` → `uv run formtuist display`
 - `serve` → `uv run formtuist serve`
+- `publish` → `uv run formtuist publish`
 - `check-form` → `uv run formtuist check`
 
 **`[tool.ruff]`** — line-length 79, select `E`, `D`, `I`, `F`, `PL`, `Q`,
@@ -467,9 +470,18 @@ for an existing row (used by `grade --recompute`).
 
 ### 3.4 `exporter.py` — Export Formats
 
-- `export_to_jsonl(responses, output_path)`
 - `export_to_csv(responses, output_path)`
+- `export_to_json(responses, output_path)`
+- `export_to_jsonl(responses, output_path)`
 - `export_to_sqlite(responses, output_path)` (for `datasette view`)
+
+All formats flatten each response into one row: metadata columns (id,
+form_name, submitted_at, github_username, github_url), the stored grade
+totals (total, max, percentage), and one column per question id (the sorted
+union of answer keys across responses). Missing answers become empty cells,
+`null`s, or NULLs. List answers are JSON-encoded in csv and sqlite cells
+and stay native arrays in json. The sqlite export writes a fresh
+`responses_flat` table so datasette shows real columns.
 
 ### 3.5 `grader.py` — Auto-Grading
 
@@ -940,19 +952,38 @@ ______________________________________________________________________
 1. Server spawns an independent subprocess per visitor — safe for concurrent
    classroom use.
 
-### 5.4 `export <responses.db> --format {csv,json,sqlite} --output <path>`
+### 5.4 `publish <form.json> [--host <host>] [--port <port>]`
 
-1. Query all responses from DB.
-1. Convert to target format.
-1. Write to output path.
+1. Parse and validate the form definition.
+1. Start a local textual-serve process in a child process.
+1. Wrap the local HTTP server in the rewriting proxy used by bitbang.
+1. Set bitbang's WebSocket target to the local textual-serve server.
+1. Run `BitBangWSGI`, which prints the public URL and QR code.
+1. Stop the local textual-serve process when the publishing session ends.
 
-### 5.5 `view <responses.db> [--datasette-args ...]`
+The proxy removes textual-serve's absolute local origin from HTML responses.
+This makes static assets and the terminal page load through bitbang's service
+worker while preserving the WebSocket pathname for the terminal bridge.
+
+### 5.5 `export <responses.db> --format {csv,json,jsonl,sqlite} --output <path>`
+
+1. Query all responses from the DB, optionally filtered by `--form-name`.
+1. Convert to the requested flat format (csv, json, jsonl, or sqlite).
+1. Write to `--output` and print the exported response count.
+
+`--output`/`-o` is required; `--format` defaults to csv and also accepts
+json (a JSON array), jsonl (JSON-lines), or sqlite (a flat `responses_flat`
+table that `view`/datasette can browse). The grade columns come from the
+stored snapshots, so exports never change retroactively when the form file
+is edited.
+
+### 5.6 `view <responses.db> [--datasette-args ...]`
 
 1. Check that `datasette` is installed.
 1. Launch `datasette serve <responses.db>` with optional args.
 1. Print URL to console.
 
-### 5.6 `grade <form.json> <responses.db> [--recompute]`
+### 5.7 `grade <form.json> <responses.db> [--recompute]`
 
 1. Load form definition (with `correct_answer` fields).
 1. Load all responses from DB.
@@ -972,6 +1003,11 @@ ______________________________________________________________________
 ## 6. Web Serving Architecture
 
 ### 6.1 How `textual-serve` Fits
+
+`publish` adds a peer-to-peer delivery option without changing the local
+`serve` command. It starts the same textual-serve server and sends HTTP
+requests through bitbang's encrypted WebRTC data channel. No form data is
+sent to the signaling server.
 
 - `textual-serve` launches a **new subprocess per visitor** via WebSocket.
 - This means 30 students hitting the URL = 30 independent `formtuist display`
