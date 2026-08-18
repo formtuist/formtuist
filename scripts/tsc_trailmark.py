@@ -89,9 +89,9 @@ def _make_function_id(relative_file: str, name: str, line: int) -> str:
 def _relative_file(path: Path, project_root: Path) -> str:
     """Return the project-root-relative string form of a file path."""
     try:
-        return str(path.resolve().relative_to(project_root.resolve()))
+        return path.resolve().relative_to(project_root.resolve()).as_posix()
     except ValueError:
-        return str(path)
+        return path.as_posix()
 
 
 def _final_component(raw: str) -> str:
