@@ -1,0 +1,138 @@
+# This GitHub Actions workflow contains six jobs:
+# -- First, Lint Code runs on Ubuntu with Python 3.11, 3.12, 3.13, and 3.14
+# to check the code for formatting and linting defects using the uv lint
+# task.
+# -- Second, Type Check runs on Ubuntu with Python 3.11, 3.12, 3.13, and
+# 3.14 to check for type errors using the uv typecheck task (mypy, ty,
+# pyrefly, symbex).
+# -- Third, Test uses a strategy matrix to test the code with different
+# operating systems (Ubuntu, macOS, Windows) and Python versions (3.11,
+# 3.12, 3.13, 3.14), using the uv test task.
+# -- Fourth, Test Coverage runs on Ubuntu with Python 3.11, 3.12, 3.13, and
+# 3.14 to check that test coverage meets the minimum threshold of 85%.
+# -- Fifth, Lint Markdown uses the latest Ubuntu image and markdownlint to
+# check markdown files for defects.
+# -- Sixth, Check Spelling uses the latest Ubuntu image and cspell to check
+# for spelling defects in the markdown.
+
+name: Lint and Test
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    name: Lint Code (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --dev --extra auto-hint
+      - name: Lint code
+        run: uv run task lint
+
+  typecheck:
+    name: Type Check (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --dev --extra auto-hint
+      - name: Type check code
+        run: uv run task typecheck
+
+  test:
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: macos-latest
+            python-version: "3.11"
+          - os: macos-latest
+            python-version: "3.12"
+          - os: macos-latest
+            python-version: "3.13"
+          - os: macos-latest
+            python-version: "3.14"
+          - os: windows-latest
+            python-version: "3.11"
+          - os: windows-latest
+            python-version: "3.12"
+          - os: windows-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.14"
+    env:
+      OS: ${{ matrix.os }}
+      PYTHON: ${{ matrix.python-version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+      - name: Display GatorGrade version details
+        run: uv run gatorgrade --version
+      - name: Install dependencies
+        run: uv sync --dev --extra auto-hint
+      - name: Execute tests
+        run: uv run task test
+
+  coverage:
+    name: Test Coverage (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --dev
+      - name: Run tests with coverage
+        run: uv run task test-coverage
+      - name: Run tests with coverage
+        run: uv run task test-coverage-check-trailmark
