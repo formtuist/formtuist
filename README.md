@@ -1,3 +1,7 @@
+<div align="center">
+  <img alt="Formtuist logo" src="https://raw.githubusercontent.com/formtuist/formtuist/main/.github/images/Formtuist-Logo.png" width="90%">
+</div>
+
 # Formtuist
 
 Create, display, and serve JSON-defined forms, surveys, and quizzes --- all
