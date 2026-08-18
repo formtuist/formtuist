@@ -1,10 +1,13 @@
 """Tests for the formtuist CLI commands."""
 
+import csv
 import json
 import re
+import sqlite3
 import sys
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,6 +29,8 @@ EXPECTED_GRADE_TOTAL_PARTIAL = 10
 EXPECTED_GRADE_TOTAL_FULL = 20
 EXPECTED_GRADE_MAX = 20
 EXPECTED_GRADE_PERCENT_PARTIAL = 50.0
+EXPECTED_GRADE_PERCENT_FULL = 100.0
+USAGE_ERROR_EXIT_CODE = 2
 
 
 def _plain(result: Result) -> str:
@@ -195,11 +200,51 @@ class TestStubCommands:
             mock_server_cls.assert_called_once()
             mock_instance.serve.assert_called_once()
 
-    def test_export_with_file(self, tmp_path: Path) -> None:
-        """Export command executes its stub body."""
-        db = _write_form(tmp_path / "resp.db", {"dummy": True})
-        result = runner.invoke(app, ["export", str(db)])
+    def test_publish_with_file(self, tmp_path: Path) -> None:
+        """Publish validates a form and starts the bitbang publisher."""
+        form = _write_form(
+            tmp_path / "form.json", {"name": "Published", "questions": []}
+        )
+        with patch("formtuist.publisher.publish_form") as mock_publish:
+            result = runner.invoke(
+                app,
+                [
+                    "publish",
+                    str(form),
+                    "--host",
+                    "localhost",
+                    "--port",
+                    "8123",
+                    "--signaling",
+                    "signal.example",
+                    "--pin",
+                    "1234",
+                    "--ephemeral",
+                ],
+            )
         assert result.exit_code == 0
+        mock_publish.assert_called_once_with(
+            form,
+            "localhost",
+            8123,
+            "signal.example",
+            "1234",
+            True,
+            None,
+            None,
+            None,
+        )
+
+    def test_publish_rejects_invalid_form(self, tmp_path: Path) -> None:
+        """Publish does not start bitbang for an invalid form."""
+        form = _write_form(
+            tmp_path / "form.json",
+            {"name": "Invalid", "questions": [{"type": "unknown"}]},
+        )
+        with patch("formtuist.publisher.publish_form") as mock_publish:
+            result = runner.invoke(app, ["publish", str(form)])
+        assert result.exit_code == 1
+        mock_publish.assert_not_called()
 
     def test_view_with_file(self, tmp_path: Path) -> None:
         """View launches datasette with the open flag from the venv."""
@@ -476,6 +521,143 @@ class TestGradeCommand:
             assert result.exit_code == 0
             cmd_arg = mock_server_cls.call_args[0][0]
             assert f"--code-dir {code_dir}" in cmd_arg
+
+
+class TestExportCommand:
+    """Tests for the `formtuist export` subcommand."""
+
+    def _responses_db(self, tmp_path: Path) -> Path:
+        """Create a database with one graded response."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        grade: dict[str, Any] = {
+            "total": EXPECTED_GRADE_TOTAL_FULL,
+            "max": EXPECTED_GRADE_MAX,
+            "percentage": EXPECTED_GRADE_PERCENT_FULL,
+            "breakdown": [],
+            "graded_at": "2026-08-01T00:00:00+00:00",
+        }
+        save_response(
+            conn,
+            "Quiz",
+            {"q1": "a", "q2": 3},
+            github_username="alice",
+            grade=grade,
+        )
+        conn.close()
+        return db_path
+
+    def test_export_csv_writes_file(self, tmp_path: Path) -> None:
+        """Export --format csv writes a CSV file and confirms."""
+        db = self._responses_db(tmp_path)
+        out = tmp_path / "out.csv"
+        result = runner.invoke(
+            app, ["export", str(db), "--format", "csv", "--output", str(out)]
+        )
+        assert result.exit_code == 0
+        assert "Exported 1 response(s) to" in _plain(result)
+        with out.open("r", encoding="utf-8", newline="") as file:
+            rows = list(csv.DictReader(file))
+        assert rows[0]["form_name"] == "Quiz"
+        assert rows[0]["q1"] == "a"
+        assert rows[0]["total"] == str(EXPECTED_GRADE_TOTAL_FULL)
+
+    def test_export_json_writes_array(self, tmp_path: Path) -> None:
+        """Export --format json writes a JSON array."""
+        db = self._responses_db(tmp_path)
+        out = tmp_path / "out.json"
+        result = runner.invoke(
+            app, ["export", str(db), "--format", "json", "--output", str(out)]
+        )
+        assert result.exit_code == 0
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert data[0]["q1"] == "a"
+        assert data[0]["github_username"] == "alice"
+        assert data[0]["total"] == EXPECTED_GRADE_TOTAL_FULL
+
+    def test_export_jsonl_writes_lines(self, tmp_path: Path) -> None:
+        """Export --format jsonl writes one object per line."""
+        db = self._responses_db(tmp_path)
+        out = tmp_path / "out.jsonl"
+        result = runner.invoke(
+            app, ["export", str(db), "--format", "jsonl", "--output", str(out)]
+        )
+        assert result.exit_code == 0
+        lines = out.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 1
+        assert json.loads(lines[0])["q1"] == "a"
+
+    def test_export_sqlite_writes_flat_table(self, tmp_path: Path) -> None:
+        """Export --format sqlite writes a browsable flat table."""
+        db = self._responses_db(tmp_path)
+        out = tmp_path / "out.db"
+        result = runner.invoke(
+            app,
+            ["export", str(db), "--format", "sqlite", "--output", str(out)],
+        )
+        assert result.exit_code == 0
+        conn = sqlite3.connect(str(out))
+        try:
+            rows = conn.execute(
+                "SELECT form_name, q1 FROM responses_flat"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert rows[0] == ("Quiz", "a")
+
+    def test_export_form_name_filters(self, tmp_path: Path) -> None:
+        """Export --form-name only includes matching responses."""
+        db = self._responses_db(tmp_path)
+        conn = init_db(db)
+        save_response(conn, "Other", {"q1": "z"})
+        conn.close()
+        out = tmp_path / "out.json"
+        result = runner.invoke(
+            app,
+            [
+                "export",
+                str(db),
+                "--format",
+                "json",
+                "--output",
+                str(out),
+                "--form-name",
+                "Quiz",
+            ],
+        )
+        assert result.exit_code == 0
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert len(data) == 1
+        assert data[0]["form_name"] == "Quiz"
+
+    def test_export_no_responses(self, tmp_path: Path) -> None:
+        """Export reports when there are no responses to export."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        conn.close()
+        out = tmp_path / "out.json"
+        result = runner.invoke(
+            app,
+            ["export", str(db_path), "--format", "json", "--output", str(out)],
+        )
+        assert result.exit_code == 0
+        assert "No responses to export." in _plain(result)
+        assert not out.exists()
+
+    def test_export_requires_output(self, tmp_path: Path) -> None:
+        """Export without --output is a usage error."""
+        db = self._responses_db(tmp_path)
+        result = runner.invoke(app, ["export", str(db), "--format", "csv"])
+        assert result.exit_code == USAGE_ERROR_EXIT_CODE
+
+    def test_export_rejects_unknown_format(self, tmp_path: Path) -> None:
+        """Export rejects an unknown --format value."""
+        db = self._responses_db(tmp_path)
+        out = tmp_path / "out.csv"
+        result = runner.invoke(
+            app, ["export", str(db), "--format", "xml", "--output", str(out)]
+        )
+        assert result.exit_code == USAGE_ERROR_EXIT_CODE
 
 
 class TestExampleFormsCLI:
