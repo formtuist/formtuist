@@ -93,6 +93,12 @@ through `uv run task <name>`:
 
 All Python code must follow these standards:
 
+- **Cross-platform code:** Source code must run unchanged on macOS,
+  Linux, and Windows. Write filesystem logic with `pathlib` and never
+  embed path separators in strings; a leading-slash path without a
+  drive letter is not absolute on Windows. Normalize any path that
+  appears in a stable identifier or output with `Path.as_posix()` so
+  results are identical on every platform.
 - **Function bodies:** No blank lines within function bodies. Keep code
   contiguous from the function signature to the final `return`.
 - **Docstrings:** Single-line docstrings starting with a capital letter and
@@ -131,19 +137,25 @@ All Python code must follow these standards:
 - Source code lives in `src/formtuist/`.
 - Tests live in `tests/` with structure mirroring the source modules.
 - Use `uv` for dependency management, virtual environments, and task running.
-- Supports Python `>=3.10, <4.0` on macOS, Linux, and Windows.
+- Supports Python `>=3.12, <4.0` on macOS, Linux, and Windows.
 - Uses Pydantic models for data validation and JSON serialization.
 
 ## Testing Requirements
 
 All tests must follow these standards:
 
+- **Cross-platform tests:** Tests must pass unchanged on macOS, Linux,
+  and Windows. Never assert hardcoded POSIX-style paths; derive the
+  expected string from the same `Path` object under test (for example,
+  `str(db_path)` instead of a `/custom/...` literal) and remember that
+  leading-slash paths without a drive letter are not absolute on
+  Windows. Use platform-neutral fixtures such as `tmp_path`.
 - Tests are Python functions and therefore follow all code requirements above.
 - Test names start with `test_` and are descriptive.
 - Group tests by the function or module they exercise.
 - Order tests logically for readability.
 - Tests must be independent — runnable in random order without side effects.
-- Tests must pass on local machines and in CI.
+- Tests must pass on local machines and in CI on macOS, Linux, and Windows.
 - Aim for full function, statement, and branch coverage (minimum 95%).
 - Property-based tests using `hypothesis` must be marked with
   `@pytest.mark.propertybased`.
