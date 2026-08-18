@@ -3,7 +3,7 @@
 import sqlite3
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import typer
 from pydantic import ValidationError
@@ -21,6 +21,12 @@ from formtuist.database import (
     init_db,
     resolve_db_path,
     update_response_grade,
+)
+from formtuist.exporter import (
+    export_to_csv,
+    export_to_json,
+    export_to_jsonl,
+    export_to_sqlite,
 )
 from formtuist.grader import (
     BREAKDOWN_ID_KEY,
@@ -88,6 +94,7 @@ DEPENDENCY_NAMES = [
     "pydantic",
     "textual",
     "textual-serve",
+    "bitbang",
     "rich",
     "datasette",
     "click",
@@ -309,6 +316,100 @@ def serve(  # noqa: PLR0913, PLR0917
     server.serve()
 
 
+PUBLISH_HOST_HELP = "Local host address for the textual-serve server."
+PUBLISH_PORT_HELP = "Local port for the textual-serve server."
+PUBLISH_SIGNALING_HELP = "Bitbang signaling server hostname."
+PUBLISH_PIN_HELP = "Optional PIN required from people opening the URL."
+PUBLISH_EPHEMERAL_HELP = "Create a new temporary bitbang identity."
+PUBLISH_START_PREFIX = "Publishing [bold]"
+PUBLISH_START_SUFFIX = "[/bold] through bitbang."
+
+
+@app.command()
+def publish(  # noqa: PLR0913, PLR0917
+    form_path: Path = typer.Argument(
+        ...,
+        help=FORM_PATH_HELP,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    db_dir: Path = typer.Option(
+        None,
+        help=DB_DIR_HELP,
+        file_okay=False,
+        dir_okay=True,
+    ),
+    database_name: str = typer.Option(
+        None,
+        "--database-name",
+        help=DB_NAME_HELP,
+    ),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help=PUBLISH_HOST_HELP,
+    ),
+    port: int = typer.Option(
+        8000,
+        "--port",
+        help=PUBLISH_PORT_HELP,
+    ),
+    signaling: str = typer.Option(
+        "bitba.ng",
+        "--signaling",
+        help=PUBLISH_SIGNALING_HELP,
+    ),
+    pin: str | None = typer.Option(
+        None,
+        "--pin",
+        help=PUBLISH_PIN_HELP,
+    ),
+    ephemeral: bool = typer.Option(
+        False,
+        "--ephemeral",
+        help=PUBLISH_EPHEMERAL_HELP,
+    ),
+    code_dir: Path = typer.Option(
+        None,
+        "--code-dir",
+        help=CODE_DIR_HELP,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+    ),
+) -> None:
+    """Publish a form through a peer-to-peer bitbang URL."""
+    try:
+        form = parse_form(form_path, code_dir)
+    except ValidationError:
+        raise typer.Exit(code=1)
+    from formtuist.publisher import publish_form  # noqa: PLC0415
+
+    console.print(f"{PUBLISH_START_PREFIX}{form.name}{PUBLISH_START_SUFFIX}")
+    publish_form(
+        form_path,
+        host,
+        port,
+        signaling,
+        pin,
+        ephemeral,
+        db_dir,
+        database_name,
+        code_dir,
+    )
+
+
+# constants for the export command
+EXPORT_FORMAT_HELP = "Output format: csv, json, jsonl, or sqlite."
+EXPORT_OUTPUT_HELP = "Path to write the exported responses."
+EXPORT_FORM_NAME_HELP = "Only export responses for this form name."
+EXPORT_FORMAT_DEFAULT = "csv"
+EXPORT_SUCCESS_PREFIX = "Exported "
+EXPORT_SUCCESS_SUFFIX = " response(s) to "
+EXPORT_NO_RESPONSES = "No responses to export."
+
+
 @app.command()
 def export(
     responses_path: Path = typer.Argument(
@@ -318,8 +419,45 @@ def export(
         dir_okay=False,
         readable=True,
     ),
+    output: Path = typer.Option(
+        ...,
+        "--output",
+        "-o",
+        help=EXPORT_OUTPUT_HELP,
+        dir_okay=False,
+    ),
+    format: Literal["csv", "json", "jsonl", "sqlite"] = typer.Option(
+        EXPORT_FORMAT_DEFAULT,
+        "--format",
+        help=EXPORT_FORMAT_HELP,
+    ),
+    form_name: str | None = typer.Option(
+        None,
+        "--form-name",
+        help=EXPORT_FORM_NAME_HELP,
+    ),
 ) -> None:
-    """Export responses to CSV, JSON, or SQLite format."""
+    """Export responses to CSV, JSON, JSONL, or SQLite format."""
+    conn = init_db(responses_path)
+    try:
+        responses = get_responses(conn, form_name=form_name)
+    finally:
+        conn.close()
+    if not responses:
+        console.print(EXPORT_NO_RESPONSES)
+        raise typer.Exit(code=0)
+    if format == "csv":
+        export_to_csv(responses, output)
+    elif format == "json":
+        export_to_json(responses, output)
+    elif format == "jsonl":
+        export_to_jsonl(responses, output)
+    else:
+        export_to_sqlite(responses, output)
+    console.print(
+        f"{EXPORT_SUCCESS_PREFIX}{len(responses)}{EXPORT_SUCCESS_SUFFIX}"
+        f"[bold]{output}[/bold]"
+    )
     raise typer.Exit(code=0)
 
 
@@ -533,3 +671,7 @@ def _app_callback(
 def main() -> None:
     """Entry point for the formtuist CLI."""
     app()
+
+
+if __name__ == "__main__":
+    main()
