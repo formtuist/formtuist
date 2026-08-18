@@ -127,6 +127,8 @@ class TestImagePathResolution:
 
     def test_absolute_path_unchanged(self, tmp_path: Path) -> None:
         """An already absolute image_path is not modified."""
+        # /etc/hosts is not absolute on Windows, so anchor to the platform root
+        absolute = str(Path(Path.cwd().anchor) / "etc" / "hosts")
         data = {
             "name": "Absolute",
             "questions": [
@@ -134,14 +136,14 @@ class TestImagePathResolution:
                     "id": "q",
                     "text": "See?",
                     "type": "short_text",
-                    "image_path": "/etc/hosts",
+                    "image_path": absolute,
                 },
             ],
         }
         path = _write_form(tmp_path, data)
         form = parse_form(path)
         question = form.questions[0]
-        assert question.image_path == "/etc/hosts"
+        assert question.image_path == absolute
 
     def test_no_image_path_none(self, tmp_path: Path) -> None:
         """A question without image_path keeps it as None."""
