@@ -58,6 +58,21 @@ DatePicker {
     margin-bottom: 2;
 }
 
+DatePicker > #input-control {
+    border: tall white;
+    padding: 0;
+}
+
+DatePicker > #input-control:focus-within {
+    border: tall $accent;
+}
+
+DatePicker #date-input,
+DatePicker #input-control Button,
+DatePicker #input-control AbstractInput {
+    border: none;
+}
+
 RadioSet {
     margin-bottom: 2;
 }
