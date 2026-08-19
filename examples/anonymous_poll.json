@@ -1,10 +1,10 @@
 {
   "name": "Anonymous Course Climate Poll",
-  "description": "Share honest feedback without identifying yourself.",
+  "description": "Share honest feedback without identifying yourself. Responses are anonymous, so repeat submissions cannot be blocked.",
   "config": {
     "randomize_questions": true,
     "auto_grade": false,
-    "allow_multiple_submissions": false
+    "allow_multiple_submissions": true
   },
   "questions": [
     {
