@@ -4,6 +4,7 @@ import asyncio
 import json
 from math import factorial
 from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
@@ -52,6 +53,7 @@ from formtuist.tui.screens import (
     shuffle_questions,
 )
 from formtuist.tui.widgets import (
+    DatePickerField,
     get_widget_value,
     is_widget_empty,
     is_widget_valid,
@@ -985,11 +987,60 @@ class TestFormScreen:
 
         async def run() -> None:
             app: App = App()
-            async with app.run_test():
+            async with app.run_test() as pilot:
                 screen = FormScreen(form, Path(":memory:"))
                 await app.push_screen(screen)
-                picker = screen.inputs["d"]
-                assert isinstance(picker, DatePicker)
+                picker = cast(DatePickerField, screen.inputs["d"])
+                assert isinstance(picker, DatePickerField)
+                assert picker.expanded is False
+                await pilot.click(picker.query_one("#date-input"))
+                await pilot.pause()
+                assert picker.expanded is True
+
+        asyncio.run(run())
+
+    def test_date_picker_stays_open_after_toggle(self) -> None:
+        """DatePickerField keeps the calendar open across frames."""
+        form = FormDefinition(
+            name="When",
+            questions=[DateQuestion(id="d", text="Date?", type="date")],
+        )
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test() as pilot:
+                screen = FormScreen(form, Path(":memory:"))
+                await app.push_screen(screen)
+                picker = cast(DatePickerField, screen.inputs["d"])
+                await pilot.click(picker.query_one("#toggle-button"))
+                await pilot.pause()
+                assert picker.expanded is True
+                for _ in range(4):
+                    await pilot.pause()
+                    assert picker.expanded is True
+
+        asyncio.run(run())
+
+    def test_date_picker_closes_after_selection(self) -> None:
+        """DatePickerField closes its calendar once a date is picked."""
+        form = FormDefinition(
+            name="When",
+            questions=[DateQuestion(id="d", text="Date?", type="date")],
+        )
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test() as pilot:
+                screen = FormScreen(form, Path(":memory:"))
+                await app.push_screen(screen)
+                picker = cast(DatePickerField, screen.inputs["d"])
+                await pilot.click(picker.query_one("#date-input"))
+                await pilot.pause()
+                assert bool(picker.expanded) is True
+                picker.date = Date(2026, 8, 12)
+                await pilot.pause()
+                assert bool(picker.expanded) is False
+                assert get_widget_value(picker) == "2026-08-12"
 
         asyncio.run(run())
 
@@ -1426,6 +1477,7 @@ class TestWidgetFactory:
         """make_input_widget creates a DatePicker for date."""
         q = DateQuestion(id="t", text="T", type="date")
         widget = make_input_widget(q)
+        assert isinstance(widget, DatePickerField)
         assert isinstance(widget, DatePicker)
 
     def test_make_yes_no_input(self) -> None:
