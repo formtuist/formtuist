@@ -158,3 +158,6 @@ responses.db
 
 # Example files and directories
 quiztest
+
+# Internal comparison files
+COMPARE.md
