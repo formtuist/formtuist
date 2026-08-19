@@ -311,6 +311,7 @@ def serve(  # noqa: PLR0913, PLR0917
         port=port,
         title=form.name,
         templates_path=templates_dir,
+        quiet=False,
     )
     console.print(f"Serving [bold]{form.name}[/bold] at http://{host}:{port}")
     server.serve()
