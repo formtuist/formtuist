@@ -94,6 +94,9 @@ TEXTUAL_TO_PYGMENTS_THEME: dict[str, str] = {
     "tokyo-night": "github-dark",
 }
 
+# CSS class applied to question code blocks so they pick up list spacing
+CODE_QUESTION_CLASS = "form-code"
+
 
 def resolve_code_theme(app: App) -> str:
     """Return a Pygments theme name matching the current Textual app theme."""
@@ -155,7 +158,7 @@ def make_code_widget(
         theme=theme,
         line_numbers=True,
     )
-    return Static(syntax)
+    return Static(syntax, classes=CODE_QUESTION_CLASS)
 
 
 def get_widget_value(widget: Widget) -> Any:
