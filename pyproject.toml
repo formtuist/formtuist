@@ -1,7 +1,7 @@
 [project]
 name = "formtuist"
 version = "0.2.0"
-description = "Programmers and agents use formtuist to create and complete forms."
+description = "Formtuist helps programmers and agents create, complete, and circulate forms!"
 authors = [
     { name = "Gregory M. Kapfhammer", email = "gkapfham@allegheny.edu" }
 ]
