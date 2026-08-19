@@ -15,6 +15,7 @@ from typer.testing import CliRunner, Result
 
 from formtuist.cli import _display_db_dir, _package_version, app, main
 from formtuist.database import get_responses, init_db, save_response
+from formtuist.version import FORMTUIST_VERSION
 
 # regex to strip ANSI SGR escape sequences that Rich embeds in captured output
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
@@ -718,7 +719,7 @@ class TestMainFunction:
         """Running formtuist --version shows version info and exits."""
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0
-        assert "formtuist 0.1.0" in _plain(result)
+        assert f"formtuist {FORMTUIST_VERSION}" in _plain(result)
         assert "Component" in _plain(result)
         assert "Version" in _plain(result)
         assert "textual" in _plain(result)
