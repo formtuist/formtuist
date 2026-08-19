@@ -1,0 +1,14 @@
+{
+  "name": "Invalid Single Submission Without Auth",
+  "description": "Rejected because a single-submission form must identify users.",
+  "config": {
+    "allow_multiple_submissions": false
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Question?",
+      "type": "short_text"
+    }
+  ]
+}
