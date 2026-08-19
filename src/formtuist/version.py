@@ -9,4 +9,4 @@ Use it anywhere you need the version string:
     from formtuist.version import FORMTUIST_VERSION
 """
 
-FORMTUIST_VERSION = "0.1.0"
+FORMTUIST_VERSION = "0.2.0"
