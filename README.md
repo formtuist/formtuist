@@ -371,11 +371,13 @@ Forms are defined as JSON files. Here is a minimal example:
 | `checkbox` | `SelectionList` | JSON list |
 | `numeric` | `Input` with integer validator | REAL |
 | `rating` | `RadioSet` (horizontal) | INTEGER |
-| `date` | `Input` with ISO 8601 validation | TEXT |
+| `date` | `DatePicker` with a visual calendar | TEXT |
 | `yes_no` | `Switch` | INTEGER (0/1) |
 
-`numeric` and `date` inputs are validated on submit — invalid values block
-submission with an error message. In an auto-graded form, a `yes_no` question
+`numeric` inputs are validated on submit — invalid values block
+submission with an error message. `date` answers are chosen from a
+visual calendar picker, so a malformed date cannot be typed. In an
+auto-graded form, a `yes_no` question
 can carry a boolean `correct_answer` (`true` or `false`) and a `points` value,
 so true/false quiz questions are scored automatically. Questions may also
 include optional `code` blocks (rendered with syntax highlighting), `url`

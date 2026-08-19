@@ -17,6 +17,7 @@ dependencies = [
     "typer>=0.27.0",
     "platformdirs>=4.0.0",
     "bitbang>=0.1.55",
+    "textual-timepiece>=0.7.0",
 ]
 
 [project.scripts]

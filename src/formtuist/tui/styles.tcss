@@ -54,6 +54,10 @@ Input:focus {
     border: tall $accent;
 }
 
+DatePicker {
+    margin-bottom: 2;
+}
+
 RadioSet {
     margin-bottom: 2;
 }

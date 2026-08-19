@@ -23,6 +23,8 @@ from textual.widgets import (
     Switch,
     TextArea,
 )
+from textual_timepiece.pickers import DatePicker
+from whenever import Date
 
 from formtuist.auth import GitHubIdentity
 from formtuist.grader import TOTAL_KEY, grade_response
@@ -246,6 +248,54 @@ class TestFormScreen:
         )
         mock_app.push_screen.assert_called_once()
         mock_notify.assert_not_called()
+
+    def test_action_submit_stores_iso_date_from_picker(self) -> None:
+        """action_submit saves the ISO date string from the DatePicker."""
+        form = FormDefinition(
+            name="When",
+            questions=[DateQuestion(id="d", text="Date?", type="date")],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        picker = DatePicker(Date(2024, 12, 25))
+        screen.inputs["d"] = picker
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db"):
+                    with patch(
+                        "formtuist.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        asyncio.run(screen.action_submit())
+        saved = mock_save.call_args.args[2]
+        assert saved == {"d": "2024-12-25"}
+        mock_app.push_screen.assert_called_once()
+        mock_notify.assert_not_called()
+
+    def test_action_submit_blocks_empty_required_date(self) -> None:
+        """action_submit notifies when a required DatePicker is empty."""
+        form = FormDefinition(
+            name="When",
+            questions=[
+                DateQuestion(id="d", text="Date?", type="date", required=True),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        picker = DatePicker()
+        screen.inputs["d"] = picker
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db"):
+                    asyncio.run(screen.action_submit())
+        mock_notify.assert_called_once()
+        mock_app.push_screen.assert_not_called()
 
     def test_action_submit_missing_required(
         self, minimal_form: FormDefinition
@@ -926,6 +976,23 @@ class TestFormScreen:
 
         asyncio.run(run())
 
+    def test_compose_creates_date_picker(self) -> None:
+        """Compose stores a DatePicker widget for a date question."""
+        form = FormDefinition(
+            name="When",
+            questions=[DateQuestion(id="d", text="Date?", type="date")],
+        )
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = FormScreen(form, Path(":memory:"))
+                await app.push_screen(screen)
+                picker = screen.inputs["d"]
+                assert isinstance(picker, DatePicker)
+
+        asyncio.run(run())
+
     def test_compose_omits_auth_input_by_default(self) -> None:
         """Compose does not create the token field when auth is disabled."""
         form = FormDefinition(
@@ -1356,10 +1423,10 @@ class TestWidgetFactory:
         assert isinstance(widget, RadioSet)
 
     def test_make_date_input(self) -> None:
-        """make_input_widget creates an Input for date."""
+        """make_input_widget creates a DatePicker for date."""
         q = DateQuestion(id="t", text="T", type="date")
         widget = make_input_widget(q)
-        assert isinstance(widget, Input)
+        assert isinstance(widget, DatePicker)
 
     def test_make_yes_no_input(self) -> None:
         """make_input_widget creates a Switch for yes_no."""
@@ -1415,6 +1482,18 @@ class TestWidgetFactory:
         mock.value = False
         assert get_widget_value(mock) is False
 
+    def test_get_widget_value_date_picker(self) -> None:
+        """get_widget_value returns the ISO date from a DatePicker."""
+        picker = DatePicker(Date(2023, 5, 1))
+        assert get_widget_value(picker) == "2023-05-01"
+        picker.value = Date(2024, 2, 29)
+        assert get_widget_value(picker) == "2024-02-29"
+
+    def test_get_widget_value_date_picker_empty(self) -> None:
+        """get_widget_value returns None for an empty DatePicker."""
+        picker = DatePicker()
+        assert get_widget_value(picker) is None
+
     def test_get_widget_value_unknown(self) -> None:
         """get_widget_value returns None for unknown widget types."""
         mock = MagicMock()
@@ -1451,6 +1530,13 @@ class TestWidgetFactory:
         """is_widget_empty always returns False for Switch."""
         s = MagicMock(spec=Switch)
         assert not is_widget_empty(s)
+
+    def test_is_widget_empty_date_picker(self) -> None:
+        """is_widget_empty reports an unset DatePicker as empty."""
+        empty = DatePicker()
+        assert is_widget_empty(empty)
+        filled = DatePicker(Date(2023, 5, 1))
+        assert not is_widget_empty(filled)
 
     def test_is_widget_empty_unknown(self) -> None:
         """is_widget_empty returns True for unknown widget types."""

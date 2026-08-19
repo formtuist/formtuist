@@ -10,7 +10,7 @@ from pygments.styles import ClassNotFound, get_style_by_name
 from rich.syntax import Syntax
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.validation import Integer, Regex
+from textual.validation import Integer
 from textual.widget import Widget
 from textual.widgets import (
     Footer,
@@ -22,6 +22,7 @@ from textual.widgets import (
     TextArea,
 )
 from textual.widgets._footer import FooterKey, FooterLabel, KeyGroup
+from textual_timepiece.pickers import DatePicker
 
 from formtuist.schema import (
     QUESTION_TYPE_CHECKBOX,
@@ -56,9 +57,6 @@ KNOWN_QUESTION_TYPES: frozenset[str] = frozenset(
         QUESTION_TYPE_YES_NO,
     }
 )
-
-# regex pattern for ISO 8601 date (YYYY-MM-DD)
-DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
 
 # sentinel value telling FormScreen to derive the syntax theme from the app
 CODE_THEME_AUTO = "auto"
@@ -132,10 +130,7 @@ def make_input_widget(question: Question) -> Widget:
     if isinstance(question, RatingQuestion):
         return RadioSet(*question.labels)
     if isinstance(question, DateQuestion):
-        return Input(
-            placeholder="YYYY-MM-DD",
-            validators=[Regex(DATE_PATTERN)],
-        )
+        return DatePicker()
     if isinstance(question, YesNoQuestion):
         return Switch()
     raise ValueError(f"Unknown question type: {question.type}")
@@ -175,6 +170,8 @@ def get_widget_value(widget: Widget) -> Any:
         return [str(v) for v in widget.selected]
     if isinstance(widget, Switch):
         return widget.value
+    if isinstance(widget, DatePicker):
+        return str(widget.value) if widget.value is not None else None
     return None
 
 
@@ -190,6 +187,8 @@ def is_widget_empty(widget: Widget) -> bool:
         return len(widget.selected) == 0
     if isinstance(widget, Switch):
         return False
+    if isinstance(widget, DatePicker):
+        return widget.value is None
     return True
 
 
