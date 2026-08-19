@@ -80,7 +80,7 @@ CODE_DIR_HELP = (
     "Directory that code file references are relative to "
     "(default: the form file's directory)."
 )
-APP_HELP = "Creating forms with JSON and a TUI is an unexpected success for programmers and agents!"
+APP_HELP = "Formtuist helps programmers and agents create, complete, and circulate forms!"
 
 app = typer.Typer(
     name="formtuist",
