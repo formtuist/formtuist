@@ -3,6 +3,9 @@
 import asyncio
 from pathlib import Path
 
+from aiohttp import ClientSession
+from aiohttp.test_utils import TestServer
+
 from formtuist.server import (
     FAVICON_FILENAME,
     FAVICON_URL_PATH,
@@ -45,6 +48,23 @@ class TestFormtuistServer:
                 if route.resource is not None
             }
             assert FAVICON_URL_PATH in routes
+
+        asyncio.run(run())
+
+    def test_index_builds_urls_from_request_host(self) -> None:
+        """The served URLs use the request host, never 0.0.0.0."""
+        server = FormtuistServer("echo hello", host="0.0.0.0", port=8124)
+
+        async def run() -> None:
+            app = await server._make_app()
+            async with TestServer(app) as test_server:
+                async with ClientSession(raise_for_status=True) as session:
+                    async with session.get(test_server.make_url("/")) as resp:
+                        text = await resp.text()
+            assert "0.0.0.0" not in text
+            assert "/ws" in text
+            assert "http://127.0.0.1:" in text
+            assert "/static/" in text
 
         asyncio.run(run())
 
