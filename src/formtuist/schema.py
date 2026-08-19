@@ -36,6 +36,13 @@ GRADING_TYPE_EXACT = "exact"
 GRADING_TYPE_REGEX = "regex"
 GRADING_TYPE_CONTAINS = "contains"
 
+# a single-submission form must identify repeat users to block them
+SINGLE_SUBMISSION_REQUIRES_AUTH_ERROR = (
+    "allow_multiple_submissions is false but auth is not set: "
+    "single-submission forms require a GitHub auth provider so that "
+    "duplicate submissions can be blocked by identity"
+)
+
 
 class FormConfig(BaseModel):
     """Configuration options for a form."""
@@ -44,6 +51,15 @@ class FormConfig(BaseModel):
     auto_grade: bool = False
     allow_multiple_submissions: bool = True
     auth: AuthProvider | None = None
+
+    # without an auth provider there is no identity to check, so the
+    # single-submission promise cannot be kept and the form must be rejected
+    @model_validator(mode="after")
+    def _single_submission_requires_auth(self) -> "FormConfig":
+        """Require an auth provider when resubmission is forbidden."""
+        if not self.allow_multiple_submissions and self.auth is None:
+            raise ValueError(SINGLE_SUBMISSION_REQUIRES_AUTH_ERROR)
+        return self
 
 
 # validation context key carrying the base directory for code files
