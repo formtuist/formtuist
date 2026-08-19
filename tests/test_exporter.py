@@ -270,19 +270,7 @@ class TestExportToSqlite:
             ).fetchone()[0]
         finally:
             conn.close()
-        assert columns == [
-            "id",
-            "form_name",
-            "attempt_id",
-            "submitted_at",
-            "github_username",
-            "github_url",
-            "total",
-            "max",
-            "percentage",
-            "q1",
-            "q2",
-        ]
+        assert columns == [*METADATA_COLUMNS, "q1", "q2"]
         assert rows[0] == (FORM_NAME, GRADE_TOTAL, FIRST_ANSWER)
         assert bob_q2 is None
 

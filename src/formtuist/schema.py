@@ -36,6 +36,13 @@ GRADING_TYPE_EXACT = "exact"
 GRADING_TYPE_REGEX = "regex"
 GRADING_TYPE_CONTAINS = "contains"
 
+# review modes for post-grading of responses
+REVIEW_NONE = "none"
+REVIEW_PERMITTED = "permitted"
+REVIEW_REQUIRED = "required"
+REVIEW_FIELD = "review"
+REVIEW_LITERAL = Literal["none", "permitted", "required"]
+
 # a single-submission form must identify repeat users to block them
 SINGLE_SUBMISSION_REQUIRES_AUTH_ERROR = (
     "allow_multiple_submissions is false but auth is not set: "
@@ -162,6 +169,17 @@ class _QuestionBase(BaseModel):
     code: CodeBlock | None = None
     image_path: str | None = None
     url: str | None = None
+    review: REVIEW_LITERAL = REVIEW_NONE  # type: ignore[assignment]
+
+    # permitted requires a correct answer; required may be manual
+    @model_validator(mode="after")
+    def _review_requires_correct_answer(self) -> "_QuestionBase":
+        """Validate review mode against correct_answer presence."""
+        review = getattr(self, "review", REVIEW_NONE)
+        correct = getattr(self, "correct_answer", None)
+        if review == REVIEW_PERMITTED and correct is None:
+            raise ValueError("review permitted requires a correct_answer")
+        return self
 
 
 class ShortTextQuestion(_QuestionBase):
@@ -370,6 +388,7 @@ class FormDefinition(BaseModel):
                 question
                 for question in self.questions
                 if getattr(question, "correct_answer", None) is not None
+                or getattr(question, "review", REVIEW_NONE) == REVIEW_REQUIRED
             ]
             if not graded:
                 raise ValueError(

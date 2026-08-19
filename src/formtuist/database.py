@@ -166,6 +166,136 @@ def update_response_grade(
     conn.commit()
 
 
+def _find_question(form: Any, question_id: str) -> Any | None:  # type: ignore[no-untyped-def]
+    """Return the question with the given id, or None."""
+    for question in form.questions:
+        if question.id == question_id:
+            return question
+    return None
+
+
+def set_post_grade(  # noqa: PLR0913, PLR0917
+    conn: sqlite3.Connection,
+    form: Any,  # FormDefinition
+    response_id: int,
+    question_id: str,
+    manual_score: int,
+    comment: str | None = None,
+    reviewer: str | None = None,
+) -> None:
+    """Persist a manual score for one question in a response.
+
+    Validates ``0 <= manual_score <= points`` and merges the
+    human decision into ``grade_json`` via the grader helpers.
+    The write overwrites any prior manual score so re-review is
+    supported. Commits the updated snapshot.
+    """
+    from formtuist.grader import (  # noqa: PLC0415
+        apply_post_grade,
+        grade_report_to_json,
+        grade_response,
+    )
+
+    question = _find_question(form, question_id)
+    if question is None:
+        raise ValueError(f"unknown question id: {question_id}")
+    points = getattr(question, "points", 0)
+    if not 0 <= manual_score <= points:
+        raise ValueError(
+            f"manual_score {manual_score} out of range 0..{points}"
+            f" for question {question_id}"
+        )
+    # load the existing response row
+    row = conn.execute(
+        f"SELECT {ANSWERS_JSON_COLUMN}, {GRADE_JSON_COLUMN} "
+        f"FROM {RESPONSES_TABLE} WHERE {ID_COLUMN} = ?",
+        (response_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"unknown response id: {response_id}")
+    answers = json.loads(row[0])
+    grade = json.loads(row[1]) if row[1] is not None else None
+    if grade is None:
+        # create a fresh prelim report for manual-only forms
+        grade = grade_report_to_json(grade_response(form, answers))
+    overrides = {
+        question_id: {
+            "manual_score": manual_score,
+            "comment": comment,
+            "reviewer": reviewer,
+        }
+    }
+    updated = apply_post_grade(grade, overrides)
+    # ensure json-safe snapshot with refreshed timestamp
+    snapshot = grade_report_to_json(updated)
+    # preserve manual fields that grade_report_to_json would reset
+    # by copying them from updated into snapshot
+    by_old = {e["id"]: e for e in updated.get("breakdown", [])}  # type: ignore[union-attr]
+    for entry in snapshot.get("breakdown", []):  # type: ignore[union-attr]
+        old = by_old.get(entry["id"])
+        if old is not None and old.get("manual_score") is not None:
+            entry["manual_score"] = old["manual_score"]
+            entry["final_score"] = old["final_score"]
+            entry["comment"] = old.get("comment")
+            entry["reviewed_by"] = old.get("reviewed_by")
+            entry["reviewed_at"] = old.get("reviewed_at")
+    # recompute final totals after manual merge (in case snapshot reset)
+    from formtuist.grader import (  # noqa: PLC0415
+        PERCENTAGE_FINAL_KEY,
+        TOTAL_FINAL_KEY,
+    )
+
+    snapshot[TOTAL_FINAL_KEY] = updated[TOTAL_FINAL_KEY]
+    snapshot[PERCENTAGE_FINAL_KEY] = updated[PERCENTAGE_FINAL_KEY]
+    update_response_grade(conn, response_id, snapshot)
+
+
+def get_final_report(
+    conn: sqlite3.Connection, response_id: int
+) -> dict[str, Any] | None:
+    """Return the final report for a response, or None if missing."""
+    from formtuist.grader import finalize_report  # noqa: PLC0415
+
+    row = conn.execute(
+        f"SELECT {GRADE_JSON_COLUMN} FROM {RESPONSES_TABLE} "
+        f"WHERE {ID_COLUMN} = ?",
+        (response_id,),
+    ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    grade = json.loads(row[0])
+    # ensure final fields exist for legacy snapshots
+    return finalize_report(grade)
+
+
+def list_pending(
+    conn: sqlite3.Connection,
+    form_name: str | None = None,
+    question_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return responses with a pending required review.
+
+    When *question_id* is given only responses pending for that
+    question are returned.
+    """
+    responses = get_responses(conn, form_name=form_name)
+    pending: list[dict[str, Any]] = []
+    for response in responses:
+        grade = response.get(GRADE_JSON_COLUMN)
+        if grade is None:
+            continue
+        for entry in grade.get("breakdown", []):
+            if not entry.get("needs_review"):
+                continue
+            if entry.get("manual_score") is not None:
+                continue
+            if question_id is not None and entry.get("id") != question_id:
+                continue
+            pending.append(response)
+            break
+    return pending
+
+
 def get_responses(
     conn: sqlite3.Connection, form_name: str | None = None
 ) -> list[dict[str, Any]]:

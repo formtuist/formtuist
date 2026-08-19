@@ -42,3 +42,48 @@ class FormtuistApp(App):
         from formtuist.tui.screens import FormScreen  # noqa: PLC0415
 
         self.push_screen(FormScreen(self.form, self.db_path))
+
+
+class ReviewApp(App):
+    """Textual application for question-first manual review."""
+
+    TITLE = "formtuist review"
+    CSS_PATH = "styles.tcss"
+
+    BINDINGS: ClassVar[
+        list[Binding | tuple[str, str] | tuple[str, str, str]]
+    ] = [
+        Binding("ctrl+c", "quit", "Quit"),
+    ]
+
+    def __init__(
+        self,
+        form_path: Path,
+        db_path: Path,
+        review_type: str = "required",
+        question_filter: str | None = None,
+        reviewer: str | None = None,
+    ) -> None:
+        """Store review filters and load the form definition."""
+        self.form_path = form_path
+        self.db_path = db_path
+        self.review_type = review_type
+        self.question_filter = question_filter
+        self.reviewer = reviewer
+        self.form = parse_form(form_path)
+        super().__init__()
+        self.theme = "ansi-dark"
+
+    def on_mount(self) -> None:
+        """Push the reviewer screen on startup."""
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        self.push_screen(
+            ReviewScreen(
+                self.form,
+                self.db_path,
+                review_type=self.review_type,
+                question_filter=self.question_filter,
+                reviewer=self.reviewer,
+            )
+        )

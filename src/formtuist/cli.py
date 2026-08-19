@@ -44,6 +44,7 @@ from formtuist.grader import (
     TOTAL_KEY,
     grade_report_to_json,
     grade_response,
+    refresh_prelim,
 )
 from formtuist.parser import parse_form
 from formtuist.schema import FormDefinition
@@ -167,6 +168,7 @@ def check(
         1
         for q in form.questions
         if getattr(q, "correct_answer", None) is not None
+        or getattr(q, "review", "none") == "required"
     )
     auto_grade = form.config.auto_grade
     # print a labelled summary with rich markup
@@ -678,6 +680,7 @@ def grade(
             question
             for question in form.questions
             if getattr(question, "correct_answer", None) is not None
+            or getattr(question, "review", "none") == "required"
         ]
         table = Table(
             title=f"{GRADE_TABLE_TITLE_PREFIX}{form.name}",
@@ -730,17 +733,144 @@ def _response_report(
 
     The stored snapshot is used when present unless recompute is set.
     Missing snapshots (legacy rows, non-auto-graded forms) are graded
-    on the fly. Recompute writes the fresh snapshot back to the row.
+    on the fly. Recompute refreshes prelim scores but preserves any
+    human manual_score and comment.
     """
     stored: dict[str, Any] | None = response.get(GRADE_JSON_COLUMN)
     if not recompute and stored is not None:
         return stored
+    if recompute and stored is not None:
+        report = refresh_prelim(stored, form, response[ANSWERS_JSON_COLUMN])
+        update_response_grade(
+            conn, response[ID_COLUMN], grade_report_to_json(report)
+        )
+        return report
     report = grade_response(form, response[ANSWERS_JSON_COLUMN])
     if recompute:
         update_response_grade(
             conn, response[ID_COLUMN], grade_report_to_json(report)
         )
     return report
+
+
+REVIEW_TYPE_HELP = "Which review queue to open: required or all."
+REVIEW_QUESTION_HELP = "Only review this question id."
+REVIEWER_HELP = "Reviewer identity for reviewed_by."
+REVIEW_BATCH_HELP = "Batch-apply manual scores from a CSV file."
+
+
+@app.command()
+def review(  # noqa: PLR0913, PLR0917
+    form_path: Path = typer.Argument(
+        ...,
+        help=FORM_PATH_HELP,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    responses_path: Path = typer.Argument(
+        ...,
+        help=RESPONSES_PATH_HELP,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    review_type: Literal["required", "all"] = typer.Option(
+        "required",
+        "--review-type",
+        help=REVIEW_TYPE_HELP,
+    ),
+    question: str | None = typer.Option(
+        None,
+        "--question",
+        help=REVIEW_QUESTION_HELP,
+    ),
+    reviewer: str | None = typer.Option(
+        None,
+        "--reviewer",
+        help=REVIEWER_HELP,
+    ),
+    batch: Path | None = typer.Option(
+        None,
+        "--batch",
+        help=REVIEW_BATCH_HELP,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    code_dir: Path = typer.Option(
+        None,
+        "--code-dir",
+        help=CODE_DIR_HELP,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+    ),
+) -> None:
+    """Review and post-grade responses requiring human judgement."""
+    try:
+        form = parse_form(form_path, code_dir)
+    except ValidationError:
+        raise typer.Exit(code=1)
+    # batch mode: apply CSV overrides without launching the TUI
+    if batch is not None:
+        import csv  # noqa: PLC0415
+
+        from formtuist.database import set_post_grade  # noqa: PLC0415
+
+        conn = init_db(responses_path)
+        try:
+            # resolve reviewer identity for batch if not given
+            batch_reviewer = reviewer
+            if batch_reviewer is None and form.config.auth is not None:
+                # batch without reviewer keeps None
+                pass
+            count = 0
+            with batch.open(encoding="utf-8", newline="") as file:
+                reader = csv.DictReader(file)
+                for row in reader:
+                    rid_raw = row.get("response_id") or row.get("id")
+                    qid = row.get("question_id") or row.get("id_")
+                    score_raw = row.get("manual_score") or row.get("score")
+                    if rid_raw is None or qid is None or score_raw is None:
+                        continue
+                    try:
+                        rid = int(str(rid_raw).strip())
+                        score = int(str(score_raw).strip())
+                    except ValueError:
+                        continue
+                    comment = row.get("comment")
+                    if comment is not None and not str(comment).strip():
+                        comment = None
+                    row_reviewer = row.get("reviewer") or batch_reviewer
+                    set_post_grade(
+                        conn,
+                        form,
+                        rid,
+                        str(qid).strip(),
+                        score,
+                        comment=comment,
+                        reviewer=row_reviewer,
+                    )
+                    count += 1
+            console.print(f"Applied {count} manual grade(s).")
+        finally:
+            conn.close()
+        raise typer.Exit(code=0)
+    # interactive TUI mode
+    effective_reviewer = reviewer
+    if effective_reviewer is None and form.config.auth is not None:
+        # reuse GitHub token flow when form requires auth
+        console.print(
+            "[dim]Form requires GitHub auth; reviewer identity will be"
+            " recorded as provided via --reviewer.[/dim]"
+        )
+    from formtuist.tui.app import ReviewApp  # noqa: PLC0415
+
+    app_ui = ReviewApp(
+        form_path, responses_path, review_type, question, effective_reviewer
+    )
+    app_ui.run()
 
 
 @app.callback()

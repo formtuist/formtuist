@@ -20,8 +20,14 @@ from formtuist.grader import (
     BREAKDOWN_ID_KEY,
     BREAKDOWN_KEY,
     BREAKDOWN_SCORE_KEY,
+    COMMENT_KEY,
+    FINAL_SCORE_KEY,
+    MANUAL_SCORE_KEY,
     MAX_KEY,
+    NEEDS_REVIEW_KEY,
+    PERCENTAGE_FINAL_KEY,
     PERCENTAGE_KEY,
+    TOTAL_FINAL_KEY,
     TOTAL_KEY,
     grade_response,
 )
@@ -37,6 +43,9 @@ FLAT_GITHUB_URL = "github_url"
 FLAT_TOTAL = "total"
 FLAT_MAX = "max"
 FLAT_PERCENTAGE = "percentage"
+FLAT_FINAL_TOTAL = "final_total"
+FLAT_FINAL_PERCENTAGE = "final_percentage"
+FLAT_PENDING_COUNT = "pending_count"
 
 # the flat metadata columns that precede the per-question answer columns
 METADATA_COLUMNS = [
@@ -49,6 +58,9 @@ METADATA_COLUMNS = [
     FLAT_TOTAL,
     FLAT_MAX,
     FLAT_PERCENTAGE,
+    FLAT_FINAL_TOTAL,
+    FLAT_FINAL_PERCENTAGE,
+    FLAT_PENDING_COUNT,
 ]
 
 # flat name for the student column in the graded export and its placeholder
@@ -64,6 +76,9 @@ GRADE_COLUMNS = [
     FLAT_TOTAL,
     FLAT_MAX,
     FLAT_PERCENTAGE,
+    FLAT_FINAL_TOTAL,
+    FLAT_FINAL_PERCENTAGE,
+    FLAT_PENDING_COUNT,
 ]
 
 # the flat table written by the sqlite export for datasette browsing
@@ -89,6 +104,17 @@ def flatten_response(
 ) -> dict[str, Any]:
     """Flatten one response into a single row with metadata and answers."""
     grade = response[GRADE_JSON_COLUMN]
+    if grade is not None:
+        final_total = grade.get(TOTAL_FINAL_KEY, grade.get(TOTAL_KEY))
+        final_perc = grade.get(PERCENTAGE_FINAL_KEY, grade.get(PERCENTAGE_KEY))
+        pending = sum(
+            1
+            for entry in grade.get(BREAKDOWN_KEY, [])
+            if entry.get(NEEDS_REVIEW_KEY)
+            and entry.get(MANUAL_SCORE_KEY) is None
+        )
+    else:
+        final_total, final_perc, pending = None, None, None
     flat = {
         FLAT_ID: response[ID_COLUMN],
         FLAT_FORM_NAME: response[FORM_NAME_COLUMN],
@@ -98,12 +124,45 @@ def flatten_response(
         FLAT_GITHUB_URL: response[GITHUB_URL_COLUMN],
         FLAT_TOTAL: grade[TOTAL_KEY] if grade is not None else None,
         FLAT_MAX: grade[MAX_KEY] if grade is not None else None,
-        FLAT_PERCENTAGE: grade[PERCENTAGE_KEY] if grade is not None else None,
+        FLAT_PERCENTAGE: (
+            grade[PERCENTAGE_KEY] if grade is not None else None
+        ),
+        FLAT_FINAL_TOTAL: final_total,
+        FLAT_FINAL_PERCENTAGE: final_perc,
+        FLAT_PENDING_COUNT: pending,
     }
     answers = response[ANSWERS_JSON_COLUMN]
     for column in columns:
         flat[column] = answers.get(column)
     return flat
+
+
+def pending_count(response: dict[str, Any]) -> int | None:
+    """Return the number of pending reviews for a response."""
+    grade = response[GRADE_JSON_COLUMN]
+    if grade is None:
+        return None
+    return sum(
+        1
+        for entry in grade.get(BREAKDOWN_KEY, [])
+        if entry.get(NEEDS_REVIEW_KEY) and entry.get(MANUAL_SCORE_KEY) is None
+    )
+
+
+def pending_columns(responses: list[dict[str, Any]]) -> list[str]:
+    """Return question ids that have at least one pending review."""
+    pending: set[str] = set()
+    for response in responses:
+        grade = response[GRADE_JSON_COLUMN]
+        if grade is None:
+            continue
+        for entry in grade.get(BREAKDOWN_KEY, []):
+            if (
+                entry.get(NEEDS_REVIEW_KEY)
+                and entry.get(MANUAL_SCORE_KEY) is None
+            ):
+                pending.add(entry[BREAKDOWN_ID_KEY])
+    return sorted(pending)
 
 
 def _flatten_all(
@@ -177,6 +236,7 @@ def grade_columns(
             question.id
             for question in form.questions
             if getattr(question, "correct_answer", None) is not None
+            or getattr(question, "review", "none") == "required"
         ]
     for response in responses:
         grade = response[GRADE_JSON_COLUMN]
@@ -198,23 +258,68 @@ def flatten_grades(
     for response in responses:
         if form is not None:
             report = grade_response(form, response[ANSWERS_JSON_COLUMN])
+            # overlay stored manual scores when a snapshot exists
+            stored = response[GRADE_JSON_COLUMN]
+            if stored is not None:
+                # reuse manual fields from stored snapshot
+                from formtuist.grader import refresh_prelim  # noqa: PLC0415
+
+                report = refresh_prelim(
+                    stored, form, response[ANSWERS_JSON_COLUMN]
+                )
             scores = {
-                entry[BREAKDOWN_ID_KEY]: entry[BREAKDOWN_SCORE_KEY]
+                entry[BREAKDOWN_ID_KEY]: entry.get(
+                    FINAL_SCORE_KEY, entry[BREAKDOWN_SCORE_KEY]
+                )
                 for entry in report[BREAKDOWN_KEY]
             }
-            total, max_total = report[TOTAL_KEY], report[MAX_KEY]
-            percentage = report[PERCENTAGE_KEY]
+            comments = {
+                entry[BREAKDOWN_ID_KEY]: entry.get(COMMENT_KEY)
+                for entry in report[BREAKDOWN_KEY]
+            }
+            total = report.get(TOTAL_FINAL_KEY, report[TOTAL_KEY])
+            max_total = report[MAX_KEY]
+            percentage = report.get(
+                PERCENTAGE_FINAL_KEY, report[PERCENTAGE_KEY]
+            )
+            pending = sum(
+                1
+                for entry in report[BREAKDOWN_KEY]
+                if entry.get(NEEDS_REVIEW_KEY)
+                and entry.get(MANUAL_SCORE_KEY) is None
+            )
         else:
             grade = response[GRADE_JSON_COLUMN]
             if grade is None:
-                scores, total, max_total, percentage = {}, None, None, None
+                scores, comments = {}, {}
+                total, max_total, percentage, pending = (
+                    None,
+                    None,
+                    None,
+                    None,
+                )
             else:
                 scores = {
-                    entry[BREAKDOWN_ID_KEY]: entry[BREAKDOWN_SCORE_KEY]
+                    entry[BREAKDOWN_ID_KEY]: entry.get(
+                        FINAL_SCORE_KEY, entry[BREAKDOWN_SCORE_KEY]
+                    )
                     for entry in grade[BREAKDOWN_KEY]
                 }
-                total, max_total = grade[TOTAL_KEY], grade[MAX_KEY]
-                percentage = grade[PERCENTAGE_KEY]
+                comments = {
+                    entry[BREAKDOWN_ID_KEY]: entry.get(COMMENT_KEY)
+                    for entry in grade[BREAKDOWN_KEY]
+                }
+                total = grade.get(TOTAL_FINAL_KEY, grade.get(TOTAL_KEY))
+                max_total = grade[MAX_KEY]
+                percentage = grade.get(
+                    PERCENTAGE_FINAL_KEY, grade.get(PERCENTAGE_KEY)
+                )
+                pending = sum(
+                    1
+                    for entry in grade.get(BREAKDOWN_KEY, [])
+                    if entry.get(NEEDS_REVIEW_KEY)
+                    and entry.get(MANUAL_SCORE_KEY) is None
+                )
         row: dict[str, Any] = {
             FLAT_ID: response[ID_COLUMN],
             FLAT_FORM_NAME: response[FORM_NAME_COLUMN],
@@ -225,9 +330,14 @@ def flatten_grades(
             FLAT_TOTAL: total,
             FLAT_MAX: max_total,
             FLAT_PERCENTAGE: percentage,
+            FLAT_FINAL_TOTAL: total,
+            FLAT_FINAL_PERCENTAGE: percentage,
+            FLAT_PENDING_COUNT: pending,
         }
         for question_id in question_ids:
             row[question_id] = scores.get(question_id)
+            # expose review comment alongside each score column
+            row[f"{question_id}_comment"] = comments.get(question_id)
         rows.append(row)
     return rows
 
@@ -240,7 +350,8 @@ def export_grades_to_csv(
 ) -> None:
     """Write the graded view as a flat CSV table to output_path."""
     rows = flatten_grades(responses, question_ids, form)
-    _write_csv(rows, GRADE_COLUMNS + question_ids, output_path)
+    comment_cols = [f"{qid}_comment" for qid in question_ids]
+    _write_csv(rows, GRADE_COLUMNS + question_ids + comment_cols, output_path)
 
 
 def export_grades_to_json(

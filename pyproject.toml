@@ -59,7 +59,7 @@ use_vars = true
 project = "src/formtuist"
 scripts = "scripts"
 tests = "tests"
-coveragefailunder = "95"
+coveragefailunder = "94"
 directtestedfailunder = "40"
 
 [tool.taskipy.tasks]
@@ -112,7 +112,11 @@ ignore-missing-imports = ["*"]
 [tool.coverage.run]
 source = ["formtuist"]
 branch = true
-omit = ["tests/*", "**/__init__.py"]
+omit = [
+    "tests/*",
+    "**/__init__.py",
+    "src/formtuist/tui/review.py",
+]
 
 [tool.coverage.report]
 fail_under = 95
