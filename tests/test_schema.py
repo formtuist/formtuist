@@ -96,6 +96,27 @@ class TestFormConfig:
         with pytest.raises(ValidationError):
             FormConfig.model_validate({"auth": "gitlab"})
 
+    def test_single_submission_requires_auth(self) -> None:
+        """Single-submission forms must declare an auth provider."""
+        with pytest.raises(ValidationError):
+            FormConfig.model_validate({"allow_multiple_submissions": False})
+
+    def test_single_submission_with_auth_valid(self) -> None:
+        """Single-submission forms are valid with github auth."""
+        config = FormConfig(
+            allow_multiple_submissions=False, auth=AuthProvider.GITHUB
+        )
+        assert config.allow_multiple_submissions is False
+        assert config.auth == AuthProvider.GITHUB
+
+    def test_single_submission_error_message(self) -> None:
+        """The error names the conflicting settings."""
+        with pytest.raises(ValidationError) as excinfo:
+            FormConfig.model_validate({"allow_multiple_submissions": False})
+        message = str(excinfo.value)
+        assert "allow_multiple_submissions" in message
+        assert "auth" in message
+
 
 class TestQuestionModels:
     """Tests for individual question type models."""
@@ -504,6 +525,7 @@ class TestFormConfigInForm:
                 "randomize_questions": True,
                 "auto_grade": True,
                 "allow_multiple_submissions": False,
+                "auth": "github",
             },
             "questions": [
                 {
@@ -573,6 +595,7 @@ class TestInvalidExampleForms:
             "invalid_rating_max_less_than_min.json",
             "invalid_regex_bad_pattern.json",
             "invalid_regex_no_pattern.json",
+            "invalid_single_submission_no_auth.json",
             "invalid_unknown_question_type.json",
         ],
     )

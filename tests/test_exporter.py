@@ -266,6 +266,7 @@ class TestExportToSqlite:
         assert columns == [
             "id",
             "form_name",
+            "attempt_id",
             "submitted_at",
             "github_username",
             "github_url",

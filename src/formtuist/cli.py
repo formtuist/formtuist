@@ -1,6 +1,8 @@
 """Typer-based CLI entry point for the formtuist application."""
 
+import os
 import sqlite3
+import uuid
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Literal
@@ -13,6 +15,7 @@ from rich.table import Table
 
 from formtuist.database import (
     ANSWERS_JSON_COLUMN,
+    ATTEMPT_ID_ENV_NAME,
     GITHUB_USERNAME_COLUMN,
     GRADE_JSON_COLUMN,
     ID_COLUMN,
@@ -304,6 +307,10 @@ def serve(  # noqa: PLR0913, PLR0917
         cmd += f" --database-name {database_name}"
     if code_dir is not None:
         cmd += f" --code-dir {code_dir}"
+    # one shared attempt id for the whole serve run; every spawned display
+    # subprocess inherits it through the environment so all clients of this
+    # run land in the same single-submission fairness domain
+    os.environ[ATTEMPT_ID_ENV_NAME] = str(uuid.uuid4())
     templates_dir = Path(__file__).parent / "templates"
     server = FormtuistServer(
         cmd,

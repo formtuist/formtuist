@@ -2,6 +2,7 @@
 
 import csv
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -14,7 +15,12 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from formtuist.cli import _display_db_dir, _package_version, app, main
-from formtuist.database import get_responses, init_db, save_response
+from formtuist.database import (
+    ATTEMPT_ID_ENV_NAME,
+    get_responses,
+    init_db,
+    save_response,
+)
 from formtuist.version import FORMTUIST_VERSION
 
 # regex to strip ANSI SGR escape sequences that Rich embeds in captured output
@@ -695,6 +701,7 @@ class TestExampleFormsCLI:
             "invalid_duplicate_ids.json",
             "invalid_multiple_choice_one_choice.json",
             "invalid_rating_max_less_than_min.json",
+            "invalid_single_submission_no_auth.json",
             "invalid_unknown_question_type.json",
         ],
     )
@@ -918,6 +925,24 @@ class TestServeCommand:
             assert kwargs["host"] == "100.64.1.1"
             assert kwargs["port"] == 9000  # noqa: PLR2004
             mock_instance.serve.assert_called_once()
+
+    def test_serve_sets_attempt_id_env(self, tmp_path: Path) -> None:
+        """Serve injects one shared attempt id for its spawned displays."""
+        form = _write_form(
+            tmp_path / "form.json",
+            {"name": "ServedForm", "questions": []},
+        )
+        previous = os.environ.get(ATTEMPT_ID_ENV_NAME)
+        try:
+            with patch("formtuist.server.FormtuistServer"):
+                result = runner.invoke(app, ["serve", str(form)])
+            assert result.exit_code == 0
+            assert os.environ.get(ATTEMPT_ID_ENV_NAME)
+        finally:
+            if previous is None:
+                os.environ.pop(ATTEMPT_ID_ENV_NAME, None)
+            else:
+                os.environ[ATTEMPT_ID_ENV_NAME] = previous
 
 
 class TestSchemaCommand:

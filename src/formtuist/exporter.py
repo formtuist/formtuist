@@ -8,6 +8,7 @@ from typing import Any
 
 from formtuist.database import (
     ANSWERS_JSON_COLUMN,
+    ATTEMPT_ID_COLUMN,
     FORM_NAME_COLUMN,
     GITHUB_URL_COLUMN,
     GITHUB_USERNAME_COLUMN,
@@ -20,6 +21,7 @@ from formtuist.grader import MAX_KEY, PERCENTAGE_KEY, TOTAL_KEY
 # flat export column names shared by every output format
 FLAT_ID = "id"
 FLAT_FORM_NAME = "form_name"
+FLAT_ATTEMPT_ID = "attempt_id"
 FLAT_SUBMITTED_AT = "submitted_at"
 FLAT_GITHUB_USERNAME = "github_username"
 FLAT_GITHUB_URL = "github_url"
@@ -31,6 +33,7 @@ FLAT_PERCENTAGE = "percentage"
 METADATA_COLUMNS = [
     FLAT_ID,
     FLAT_FORM_NAME,
+    FLAT_ATTEMPT_ID,
     FLAT_SUBMITTED_AT,
     FLAT_GITHUB_USERNAME,
     FLAT_GITHUB_URL,
@@ -65,6 +68,7 @@ def flatten_response(
     flat = {
         FLAT_ID: response[ID_COLUMN],
         FLAT_FORM_NAME: response[FORM_NAME_COLUMN],
+        FLAT_ATTEMPT_ID: response[ATTEMPT_ID_COLUMN],
         FLAT_SUBMITTED_AT: response[SUBMITTED_AT_COLUMN],
         FLAT_GITHUB_USERNAME: response[GITHUB_USERNAME_COLUMN],
         FLAT_GITHUB_URL: response[GITHUB_URL_COLUMN],

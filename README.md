@@ -327,6 +327,20 @@ Authentication is disabled by default (`auth` is `null`), which means the
 form is anonymous by definition. When `auth` is `"github"`, the response row
 always records the identity of the person who submitted.
 
+A single-submission form (`allow_multiple_submissions: false`) requires an
+`auth` provider. Without an identity, formtuist cannot tell one person's
+second submission from two people's firsts, so the definition is rejected at
+parse time. Anonymous forms should keep `allow_multiple_submissions` at its
+default of `true`.
+
+Single-submission enforcement is scoped per attempt: each run of a form
+receives its own `attempt_id`, stored on every response row, and the
+tools check for duplicates within that attempt only. The `serve` command
+hands one shared `attempt_id` to every browser session of a run, while a
+direct `display` run uses a per-run id. This means the same database can be
+reused for many runs of the same form without blocking returning students;
+someone who already submitted in a prior run may submit again in a new one.
+
 ## Form JSON format
 
 Forms are defined as JSON files. Here is a minimal example:
@@ -358,7 +372,7 @@ Forms are defined as JSON files. Here is a minimal example:
 |---|---|---|---|
 | `randomize_questions` | boolean | `false` | Show questions in random order |
 | `auto_grade` | boolean | `false` | Grade submissions automatically |
-| `allow_multiple_submissions` | boolean | `true` | Allow the same person to submit more than once |
+| `allow_multiple_submissions` | boolean | `true` | Allow repeats; when `false`, `auth` must be set so duplicates can be blocked |
 | `auth` | `"github"` or `null` | `null` | Require a GitHub token to submit; `null` means anonymous |
 
 ### Question types

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sqlite3
 from math import factorial
 from pathlib import Path
 from typing import cast
@@ -47,6 +48,8 @@ from formtuist.schema import (
 )
 from formtuist.tui.app import FormtuistApp
 from formtuist.tui.screens import (
+    ALREADY_SUBMITTED_MESSAGE,
+    SINGLE_SUBMISSION_NOTE,
     FormScreen,
     SubmitScreen,
     WelcomeScreen,
@@ -247,6 +250,7 @@ class TestFormScreen:
             None,
             None,
             grade=None,
+            attempt_id=mock_app.attempt_id,
         )
         mock_app.push_screen.assert_called_once()
         mock_notify.assert_not_called()
@@ -351,7 +355,13 @@ class TestFormScreen:
                         asyncio.run(screen.action_submit())
         mock_init.assert_called_once()
         mock_save.assert_called_once_with(
-            mock_init.return_value, "Test", {"q1": ""}, None, None, grade=None
+            mock_init.return_value,
+            "Test",
+            {"q1": ""},
+            None,
+            None,
+            grade=None,
+            attempt_id=mock_app.attempt_id,
         )
         mock_app.push_screen.assert_called_once()
         mock_notify.assert_not_called()
@@ -551,6 +561,7 @@ class TestFormScreen:
             "octocat",
             "https://github.com/octocat",
             grade=None,
+            attempt_id=mock_app.attempt_id,
         )
         mock_app.push_screen.assert_called_once()
         pushed_screen = mock_app.push_screen.call_args[0][0]
@@ -620,6 +631,208 @@ class TestFormScreen:
         mock_init.assert_not_called()
         mock_notify.assert_called_once()
         mock_app.push_screen.assert_not_called()
+
+    def test_action_submit_blocks_duplicate_single_submission(
+        self,
+    ) -> None:
+        """action_submit blocks a second submission by the same identity."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        mock_auth_input = MagicMock(spec=Input)
+        mock_auth_input.value = "ghp_valid_token"
+        screen.auth_input = mock_auth_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db") as _mock_init:
+                    with patch(
+                        "formtuist.tui.screens.ensure_single_submission_index",
+                        return_value=True,
+                    ):
+                        with patch(
+                            "formtuist.tui.screens.has_submission",
+                            return_value=True,
+                        ):
+                            with patch(
+                                "formtuist.tui.screens.save_response"
+                            ) as mock_save:
+                                with patch(
+                                    "formtuist.tui.screens.fetch_github_identity",
+                                    return_value=GitHubIdentity(
+                                        username="octocat",
+                                        profile_url="https://github.com/octocat",
+                                    ),
+                                ):
+                                    asyncio.run(screen.action_submit())
+        mock_save.assert_not_called()
+        mock_app.push_screen.assert_not_called()
+        mock_notify.assert_called_once_with(
+            ALREADY_SUBMITTED_MESSAGE, severity="error"
+        )
+
+    def test_action_submit_allows_first_single_submission(self) -> None:
+        """action_submit saves when the identity has not yet submitted."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        mock_auth_input = MagicMock(spec=Input)
+        mock_auth_input.value = "ghp_valid_token"
+        screen.auth_input = mock_auth_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db") as _mock_init:
+                    with patch(
+                        "formtuist.tui.screens.ensure_single_submission_index",
+                        return_value=True,
+                    ):
+                        with patch(
+                            "formtuist.tui.screens.has_submission",
+                            return_value=False,
+                        ):
+                            with patch(
+                                "formtuist.tui.screens.save_response"
+                            ) as mock_save:
+                                mock_save.return_value = 1
+                                with patch(
+                                    "formtuist.tui.screens.fetch_github_identity",
+                                    return_value=GitHubIdentity(
+                                        username="octocat",
+                                        profile_url="https://github.com/octocat",
+                                    ),
+                                ):
+                                    asyncio.run(screen.action_submit())
+        mock_save.assert_called_once()
+        mock_app.push_screen.assert_called_once()
+        mock_notify.assert_not_called()
+
+    def test_action_submit_ignores_prior_when_multiple(self) -> None:
+        """A prior submission does not block when resubmission is allowed."""
+        form = FormDefinition(
+            name="Poll",
+            config=FormConfig(auth=AuthProvider.GITHUB),
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        mock_auth_input = MagicMock(spec=Input)
+        mock_auth_input.value = "ghp_valid_token"
+        screen.auth_input = mock_auth_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db") as _mock_init:
+                    with patch(
+                        "formtuist.tui.screens.has_submission",
+                        return_value=True,
+                    ) as mock_check:
+                        with patch(
+                            "formtuist.tui.screens.save_response"
+                        ) as mock_save:
+                            mock_save.return_value = 1
+                            with patch(
+                                "formtuist.tui.screens.fetch_github_identity",
+                                return_value=GitHubIdentity(
+                                    username="octocat",
+                                    profile_url="https://github.com/octocat",
+                                ),
+                            ):
+                                asyncio.run(screen.action_submit())
+        mock_save.assert_called_once()
+        mock_app.push_screen.assert_called_once()
+        mock_notify.assert_not_called()
+        mock_check.assert_not_called()
+
+    def test_action_submit_catches_integrity_error(self) -> None:
+        """A raced duplicate save shows the already-submitted message."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        mock_auth_input = MagicMock(spec=Input)
+        mock_auth_input.value = "ghp_valid_token"
+        screen.auth_input = mock_auth_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db") as _mock_init:
+                    with patch(
+                        "formtuist.tui.screens.ensure_single_submission_index",
+                        return_value=True,
+                    ):
+                        with patch(
+                            "formtuist.tui.screens.has_submission",
+                            return_value=False,
+                        ):
+                            with patch(
+                                "formtuist.tui.screens.save_response",
+                                side_effect=sqlite3.IntegrityError,
+                            ):
+                                with patch(
+                                    "formtuist.tui.screens.fetch_github_identity",
+                                    return_value=GitHubIdentity(
+                                        username="octocat",
+                                        profile_url="https://github.com/octocat",
+                                    ),
+                                ):
+                                    asyncio.run(screen.action_submit())
+        mock_app.push_screen.assert_not_called()
+        mock_notify.assert_called_once_with(
+            ALREADY_SUBMITTED_MESSAGE, severity="error"
+        )
 
     def test_action_focus_first_input(
         self, minimal_form: FormDefinition
@@ -1405,6 +1618,7 @@ class TestRandomizedOrder:
                 questions=_build_questions(SHUFFLE_QUESTION_COUNT),
             )
             app: App = App()
+            setattr(app, "attempt_id", "attempt-shuffled")
             async with app.run_test():
                 screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
                 await app.push_screen(screen)
@@ -1794,6 +2008,84 @@ class TestSubmitScreen:
             mock_prop.return_value = mock_app
             screen.action_restart()
         mock_app.push_screen.assert_called_once()
+
+    def test_action_restart_blocked_when_single_submission(self) -> None:
+        """action_restart refuses for single-submission forms."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[],
+        )
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        mock_app = MagicMock()
+        with patch.object(
+            SubmitScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(SubmitScreen, "notify") as mock_notify:
+                screen.action_restart()
+        mock_app.push_screen.assert_not_called()
+        mock_notify.assert_called_once()
+
+    def test_compose_omits_restart_when_single_submission(self) -> None:
+        """The Restart button is omitted for single-submission forms."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[],
+        )
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        children = list(screen.compose())
+        ids = [child.id for child in children if hasattr(child, "id")]
+        assert "restart" not in ids
+
+    def test_compose_shows_single_submission_note(self) -> None:
+        """A note explains the single-submission policy."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[],
+        )
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        children = list(screen.compose())
+        texts = [str(c.content) for c in children if hasattr(c, "content")]
+        assert any(SINGLE_SUBMISSION_NOTE in t for t in texts)
+
+    def test_compose_includes_restart_when_multiple(self) -> None:
+        """The Restart button is present when resubmission is allowed."""
+        form = FormDefinition(name="Poll", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        children = list(screen.compose())
+        ids = [child.id for child in children if hasattr(child, "id")]
+        assert "restart" in ids
+
+    def test_check_action_hides_restart_when_single(self) -> None:
+        """The restart action is disabled for single-submission forms."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[],
+        )
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        assert screen.check_action("restart", ()) is False
+
+    def test_check_action_allows_restart_when_multiple(self) -> None:
+        """The restart action is enabled when resubmission is allowed."""
+        form = FormDefinition(name="Poll", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        assert screen.check_action("restart", ()) is not False
 
     def test_review_long_question_wraps(self) -> None:
         """The grade review wraps long question text."""

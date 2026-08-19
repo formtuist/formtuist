@@ -238,6 +238,12 @@ ______________________________________________________________________
 }
 ```
 
+When `allow_multiple_submissions` is `false` the form must also declare an
+`auth` provider. Without an identity there is no way to recognise a repeat
+submitter, so such definitions are rejected at parse time instead of silently
+promising an enforcement they cannot deliver. Anonymous forms keep
+`allow_multiple_submissions` at its default of `true`.
+
 ### 2.2 Question Types (v1)
 
 | Type | Textual Widget(s) | Storage Type |
@@ -459,14 +465,27 @@ submit a timed quiz within a 10-second window.
 Functions needed:
 
 - `init_db(db_path: Path) -> sqlite3.Connection` — runs WAL + busy_timeout
-- `save_response(conn, form_name: str, answers: dict) -> int`
+- `save_response(conn, form_name, answers, *, attempt_id=None) -> int`
 - `update_response_grade(conn, response_id: int, grade: dict) -> None`
 - `get_responses(conn, form_name: str | None) -> list[dict]`
 - `get_response_count(conn, form_name: str) -> int`
+- `has_submission(conn, form_name, attempt_id, username) -> bool`
+- `ensure_single_submission_index(conn, form_name, attempt_id) -> bool`
 
 `save_response` accepts an optional `grade` keyword argument holding a
 JSON-safe report snapshot; `update_response_grade` overwrites the snapshot
-for an existing row (used by `grade --recompute`).
+for an existing row (used by `grade --recompute`). Every row also carries an
+`attempt_id` column that scopes a submission to one run of the form.
+
+For a single-submission form, `ensure_single_submission_index()` creates a
+partial unique index on `(form_name, attempt_id, github_username)` restricted
+to rows with a non-null username. Scoping the index to one form name and one
+attempt keeps repeat submissions legal on forms that allow them and lets a
+re-run of the same form start a fresh fairness domain, so one database can be
+reused across weeks. The index closes the check-then-insert race when two
+concurrent subprocesses save the same identity at once. `has_submission()`
+backs the TUI's friendly pre-save check; databases that already hold
+duplicate identity rows skip the index and rely on that check alone.
 
 ### 3.4 `exporter.py` — Export Formats
 
@@ -941,6 +960,8 @@ ______________________________________________________________________
 1. Initialize/connect to SQLite DB.
 1. Launch Textual app (`FormScreen`).
 1. On submit, validate required fields.
+1. For single-submission forms, ensure the unique index and block
+   resubmission when this identity has already responded.
 1. Save response to DB.
 1. Show `SubmitScreen`.
 

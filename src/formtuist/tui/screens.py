@@ -2,9 +2,10 @@
 
 import asyncio
 import random
+import sqlite3
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from rich.syntax import Syntax
 from textual._context import NoActiveAppError
@@ -16,7 +17,12 @@ from textual.widget import Widget
 from textual.widgets import Button, Header, Input, Label, Static
 
 from formtuist.auth import GitHubIdentity, fetch_github_identity
-from formtuist.database import init_db, save_response
+from formtuist.database import (
+    ensure_single_submission_index,
+    has_submission,
+    init_db,
+    save_response,
+)
 from formtuist.grader import (
     BREAKDOWN_ANSWER_KEY,
     BREAKDOWN_CORRECT_ANSWER_KEY,
@@ -37,6 +43,9 @@ from formtuist.schema import (
     NumericRange,
     Question,
 )
+
+if TYPE_CHECKING:
+    from formtuist.tui.app import FormtuistApp
 from formtuist.tui.widgets import (
     CODE_THEME_AUTO,
     CODE_THEME_FALLBACK_DARK,
@@ -70,6 +79,12 @@ GRADE_RANGE_AND = " and "
 
 # css class used to style the submit screen's own scrollbars
 SUBMIT_SCREEN_CLASS = "submit-screen"
+
+# messages for the enforced single-submission flow
+ALREADY_SUBMITTED_MESSAGE = (
+    "You have already submitted this form. Each person may submit once."
+)
+SINGLE_SUBMISSION_NOTE = "This form accepts a single submission."
 
 
 # default seed for the pseudo-random number generator used when shuffling
@@ -368,14 +383,29 @@ class FormScreen(Screen):
             grade_report = grade_response(self.form, answers)
             grade_json = grade_report_to_json(grade_report)
         conn = init_db(self.db_path)
-        save_response(
-            conn,
-            self.form.name,
-            answers,
-            identity.username if identity is not None else None,
-            identity.profile_url if identity is not None else None,
-            grade=grade_json,
-        )
+        attempt_id = cast("FormtuistApp", self.app).attempt_id
+        if not self.form.config.allow_multiple_submissions:
+            ensure_single_submission_index(conn, self.form.name, attempt_id)
+            if identity is not None and has_submission(
+                conn, self.form.name, attempt_id, identity.username
+            ):
+                conn.close()
+                self.notify(ALREADY_SUBMITTED_MESSAGE, severity="error")
+                return
+        try:
+            save_response(
+                conn,
+                self.form.name,
+                answers,
+                identity.username if identity is not None else None,
+                identity.profile_url if identity is not None else None,
+                grade=grade_json,
+                attempt_id=attempt_id,
+            )
+        except sqlite3.IntegrityError:
+            conn.close()
+            self.notify(ALREADY_SUBMITTED_MESSAGE, severity="error")
+            return
         conn.close()
         self.app.push_screen(
             SubmitScreen(self.form, self.db_path, identity, grade_report)
@@ -458,7 +488,10 @@ class SubmitScreen(Screen):
             "[dim]Tip: Press Ctrl+P for the command palette.[/dim]",
             id="confirm-tip",
         )
-        yield Button("Restart", id="restart", variant="primary")
+        if self.form.config.allow_multiple_submissions:
+            yield Button("Restart", id="restart", variant="primary")
+        else:
+            yield Static(SINGLE_SUBMISSION_NOTE, id="confirm-single")
         yield Button("Quit", id="quit", variant="default")
         yield FormtuistFooter()
 
@@ -534,6 +567,20 @@ class SubmitScreen(Screen):
         elif event.button.id == "quit":
             self.app.exit()
 
+    def check_action(
+        self, action: str, parameters: tuple[object, ...]
+    ) -> bool | None:
+        """Hide the restart action when resubmission is not allowed."""
+        if (
+            action == "restart"
+            and not self.form.config.allow_multiple_submissions
+        ):
+            return False
+        return super().check_action(action, parameters)
+
     def action_restart(self) -> None:
-        """Push a new form screen to fill out the form again."""
+        """Push a new form screen, or refuse when resubmission is forbidden."""
+        if not self.form.config.allow_multiple_submissions:
+            self.notify(SINGLE_SUBMISSION_NOTE, severity="warning")
+            return
         self.app.push_screen(FormScreen(self.form, self.db_path))

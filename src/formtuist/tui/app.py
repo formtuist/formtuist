@@ -1,11 +1,14 @@
 """Main Textual application class for formtuist."""
 
+import os
+import uuid
 from pathlib import Path
 from typing import ClassVar
 
 from textual.app import App
 from textual.binding import Binding
 
+from formtuist.database import ATTEMPT_ID_ENV_NAME
 from formtuist.parser import parse_form
 
 
@@ -26,6 +29,11 @@ class FormtuistApp(App):
         self.form_path = form_path
         self.db_path = db_path
         self.form = parse_form(form_path)
+        # one shared attempt id for this run; the serve command injects it
+        # so every client of the run lands in the same fairness domain
+        self.attempt_id = os.environ.get(ATTEMPT_ID_ENV_NAME) or str(
+            uuid.uuid4()
+        )
         super().__init__()
         self.theme = "ansi-dark"
 
