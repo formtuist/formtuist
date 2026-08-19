@@ -58,6 +58,10 @@ DatePicker {
     margin-bottom: 2;
 }
 
+.form-code {
+    margin-bottom: 1;
+}
+
 DatePicker > #input-control {
     border: tall white;
     padding: 0;
