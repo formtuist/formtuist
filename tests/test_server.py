@@ -3,6 +3,7 @@
 import asyncio
 from pathlib import Path
 
+import pytest
 from aiohttp import ClientSession
 from aiohttp.test_utils import TestServer
 
@@ -51,8 +52,8 @@ class TestFormtuistServer:
 
         asyncio.run(run())
 
-    def test_index_builds_urls_from_request_host(self) -> None:
-        """The served URLs use the request host, never 0.0.0.0."""
+    def test_index_uses_relative_urls(self) -> None:
+        """The served websocket and static URLs are origin-relative."""
         server = FormtuistServer("echo hello", host="0.0.0.0", port=8124)
 
         async def run() -> None:
@@ -62,11 +63,30 @@ class TestFormtuistServer:
                     async with session.get(test_server.make_url("/")) as resp:
                         text = await resp.text()
             assert "0.0.0.0" not in text
-            assert "/ws" in text
-            assert "http://127.0.0.1:" in text
-            assert "/static/" in text
+            assert 'data-session-websocket-url="/ws"' in text
+            assert 'href="/static/css/xterm.css"' in text
+            assert "http://127.0.0.1" not in text
 
         asyncio.run(run())
+
+    def test_quiet_startup_suppresses_banner(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A FormtuistServer prints no banner on startup by default."""
+        server = FormtuistServer("echo hello", host="0.0.0.0", port=8125)
+
+        async def run() -> None:
+            app = await server._make_app()
+            async with TestServer(app) as test_server:
+                async with ClientSession(raise_for_status=True) as session:
+                    async with session.get(test_server.make_url("/")) as resp:
+                        await resp.text()
+
+        asyncio.run(run())
+        out = capsys.readouterr().out
+        assert "Serving" not in out
+        assert "Press Ctrl+C" not in out
+        assert "echo hello" not in out
 
 
 class TestAppIndexTemplate:
