@@ -8,8 +8,10 @@ from typing import Any, ClassVar
 
 from pygments.styles import ClassNotFound, get_style_by_name
 from rich.syntax import Syntax
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.events import Click
 from textual.validation import Integer
 from textual.widget import Widget
 from textual.widgets import (
@@ -130,7 +132,7 @@ def make_input_widget(question: Question) -> Widget:
     if isinstance(question, RatingQuestion):
         return RadioSet(*question.labels)
     if isinstance(question, DateQuestion):
-        return DatePicker()
+        return DatePickerField()
     if isinstance(question, YesNoQuestion):
         return Switch()
     raise ValueError(f"Unknown question type: {question.type}")
@@ -197,6 +199,34 @@ def is_widget_valid(widget: Widget) -> bool:
     if isinstance(widget, Input):
         return widget.is_valid
     return True
+
+
+class DatePickerField(DatePicker):
+    """A DatePicker with a calendar that opens on click and closes on pick."""
+
+    @on(Click)
+    def _open_on_click(self, event: Click) -> None:
+        """Open the calendar when the input is clicked."""
+        if self.expanded:
+            return
+        node = event.widget
+        while node is not None:
+            node_id = getattr(node, "id", None)
+            if node_id == "toggle-button":
+                return
+            if node_id == "date-input":
+                self.expanded = True
+                return
+            node = getattr(node, "parent", None)
+
+    def _watch_expanded(self, expanded: bool) -> None:
+        """Open without stealing focus, which can close the overlay on blur."""
+
+    def _watch_date(self, new: Any) -> None:
+        """Close the calendar once a date is picked to reveal the field."""
+        super()._watch_date(new)
+        if new is not None and self.expanded:
+            self.expanded = False
 
 
 class FormtuistFooter(Footer):
