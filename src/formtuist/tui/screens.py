@@ -35,6 +35,7 @@ from formtuist.grader import (
     TOTAL_KEY,
     grade_report_to_json,
     grade_response,
+    has_gradeable_questions,
 )
 from formtuist.schema import (
     AuthProvider,
@@ -379,7 +380,7 @@ class FormScreen(Screen):
             return
         grade_report = None
         grade_json = None
-        if self.form.config.auto_grade:
+        if has_gradeable_questions(self.form):
             grade_report = grade_response(self.form, answers)
             grade_json = grade_report_to_json(grade_report)
         conn = init_db(self.db_path)
@@ -407,8 +408,9 @@ class FormScreen(Screen):
             self.notify(ALREADY_SUBMITTED_MESSAGE, severity="error")
             return
         conn.close()
+        submit_report = grade_report if self.form.config.auto_grade else None
         self.app.push_screen(
-            SubmitScreen(self.form, self.db_path, identity, grade_report)
+            SubmitScreen(self.form, self.db_path, identity, submit_report)
         )
 
     def action_focus_first_input(self) -> None:

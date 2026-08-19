@@ -217,6 +217,17 @@ answers and grades are empty cells in CSV, `null` in JSON, and NULL in
 SQLite. List answers (checkboxes) are JSON-encoded in CSV and SQLite cells
 and stay native arrays in JSON.
 
+**`full` vs `graded`.** The command writes one of two views. `--type full`
+(the default) is the complete record of what people answered -- the response
+id, form name, submitted timestamp, GitHub identity (username and URL), the
+grade totals, and one column per question holding that question's *answer*.
+It is a faithful snapshot of history and never recomputes. `--type graded`
+drops the answer content and timestamp and keeps only the gradebook line --
+the id, form name, attempt, a single `student` column (username or `-`), one
+column per question holding that question's *score*, and the total/max/
+percentage. In short, `full` answers "what did people answer?", while
+`graded` answers "what did people score?".
+
 **Options:**
 
 | Flag | Description | Default |
@@ -224,6 +235,8 @@ and stay native arrays in JSON.
 | `--output` / `-o` | Output file path (required) | — |
 | `--format` | `csv`, `json`, `jsonl`, or `sqlite` | `csv` |
 | `--form-name` | Only export responses for this form | all forms |
+| `--type` | `full` or `graded`; what to write | `full` |
+| `--form` | Recompute grades against this form for a graded export | stored snapshots |
 
 **Examples:**
 
@@ -246,32 +259,35 @@ uvx formtuist export responses.db --format csv --form-name "CS 101 Quiz" \
   --output cs101.csv
 ```
 
-The grade columns come from the snapshot stored at submit time, so exports
-never change retroactively when the form file is edited.
+Every response to a form with correct answers gets its grade computed and
+stored at submit time, so a graded export works without the original form
+file. Because the full export reads those stored snapshots, it never changes
+retroactively when the form file is edited.
 
-### `grade` — Report grades for a quiz
-
-```bash
-uvx formtuist grade examples/quiz.json responses.db
-```
-
-Prints a per-question score table with one row per response. When a response
-was submitted to an auto-graded form, the score snapshot recorded at submit
-time is reported as-is, so grades never change retroactively when the form
-file is edited. Responses without a stored snapshot (older databases,
-non-auto-graded forms) are graded on the fly.
-
-**Options:**
-
-| Flag | Description | Default |
-|---|---|---|
-| `--recompute` | Re-grade every response with the current form and update the stored snapshots | `false` |
-
-**Example:**
+**Graded export.** Pass `--type graded` to write only the grades -- the
+student, the per-question scores, and the total/max/percentage -- instead of
+the answers. That is the shape a spreadsheet gradebook wants:
 
 ```bash
-uvx formtuist grade examples/quiz.json responses.db --recompute
+# The grade-only view, ready to import into a gradebook
+uvx formtuist export responses.db --type graded --format csv \
+  --output grades.csv
+
+# Recompute every grade against the current form (authoritative)
+uvx formtuist export responses.db --type graded --form quiz.json \
+  --format csv --output grades.csv
 ```
+
+A graded export reads stored snapshots by default; pass `--form` to
+recompute against the current answer key instead (useful when the key or
+points have changed). The `sqlite` format is not available for a graded
+export.
+
+A stored snapshot is the grade as computed when the student submitted,
+using whatever answer key was in force then. Recomputing ignores that cached
+score, re-grades each stored answer with the form's current `correct_answer`
+and `points`, and is read-only -- `export --form` writes fresh numbers to the
+output file but does not update the database.
 
 ## Keyboard shortcuts
 
@@ -371,7 +387,7 @@ Forms are defined as JSON files. Here is a minimal example:
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `randomize_questions` | boolean | `false` | Show questions in random order |
-| `auto_grade` | boolean | `false` | Grade submissions automatically |
+| `auto_grade` | boolean | `false` | Show the student their score review after submitting (grades are always computed and stored for gradeable questions) |
 | `allow_multiple_submissions` | boolean | `true` | Allow repeats; when `false`, `auth` must be set so duplicates can be blocked |
 | `auth` | `"github"` or `null` | `null` | Require a GitHub token to submit; `null` means anonymous |
 

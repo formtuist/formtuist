@@ -517,6 +517,75 @@ class TestFormScreen:
         json.dumps(saved_grade)
         mock_notify.assert_not_called()
 
+    def test_action_submit_stores_grade_when_not_auto(self) -> None:
+        """A gradeable form stores a grade even when auto_grade is off."""
+        form = FormDefinition(
+            name="Hidden",
+            config=FormConfig(auto_grade=False),
+            questions=[
+                ShortTextQuestion(
+                    id="q1",
+                    text="Capital?",
+                    type="short_text",
+                    correct_answer="Paris",
+                    points=GRADE_POINTS,
+                    grading_type="exact",
+                ),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "Paris"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db"):
+                    with patch(
+                        "formtuist.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        asyncio.run(screen.action_submit())
+        saved_grade = mock_save.call_args.kwargs["grade"]
+        assert saved_grade is not None
+        assert saved_grade[TOTAL_KEY] == GRADE_TOTAL
+        pushed = mock_app.push_screen.call_args[0][0]
+        assert isinstance(pushed, SubmitScreen)
+        assert pushed.grade_report is None
+        mock_notify.assert_not_called()
+
+    def test_action_submit_does_not_store_grade_for_poll(self) -> None:
+        """A form without correct answers stores no grade."""
+        form = FormDefinition(
+            name="Poll",
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "ok"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db"):
+                    with patch(
+                        "formtuist.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        asyncio.run(screen.action_submit())
+        assert mock_save.call_args.kwargs["grade"] is None
+        mock_notify.assert_not_called()
+
     def test_action_submit_with_github_auth(self) -> None:
         """action_submit validates the token and stores the identity."""
         form = FormDefinition(

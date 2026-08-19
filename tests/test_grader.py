@@ -17,6 +17,7 @@ from formtuist.grader import (
     _grade_question,
     grade_report_to_json,
     grade_response,
+    has_gradeable_questions,
 )
 from formtuist.schema import (
     CheckboxQuestion,
@@ -789,3 +790,39 @@ class TestGradeReportToJson:
         stored = grade_report_to_json(grade_response(form, {"r": 3}))
         assert stored[BREAKDOWN_KEY] == []
         assert stored[TOTAL_KEY] == 0
+
+
+class TestHasGradeableQuestions:
+    """Tests for detecting gradeable questions in a form."""
+
+    def test_true_with_correct_answer(self) -> None:
+        """A form with a correct answer is gradeable."""
+        form = FormDefinition(
+            name="Quiz",
+            questions=[
+                ShortTextQuestion(
+                    id="q",
+                    text="Q?",
+                    type="short_text",
+                    correct_answer="x",
+                    points=5,
+                    grading_type="exact",
+                ),
+            ],
+        )
+        assert has_gradeable_questions(form) is True
+
+    def test_false_without_correct_answers(self) -> None:
+        """A form with no correct answers is not gradeable."""
+        form = FormDefinition(
+            name="Poll",
+            questions=[
+                ShortTextQuestion(id="q", text="Q?", type="short_text"),
+            ],
+        )
+        assert has_gradeable_questions(form) is False
+
+    def test_false_empty_form(self) -> None:
+        """An empty form is not gradeable."""
+        form = FormDefinition(name="Empty", questions=[])
+        assert has_gradeable_questions(form) is False

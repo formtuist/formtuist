@@ -493,18 +493,28 @@ duplicate identity rows skip the index and rely on that check alone.
 - `export_to_json(responses, output_path)`
 - `export_to_jsonl(responses, output_path)`
 - `export_to_sqlite(responses, output_path)` (for `datasette view`)
+- `grade_columns(responses, form=None)`, `flatten_grades(...)` and the
+  `export_grades_to_{csv,json,jsonl}` writers for the graded view.
 
-All formats flatten each response into one row: metadata columns (id,
-form_name, submitted_at, github_username, github_url), the stored grade
+All full-view formats flatten each response into one row: metadata columns
+(id, form_name, submitted_at, github_username, github_url), the stored grade
 totals (total, max, percentage), and one column per question id (the sorted
 union of answer keys across responses). Missing answers become empty cells,
 `null`s, or NULLs. List answers are JSON-encoded in csv and sqlite cells
 and stay native arrays in json. The sqlite export writes a fresh
 `responses_flat` table so datasette shows real columns.
 
+The graded view (`--type graded`) writes only the grades: id, form_name,
+attempt_id, student (github_username or the `-` placeholder), per-question
+scores, total, max, and percentage. With a form the per-question columns
+follow the form's question order and each grade is recomputed; without a form
+the columns follow the stored snapshot's breakdown order and grades are read
+from storage (blank for responses with no snapshot).
+
 ### 3.5 `grader.py` — Auto-Grading
 
 - `grade_response(form_definition, answers) -> dict`
+- `has_gradeable_questions(form_definition) -> bool`
 - Returns per-question score, total score, and feedback.
 - Handle each `grading_type` (`exact`, `regex`, `contains`).
 - Support partial credit for `checkbox` questions (e.g., proportion correct).
@@ -534,6 +544,12 @@ def grade_response(form: FormDefinition, answers: dict[str, Any]) -> dict:
 The report is converted into a JSON-safe snapshot for storage with
 `grade_report_to_json()`, which turns `NumericRange` and `CodeBlock`
 values into plain dicts and records a `graded_at` timestamp.
+
+When a form has at least one gradeable question (a `correct_answer`), the
+TUI computes and stores a `grade_json` snapshot at submit time regardless of
+`config.auto_grade`. `auto_grade` only controls whether the grade review is
+displayed on the submit screen, not whether the grade is computed and stored.
+This is what lets a graded export work without the form file.
 
 ```python
 def _grade_question(q, answer):
@@ -994,9 +1010,13 @@ worker while preserving the WebSocket pathname for the terminal bridge.
 
 `--output`/`-o` is required; `--format` defaults to csv and also accepts
 json (a JSON array), jsonl (JSON-lines), or sqlite (a flat `responses_flat`
-table that `view`/datasette can browse). The grade columns come from the
-stored snapshots, so exports never change retroactively when the form file
-is edited.
+table that `view`/datasette can browse). `--type full` (default) writes the
+full row plus one column per question; `--type graded` writes only the
+student, per-question scores, and total/max/percentage. With `--type graded`
+a graded export reads stored snapshots by default or recomputes every grade
+against the form when `--form` is given; the sqlite format is not available
+for a graded export. Because grades are always computed and stored at submit
+time for gradeable forms, a graded export works without the form file.
 
 ### 5.6 `view <responses.db> [--datasette-args ...]`
 

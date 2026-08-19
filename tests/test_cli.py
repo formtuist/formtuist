@@ -612,6 +612,131 @@ class TestExportCommand:
             conn.close()
         assert rows[0] == ("Quiz", "a")
 
+    def _graded_export_db(self, tmp_path: Path) -> Path:
+        """Create a database with a stored multi-question grade."""
+        db_path = tmp_path / "grades.db"
+        conn = init_db(db_path)
+        grade: dict[str, Any] = {
+            "total": 15,
+            "max": 20,
+            "percentage": 75.0,
+            "breakdown": [
+                {"id": "q1", "score": 10, "max": 10, "correct": True},
+                {"id": "q2", "score": 5, "max": 10, "correct": False},
+            ],
+        }
+        save_response(
+            conn,
+            "Quiz",
+            {"q1": "a", "q2": "b"},
+            github_username="alice",
+            grade=grade,
+        )
+        conn.close()
+        return db_path
+
+    def test_export_type_default_full(self, tmp_path: Path) -> None:
+        """Export defaults to the full view with answer columns."""
+        db = self._responses_db(tmp_path)
+        out = tmp_path / "out.csv"
+        result = runner.invoke(
+            app, ["export", str(db), "--format", "csv", "--output", str(out)]
+        )
+        assert result.exit_code == 0
+        header = out.read_text(encoding="utf-8").splitlines()[0]
+        assert "github_username" in header
+        assert "q1" in header
+
+    def test_export_type_graded_csv(self, tmp_path: Path) -> None:
+        """Graded CSV carries the student and per-question scores."""
+        db = self._graded_export_db(tmp_path)
+        out = tmp_path / "grades.csv"
+        result = runner.invoke(
+            app,
+            [
+                "export",
+                str(db),
+                "--type",
+                "graded",
+                "--format",
+                "csv",
+                "--output",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0
+        text = out.read_text(encoding="utf-8")
+        header = text.splitlines()[0]
+        assert "student" in header
+        assert "total" in header
+        assert "q1" in header
+        assert "alice" in text
+
+    def test_export_type_graded_with_form(self, tmp_path: Path) -> None:
+        """Graded export with --form recomputes grades."""
+        db_path = tmp_path / "plain.db"
+        conn = init_db(db_path)
+        save_response(conn, "Quiz", {"q1": "a"}, github_username="alice")
+        conn.close()
+        form = _write_form(
+            tmp_path / "quiz.json",
+            {
+                "name": "Quiz",
+                "questions": [
+                    {
+                        "id": "q1",
+                        "text": "Q?",
+                        "type": "short_text",
+                        "correct_answer": "a",
+                        "points": 10,
+                        "grading_type": "exact",
+                    },
+                ],
+            },
+        )
+        out = tmp_path / "grades.csv"
+        result = runner.invoke(
+            app,
+            [
+                "export",
+                str(db_path),
+                "--type",
+                "graded",
+                "--format",
+                "csv",
+                "--output",
+                str(out),
+                "--form",
+                str(form),
+            ],
+        )
+        assert result.exit_code == 0
+        text = out.read_text(encoding="utf-8")
+        header = text.splitlines()[0]
+        assert "student" in header
+        assert "q1" in header
+        assert "alice,10" in text
+
+    def test_export_type_graded_sqlite_rejected(self, tmp_path: Path) -> None:
+        """Graded export rejects the sqlite format."""
+        db = self._responses_db(tmp_path)
+        out = tmp_path / "out.db"
+        result = runner.invoke(
+            app,
+            [
+                "export",
+                str(db),
+                "--type",
+                "graded",
+                "--format",
+                "sqlite",
+                "--output",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "not supported" in _plain(result)
+
     def test_export_form_name_filters(self, tmp_path: Path) -> None:
         """Export --form-name only includes matching responses."""
         db = self._responses_db(tmp_path)

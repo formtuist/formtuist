@@ -16,7 +16,16 @@ from formtuist.database import (
     ID_COLUMN,
     SUBMITTED_AT_COLUMN,
 )
-from formtuist.grader import MAX_KEY, PERCENTAGE_KEY, TOTAL_KEY
+from formtuist.grader import (
+    BREAKDOWN_ID_KEY,
+    BREAKDOWN_KEY,
+    BREAKDOWN_SCORE_KEY,
+    MAX_KEY,
+    PERCENTAGE_KEY,
+    TOTAL_KEY,
+    grade_response,
+)
+from formtuist.schema import FormDefinition
 
 # flat export column names shared by every output format
 FLAT_ID = "id"
@@ -37,6 +46,21 @@ METADATA_COLUMNS = [
     FLAT_SUBMITTED_AT,
     FLAT_GITHUB_USERNAME,
     FLAT_GITHUB_URL,
+    FLAT_TOTAL,
+    FLAT_MAX,
+    FLAT_PERCENTAGE,
+]
+
+# flat name for the student column in the graded export and its placeholder
+FLAT_STUDENT = "student"
+GRADE_UNKNOWN_STUDENT = "-"
+
+# the metadata columns that precede the per-question score columns
+GRADE_COLUMNS = [
+    FLAT_ID,
+    FLAT_FORM_NAME,
+    FLAT_ATTEMPT_ID,
+    FLAT_STUDENT,
     FLAT_TOTAL,
     FLAT_MAX,
     FLAT_PERCENTAGE,
@@ -90,10 +114,10 @@ def _flatten_all(
     return [flatten_response(r, columns) for r in responses], columns
 
 
-def export_to_csv(responses: list[dict[str, Any]], output_path: Path) -> None:
-    """Write responses as a flat CSV table to output_path."""
-    rows, columns = _flatten_all(responses)
-    fieldnames = METADATA_COLUMNS + columns
+def _write_csv(
+    rows: list[dict[str, Any]], fieldnames: list[str], output_path: Path
+) -> None:
+    """Write rows as a flat CSV table to output_path."""
     with output_path.open(
         "w", encoding=EXPORT_ENCODING, newline=CSV_NEWLINE
     ) as file:
@@ -105,12 +129,31 @@ def export_to_csv(responses: list[dict[str, Any]], output_path: Path) -> None:
             )
 
 
-def export_to_json(responses: list[dict[str, Any]], output_path: Path) -> None:
-    """Write responses as a JSON array of flat objects."""
-    rows, _columns = _flatten_all(responses)
+def _write_json(rows: list[dict[str, Any]], output_path: Path) -> None:
+    """Write rows as a JSON array to output_path."""
     output_path.write_text(
         json.dumps(rows, indent=2), encoding=EXPORT_ENCODING
     )
+
+
+def _write_jsonl(rows: list[dict[str, Any]], output_path: Path) -> None:
+    """Write rows as JSON-lines, one object per line."""
+    with output_path.open("w", encoding=EXPORT_ENCODING) as file:
+        for row in rows:
+            file.write(json.dumps(row))
+            file.write("\n")
+
+
+def export_to_csv(responses: list[dict[str, Any]], output_path: Path) -> None:
+    """Write responses as a flat CSV table to output_path."""
+    rows, columns = _flatten_all(responses)
+    _write_csv(rows, METADATA_COLUMNS + columns, output_path)
+
+
+def export_to_json(responses: list[dict[str, Any]], output_path: Path) -> None:
+    """Write responses as a JSON array of flat objects."""
+    rows, _columns = _flatten_all(responses)
+    _write_json(rows, output_path)
 
 
 def export_to_jsonl(
@@ -118,10 +161,108 @@ def export_to_jsonl(
 ) -> None:
     """Write responses as JSON-lines, one flat object per line."""
     rows, _columns = _flatten_all(responses)
-    with output_path.open("w", encoding=EXPORT_ENCODING) as file:
-        for row in rows:
-            file.write(json.dumps(row))
-            file.write("\n")
+    _write_jsonl(rows, output_path)
+
+
+def grade_columns(
+    responses: list[dict[str, Any]], form: FormDefinition | None = None
+) -> list[str]:
+    """Return the ordered question ids for the graded export columns.
+
+    With a form the ids follow the form's question order; otherwise they
+    follow the first stored grade snapshot's breakdown order.
+    """
+    if form is not None:
+        return [
+            question.id
+            for question in form.questions
+            if getattr(question, "correct_answer", None) is not None
+        ]
+    for response in responses:
+        grade = response[GRADE_JSON_COLUMN]
+        breakdown: list[Any] = (
+            grade[BREAKDOWN_KEY] if grade is not None else []
+        )
+        if breakdown:
+            return [entry[BREAKDOWN_ID_KEY] for entry in breakdown]
+    return []
+
+
+def flatten_grades(
+    responses: list[dict[str, Any]],
+    question_ids: list[str],
+    form: FormDefinition | None = None,
+) -> list[dict[str, Any]]:
+    """Return grade-only flat rows, recomputed or from stored snapshots."""
+    rows = []
+    for response in responses:
+        if form is not None:
+            report = grade_response(form, response[ANSWERS_JSON_COLUMN])
+            scores = {
+                entry[BREAKDOWN_ID_KEY]: entry[BREAKDOWN_SCORE_KEY]
+                for entry in report[BREAKDOWN_KEY]
+            }
+            total, max_total = report[TOTAL_KEY], report[MAX_KEY]
+            percentage = report[PERCENTAGE_KEY]
+        else:
+            grade = response[GRADE_JSON_COLUMN]
+            if grade is None:
+                scores, total, max_total, percentage = {}, None, None, None
+            else:
+                scores = {
+                    entry[BREAKDOWN_ID_KEY]: entry[BREAKDOWN_SCORE_KEY]
+                    for entry in grade[BREAKDOWN_KEY]
+                }
+                total, max_total = grade[TOTAL_KEY], grade[MAX_KEY]
+                percentage = grade[PERCENTAGE_KEY]
+        row: dict[str, Any] = {
+            FLAT_ID: response[ID_COLUMN],
+            FLAT_FORM_NAME: response[FORM_NAME_COLUMN],
+            FLAT_ATTEMPT_ID: response[ATTEMPT_ID_COLUMN],
+            FLAT_STUDENT: (
+                response[GITHUB_USERNAME_COLUMN] or GRADE_UNKNOWN_STUDENT
+            ),
+            FLAT_TOTAL: total,
+            FLAT_MAX: max_total,
+            FLAT_PERCENTAGE: percentage,
+        }
+        for question_id in question_ids:
+            row[question_id] = scores.get(question_id)
+        rows.append(row)
+    return rows
+
+
+def export_grades_to_csv(
+    responses: list[dict[str, Any]],
+    question_ids: list[str],
+    form: FormDefinition | None,
+    output_path: Path,
+) -> None:
+    """Write the graded view as a flat CSV table to output_path."""
+    rows = flatten_grades(responses, question_ids, form)
+    _write_csv(rows, GRADE_COLUMNS + question_ids, output_path)
+
+
+def export_grades_to_json(
+    responses: list[dict[str, Any]],
+    question_ids: list[str],
+    form: FormDefinition | None,
+    output_path: Path,
+) -> None:
+    """Write the graded view as a JSON array to output_path."""
+    rows = flatten_grades(responses, question_ids, form)
+    _write_json(rows, output_path)
+
+
+def export_grades_to_jsonl(
+    responses: list[dict[str, Any]],
+    question_ids: list[str],
+    form: FormDefinition | None,
+    output_path: Path,
+) -> None:
+    """Write the graded view as JSON-lines to output_path."""
+    rows = flatten_grades(responses, question_ids, form)
+    _write_jsonl(rows, output_path)
 
 
 def export_to_sqlite(

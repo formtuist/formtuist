@@ -47,6 +47,14 @@ PERCENTAGE_DIGITS = 2
 GRADED_AT_KEY = "graded_at"
 
 
+def has_gradeable_questions(form: FormDefinition) -> bool:
+    """Return whether any question has a correct answer to grade."""
+    return any(
+        getattr(question, "correct_answer", None) is not None
+        for question in form.questions
+    )
+
+
 def grade_response(
     form: FormDefinition, answers: dict[str, Any]
 ) -> dict[str, Any]:

@@ -5,7 +5,7 @@ import sqlite3
 import uuid
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import typer
 from pydantic import ValidationError
@@ -26,10 +26,14 @@ from formtuist.database import (
     update_response_grade,
 )
 from formtuist.exporter import (
+    export_grades_to_csv,
+    export_grades_to_json,
+    export_grades_to_jsonl,
     export_to_csv,
     export_to_json,
     export_to_jsonl,
     export_to_sqlite,
+    grade_columns,
 )
 from formtuist.grader import (
     BREAKDOWN_ID_KEY,
@@ -416,10 +420,56 @@ EXPORT_FORMAT_DEFAULT = "csv"
 EXPORT_SUCCESS_PREFIX = "Exported "
 EXPORT_SUCCESS_SUFFIX = " response(s) to "
 EXPORT_NO_RESPONSES = "No responses to export."
+EXPORT_TYPE_DEFAULT = "full"
+EXPORT_TYPE_HELP = "What to export: full or graded."
+EXPORT_FORM_HELP = (
+    "Recompute grades against this form for a graded export "
+    "(default: stored grade snapshots)."
+)
+EXPORT_GRADED_NO_SQLITE = (
+    "The sqlite format is not supported for a graded export; "
+    "use csv, json, or jsonl."
+)
+EXPORT_STORED_GRADES_NOTE = (
+    "Graded export uses stored snapshots; pass --form to recompute "
+    "against the current answer key."
+)
+
+
+def _export_full(
+    responses: list[dict[str, Any]],
+    output: Path,
+    format: Literal["csv", "json", "jsonl", "sqlite"],
+) -> None:
+    """Write the full export in the requested format."""
+    if format == "csv":
+        export_to_csv(responses, output)
+    elif format == "json":
+        export_to_json(responses, output)
+    elif format == "jsonl":
+        export_to_jsonl(responses, output)
+    else:
+        export_to_sqlite(responses, output)
+
+
+def _export_graded(
+    responses: list[dict[str, Any]],
+    question_ids: list[str],
+    form: FormDefinition | None,
+    output: Path,
+    format: Literal["csv", "json", "jsonl"],
+) -> None:
+    """Write the graded export in the requested format."""
+    if format == "csv":
+        export_grades_to_csv(responses, question_ids, form, output)
+    elif format == "json":
+        export_grades_to_json(responses, question_ids, form, output)
+    else:
+        export_grades_to_jsonl(responses, question_ids, form, output)
 
 
 @app.command()
-def export(
+def export(  # noqa: PLR0913, PLR0917
     responses_path: Path = typer.Argument(
         ...,
         help=RESPONSES_PATH_HELP,
@@ -444,6 +494,27 @@ def export(
         "--form-name",
         help=EXPORT_FORM_NAME_HELP,
     ),
+    export_type: Literal["full", "graded"] = typer.Option(
+        EXPORT_TYPE_DEFAULT,
+        "--type",
+        help=EXPORT_TYPE_HELP,
+    ),
+    form_path: Path | None = typer.Option(
+        None,
+        "--form",
+        help=EXPORT_FORM_HELP,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    code_dir: Path = typer.Option(
+        None,
+        "--code-dir",
+        help=CODE_DIR_HELP,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+    ),
 ) -> None:
     """Export responses to CSV, JSON, JSONL, or SQLite format."""
     conn = init_db(responses_path)
@@ -454,14 +525,23 @@ def export(
     if not responses:
         console.print(EXPORT_NO_RESPONSES)
         raise typer.Exit(code=0)
-    if format == "csv":
-        export_to_csv(responses, output)
-    elif format == "json":
-        export_to_json(responses, output)
-    elif format == "jsonl":
-        export_to_jsonl(responses, output)
+    if export_type == "graded" and format == "sqlite":
+        console.print(EXPORT_GRADED_NO_SQLITE)
+        raise typer.Exit(code=1)
+    form = None
+    if form_path is not None:
+        try:
+            form = parse_form(form_path, code_dir)
+        except ValidationError:
+            raise typer.Exit(code=1)
+    if export_type == "full":
+        _export_full(responses, output, format)
     else:
-        export_to_sqlite(responses, output)
+        question_ids = grade_columns(responses, form)
+        if form is None:
+            console.print(EXPORT_STORED_GRADES_NOTE)
+        narrowed = cast(Literal["csv", "json", "jsonl"], format)
+        _export_graded(responses, question_ids, form, output, narrowed)
     console.print(
         f"{EXPORT_SUCCESS_PREFIX}{len(responses)}{EXPORT_SUCCESS_SUFFIX}"
         f"[bold]{output}[/bold]"
@@ -552,7 +632,7 @@ def schema(
         console.print(syntax)
 
 
-@app.command()
+@app.command(hidden=True)
 def grade(
     form_path: Path = typer.Argument(
         ...,
