@@ -423,7 +423,10 @@ class TestCliReviewBatch:
             ],
         )
         assert result.exit_code == 0
-        assert "Applied 1" in result.stdout
+        # rich and textual may emit ANSI codes or write to
+        # either stdout/stderr depending on console detection;
+        # use the combined output stream for a stable check
+        assert "Applied 1" in result.output
         conn2 = init_db(db)
         resp = get_responses(conn2)[0]
         assert resp["grade_json"]["breakdown"][0][MANUAL_SCORE_KEY] == 8
