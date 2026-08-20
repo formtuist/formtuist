@@ -1,0 +1,26 @@
+{
+  "name": "Minimal Manual-Review Form",
+  "description": "Two required manual questions with no correct_answer; prelim 0, final after review. Demonstrates review: required without a correct_answer.",
+  "config": {
+    "auto_grade": true,
+    "allow_multiple_submissions": true
+  },
+  "questions": [
+    {
+      "id": "q1_essay",
+      "text": "What did you learn from the reading?",
+      "type": "paragraph",
+      "required": true,
+      "points": 10,
+      "review": "required"
+    },
+    {
+      "id": "q2_short",
+      "text": "One sentence: what is still unclear?",
+      "type": "short_text",
+      "required": true,
+      "points": 10,
+      "review": "required"
+    }
+  ]
+}
