@@ -893,6 +893,9 @@ ANALYZE_BINS_HELP = "Number of histogram bins."
 ANALYZE_SPARKLINES_HELP = (
     "Comma-separated question ids for sparklines (table only, e.g., q1,q2)."
 )
+ANALYZE_SPARKLINES_ALL_HELP = (
+    "Show sparklines for all gradeable questions (table only)."
+)
 
 
 @app.command()
@@ -951,6 +954,11 @@ def analyze(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
         "--sparklines-id",
         help=ANALYZE_SPARKLINES_HELP,
     ),
+    sparklines_all: bool = typer.Option(
+        False,
+        "--sparklines-all",
+        help=ANALYZE_SPARKLINES_ALL_HELP,
+    ),
 ) -> None:
     """Analyze quiz statistics with average, distribution, and ranking."""
     import csv as csvlib  # noqa: PLC0415
@@ -1008,9 +1016,23 @@ def analyze(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
         if not per_q_all:
             console.print(f"unknown question id: {question}")
             raise typer.Exit(code=1)
-    # sparklines handling
+    # sparklines handling — mutually exclusive flags
+    if sparklines_all and sparklines_id is not None:
+        console.print("cannot use both --sparklines-all and --sparklines-id")
+        raise typer.Exit(code=1)
     spark_ids: list[str] | None = None
-    if sparklines_id is not None:
+    if sparklines_all:
+        from formtuist.exporter import grade_columns  # noqa: PLC0415
+
+        spark_ids = grade_columns(reports, form)  # type: ignore[arg-type]
+        if not spark_ids:
+            spark_ids = [
+                q.id  # type: ignore[union-attr]
+                for q in form.questions
+                if getattr(q, "correct_answer", None) is not None
+                or getattr(q, "review", "none") == "required"
+            ]
+    elif sparklines_id is not None:
         spark_ids = [s.strip() for s in sparklines_id.split(",") if s.strip()]
         valid_ids = {q.id for q in form.questions}  # type: ignore[union-attr]
         for sid in spark_ids:
@@ -1040,7 +1062,7 @@ def analyze(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
             "histogram": hist,
             "per_question": per_q_all,
         }
-        if sparklines_id is not None:
+        if spark_ids is not None:
             spark_map = {
                 sid: sparkline_for_question(sid, reports)
                 for sid in spark_ids or []
@@ -1066,15 +1088,20 @@ def analyze(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
                 "n_finalized",
                 "pending",
             ]
-            if sparklines_id is not None:
+            if spark_ids is not None:
                 fieldnames.append("sparkline")
             rows = []
             for row in per_q_all:
                 r: dict[str, Any] = {
                     k: row[k] for k in fieldnames if k != "sparkline"
                 }
-                if sparklines_id is not None:
-                    r["sparkline"] = sparkline_for_question(row["id"], reports)
+                if spark_ids is not None:
+                    if row["id"] in spark_ids:
+                        r["sparkline"] = sparkline_for_question(
+                            row["id"], reports
+                        )
+                    else:
+                        r["sparkline"] = ""
                 rows.append(r)
             if output is not None:
                 with output.open("w", encoding="utf-8", newline="") as f:
