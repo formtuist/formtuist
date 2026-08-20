@@ -1,0 +1,109 @@
+{
+  "name": "CS 101 — Week 3 Quiz (Post-Grade Demo)",
+  "description": "Post-grade demo: prelim regex plus human review. Required review must be judged before the grade is final; permitted appears only in an all review pass.",
+  "config": {
+    "auth": "github",
+    "randomize_questions": true,
+    "auto_grade": true,
+    "allow_multiple_submissions": false
+  },
+  "questions": [
+    {
+      "id": "q1_list_comprehension",
+      "text": "What is the output of the following Python code?",
+      "type": "multiple_choice",
+      "required": true,
+      "choices": [
+        "[0, 1, 4, 9, 16]",
+        "[0, 1, 2, 3, 4]",
+        "[1, 2, 3, 4, 5]",
+        "Error"
+      ],
+      "correct_answer": "[0, 1, 4, 9, 16]",
+      "points": 10,
+      "grading_type": "exact",
+      "review": "none",
+      "code": {
+        "language": "python",
+        "content": "print([x ** 2 for x in range(5)])"
+      }
+    },
+    {
+      "id": "q2_mutability",
+      "text": "What does it mean if a variable in Python is immutable?",
+      "type": "paragraph",
+      "required": true,
+      "correct_answer": "cannot change",
+      "points": 15,
+      "grading_type": "contains",
+      "review": "required"
+    },
+    {
+      "id": "q7_lambda_square",
+      "text": "Write a lambda that squares its argument.",
+      "type": "short_text",
+      "required": true,
+      "correct_answer": "lambda x: x * x",
+      "accepts": "^lambda\\s+\\w+\\s*:\\s*\\w+\\s*(\\*\\*\\s*2|\\*\\s*\\w+)\\s*$",
+      "points": 15,
+      "grading_type": "regex",
+      "review": "required"
+    },
+    {
+      "id": "q11_none_error",
+      "text": "A student runs code that crashes with \"TypeError: 'NoneType' object is not subscriptable\". Explain what probably caused the error.",
+      "type": "paragraph",
+      "required": true,
+      "correct_answer": "None",
+      "points": 10,
+      "grading_type": "contains",
+      "review": "permitted"
+    },
+    {
+      "id": "q_manual_essay",
+      "text": "In two sentences, explain why manual review matters for free-form answers.",
+      "type": "paragraph",
+      "required": true,
+      "points": 20,
+      "review": "required"
+    },
+    {
+      "id": "q8_immutable_types",
+      "text": "Which of the following Python data types are immutable? Select all that apply.",
+      "type": "checkbox",
+      "required": true,
+      "choices": [
+        "list",
+        "tuple",
+        "frozenset",
+        "dict",
+        "str"
+      ],
+      "correct_answer": [
+        "tuple",
+        "frozenset",
+        "str"
+      ],
+      "points": 10,
+      "grading_type": "exact",
+      "review": "permitted"
+    },
+    {
+      "id": "q13_confidence",
+      "text": "How confident are you in your answers to this quiz?",
+      "type": "rating",
+      "required": true,
+      "randomize": false,
+      "min": 1,
+      "max": 5,
+      "labels": [
+        "Not confident",
+        "Somewhat confident",
+        "Confident",
+        "Very confident",
+        "Fully confident"
+      ],
+      "review": "none"
+    }
+  ]
+}
