@@ -159,5 +159,9 @@ responses.db
 # Example files and directories
 quiztest
 
-# Internal comparison files
+# Internal comparison or workflow files
 COMPARE.md
+WORKFLOW.md
+
+# Exported files
+exports/
