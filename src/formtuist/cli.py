@@ -13,6 +13,12 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
+from formtuist.analyze import (
+    histogram,
+    per_question_stats,
+    quiz_stats,
+    sparkline_for_question,
+)
 from formtuist.database import (
     ANSWERS_JSON_COLUMN,
     ATTEMPT_ID_ENV_NAME,
@@ -39,11 +45,15 @@ from formtuist.grader import (
     BREAKDOWN_ID_KEY,
     BREAKDOWN_KEY,
     BREAKDOWN_SCORE_KEY,
+    FINAL_SCORE_KEY,
     MAX_KEY,
+    PERCENTAGE_FINAL_KEY,
     PERCENTAGE_KEY,
+    TOTAL_FINAL_KEY,
     TOTAL_KEY,
     grade_report_to_json,
     grade_response,
+    is_pending,
     refresh_prelim,
 )
 from formtuist.parser import parse_form
@@ -108,6 +118,7 @@ DEPENDENCY_NAMES = [
     "click",
     "typer",
     "platformdirs",
+    "sparklines",
 ]
 
 VERSION_TITLE = f"formtuist {FORMTUIST_VERSION}"
@@ -872,6 +883,322 @@ def review(  # noqa: PLR0913, PLR0917
         form_path, responses_path, review_type, question, effective_reviewer
     )
     app_ui.run()
+
+
+ANALYZE_REVIEW_HELP = "Use prelim or final scores."
+ANALYZE_QUESTION_HELP = "Only analyze this question id."
+ANALYZE_FORMAT_HELP = "Output format: table, json, or csv."
+ANALYZE_OUTPUT_HELP = "Write output to a file."
+ANALYZE_BINS_HELP = "Number of histogram bins."
+ANALYZE_SPARKLINES_HELP = (
+    "Comma-separated question ids for sparklines (table only, e.g., q1,q2)."
+)
+
+
+@app.command()
+def analyze(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
+    form_path: Path = typer.Argument(
+        ...,
+        help=FORM_PATH_HELP,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    responses_path: Path = typer.Argument(
+        ...,
+        help=RESPONSES_PATH_HELP,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    code_dir: Path = typer.Option(
+        None,
+        "--code-dir",
+        help=CODE_DIR_HELP,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+    ),
+    review: Literal["final", "prelim"] = typer.Option(
+        "final",
+        "--review",
+        help=ANALYZE_REVIEW_HELP,
+    ),
+    question: str | None = typer.Option(
+        None,
+        "--question",
+        help=ANALYZE_QUESTION_HELP,
+    ),
+    format: Literal["table", "json", "csv"] = typer.Option(
+        "table",
+        "--format",
+        help=ANALYZE_FORMAT_HELP,
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help=ANALYZE_OUTPUT_HELP,
+        dir_okay=False,
+    ),
+    bins: int = typer.Option(
+        10,
+        "--bins",
+        help=ANALYZE_BINS_HELP,
+    ),
+    sparklines_id: str | None = typer.Option(
+        None,
+        "--sparklines-id",
+        help=ANALYZE_SPARKLINES_HELP,
+    ),
+) -> None:
+    """Analyze quiz statistics with average, distribution, and ranking."""
+    import csv as csvlib  # noqa: PLC0415
+    import json as jsonlib  # noqa: PLC0415
+
+    try:
+        form = parse_form(form_path, code_dir)
+    except ValidationError:
+        raise typer.Exit(code=1)
+    conn = init_db(responses_path)
+    try:
+        responses = get_responses(conn, form_name=form.name)
+    finally:
+        conn.close()
+    if not responses:
+        console.print(f"{GRADE_NO_RESPONSES_PREFIX}{form.name}.")
+        raise typer.Exit(code=0)
+    # build reports, handling review mode and pending
+    reports: list[dict[str, Any]] = []
+    for resp in responses:
+        grade = resp.get(GRADE_JSON_COLUMN)
+        if grade is None:
+            grade = grade_report_to_json(
+                grade_response(form, resp[ANSWERS_JSON_COLUMN])
+            )
+        else:
+            # ensure final fields exist for legacy snapshots
+            from formtuist.grader import finalize_report  # noqa: PLC0415
+
+            grade = finalize_report(grade)
+        if review == "prelim":
+            # use prelim totals for prelim view
+            prelim_report = {
+                **grade,
+                TOTAL_FINAL_KEY: grade[TOTAL_KEY],
+                PERCENTAGE_FINAL_KEY: grade[PERCENTAGE_KEY],
+            }
+            # per-entry final should be prelim
+            prelim_report[BREAKDOWN_KEY] = [
+                {
+                    **e,
+                    FINAL_SCORE_KEY: e.get(
+                        BREAKDOWN_SCORE_KEY, e.get(FINAL_SCORE_KEY)
+                    ),
+                }
+                for e in grade[BREAKDOWN_KEY]
+            ]
+            reports.append(prelim_report)
+        else:
+            reports.append(grade)
+    # filter by question focus if requested
+    per_q_all = per_question_stats(reports, form)
+    if question is not None:
+        per_q_all = [p for p in per_q_all if p["id"] == question]
+        if not per_q_all:
+            console.print(f"unknown question id: {question}")
+            raise typer.Exit(code=1)
+    # sparklines handling
+    spark_ids: list[str] | None = None
+    if sparklines_id is not None:
+        spark_ids = [s.strip() for s in sparklines_id.split(",") if s.strip()]
+        valid_ids = {q.id for q in form.questions}  # type: ignore[union-attr]
+        for sid in spark_ids:
+            if sid not in valid_ids:
+                console.print(f"unknown question id: {sid}")
+                raise typer.Exit(code=1)
+    # compute aggregates
+    max_points = sum(
+        getattr(q, "points", 0)  # type: ignore[union-attr]
+        for q in form.questions
+        if getattr(q, "correct_answer", None) is not None
+        or getattr(q, "review", "none") == "required"
+    )
+    qstats = quiz_stats(reports, max_points)
+    # histogram over finalized percentages
+    finalized_reports = [r for r in reports if not is_pending(r)]
+    percentages = [
+        r.get(PERCENTAGE_FINAL_KEY, r[PERCENTAGE_KEY])
+        for r in finalized_reports
+    ]
+    hist = histogram(percentages, bins=bins)  # type: ignore[arg-type]
+    # output handling
+    if format in ("json", "csv"):
+        payload = {
+            "form": form.name,
+            "quiz": qstats,
+            "histogram": hist,
+            "per_question": per_q_all,
+        }
+        if sparklines_id is not None:
+            spark_map = {
+                sid: sparkline_for_question(sid, reports)
+                for sid in spark_ids or []
+            }
+            payload["sparklines"] = spark_map
+        if format == "json":
+            out_text = jsonlib.dumps(payload, indent=2)
+            if output is not None:
+                output.write_text(out_text, encoding="utf-8")
+                console.print(f"Analysis written to [bold]{output}[/bold]")
+            else:
+                typer.echo(out_text)
+        else:
+            # csv: per-question rows
+            fieldnames = [
+                "id",
+                "points",
+                "avg_final",
+                "median_final",
+                "p",
+                "difficulty",
+                "correct_rate",
+                "n_finalized",
+                "pending",
+            ]
+            if sparklines_id is not None:
+                fieldnames.append("sparkline")
+            rows = []
+            for row in per_q_all:
+                r: dict[str, Any] = {
+                    k: row[k] for k in fieldnames if k != "sparkline"
+                }
+                if sparklines_id is not None:
+                    r["sparkline"] = sparkline_for_question(row["id"], reports)
+                rows.append(r)
+            if output is not None:
+                with output.open("w", encoding="utf-8", newline="") as f:
+                    w = csvlib.DictWriter(f, fieldnames=fieldnames)
+                    w.writeheader()
+                    w.writerows(rows)
+                console.print(f"Analysis written to [bold]{output}[/bold]")
+            else:
+                # write csv to stdout via typer
+                import io  # noqa: PLC0415
+
+                buf = io.StringIO()
+                w = csvlib.DictWriter(buf, fieldnames=fieldnames)
+                w.writeheader()
+                w.writerows(rows)
+                typer.echo(buf.getvalue())
+        raise typer.Exit(code=0)
+    # table format (default) — three panels
+    # panel 1: quiz-level
+    qtable = Table(
+        title=f"Quiz Statistics for {form.name}",
+        header_style="bold",
+    )
+    qtable.add_column("Metric")
+    qtable.add_column("Value", justify="right")
+    pending_n = qstats["n_total"] - qstats["n_finalized"]
+    qtable.add_row("Responses", str(qstats["n_total"]))
+    qtable.add_row("Finalized", str(qstats["n_finalized"]))
+    qtable.add_row("Pending", str(pending_n))
+    qtable.add_row("Max points", str(qstats["max_points"]))
+    if qstats["n_finalized"] > 0:
+        qtable.add_row(
+            "Mean",
+            f"{qstats['mean_total']:.1f}/{qstats['max_points']} "
+            f"({qstats['mean_percentage']:.1f}%)",
+        )
+        qtable.add_row(
+            "Median",
+            f"{qstats['median_total']:.1f} "
+            f"({qstats['median_percentage']:.1f}%)",
+        )
+        qtable.add_row(
+            "Stddev",
+            f"{qstats['stdev_total']:.1f} ({qstats['stdev_percentage']:.1f}%)",
+        )
+        qtable.add_row(
+            "Five-number %",
+            f"min {qstats['min_percentage']:.1f}  "
+            f"Q1 {qstats['q1_percentage']:.1f}  "
+            f"med {qstats['median_percentage']:.1f}  "
+            f"Q3 {qstats['q3_percentage']:.1f}  "
+            f"max {qstats['max_percentage']:.1f}",
+        )
+        if pending_n > 0:
+            qtable.add_row(
+                "Note",
+                f"[yellow]Pending: {pending_n} need review[/yellow]",
+            )
+    console.print(qtable)
+    console.print("")
+    # panel 2: histogram with min/max context for the bar
+    hist_title = (
+        f"Distribution (percentage_{review}, "
+        f"n_finalized={qstats['n_finalized']}"
+    )
+    if qstats["n_finalized"] > 0:
+        hist_title += (
+            f", min {qstats['min_percentage']:.1f}%, "
+            f"max {qstats['max_percentage']:.1f}%"
+        )
+    hist_title += ")"
+    htable = Table(
+        title=hist_title,
+        header_style="bold",
+    )
+    htable.add_column("Range")
+    htable.add_column("Count", justify="right")
+    htable.add_column("Bar")
+    max_count = max((b["count"] for b in hist), default=1)
+    for b in hist:
+        bar = "█" * int(b["count"] / max_count * 10) if max_count else ""
+        htable.add_row(b["label"], str(b["count"]), bar)
+    console.print(htable)
+    if qstats["n_finalized"] > 0:
+        console.print(
+            f"[dim]Bar: 1 █ = 1 response "
+            f"(min 0, max {max_count} per bin)[/dim]"
+        )
+    console.print("")
+    # panel 3: per-question ranking
+    ptable = Table(
+        title="Per-question (easiest → hardest, final)",
+        header_style="bold",
+    )
+    ptable.add_column("Rank", justify="right")
+    ptable.add_column("ID")
+    ptable.add_column("Pts", justify="right")
+    ptable.add_column("Avg", justify="right")
+    ptable.add_column("p%", justify="right")
+    ptable.add_column("Correct%", justify="right")
+    ptable.add_column("Pending", justify="right")
+    if spark_ids is not None:
+        ptable.add_column("Sparkline")
+    for idx, row in enumerate(per_q_all, start=1):
+        avg_str = f"{row['avg_final']:.1f}/{row['points']}"
+        p_str = f"{row['p'] * 100:.0f}%"
+        corr_str = f"{row['correct_rate'] * 100:.0f}%"
+        cols: list[str] = [
+            str(idx),
+            row["id"],
+            str(row["points"]),
+            avg_str,
+            p_str,
+            corr_str,
+            str(row["pending"]),
+        ]
+        if spark_ids is not None:
+            if row["id"] in spark_ids:
+                cols.append(sparkline_for_question(row["id"], reports))
+            else:
+                cols.append("")
+        ptable.add_row(*cols)
+    console.print(ptable)
+    raise typer.Exit(code=0)
 
 
 @app.callback()
