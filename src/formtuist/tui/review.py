@@ -44,7 +44,10 @@ REVIEW_NO_RESPONSES = "No responses for this question."
 REVIEW_SCORE_LABEL = "Manual score"
 REVIEW_COMMENT_LABEL = "Comment"
 REVIEW_SAVE_LABEL = "Save"
+REVIEW_QUIT_LABEL = "Quit"
 REVIEW_ANSWER_LABEL = "Student answer: "
+REVIEW_CORRECT_LABEL = "Expected: "
+REVIEW_PATTERN_LABEL = "Pattern: "
 REVIEW_PRELIM_LABEL = "Prelim: "
 REVIEW_FINAL_LABEL = "Final: "
 REVIEW_REVIEWED_LABEL = "Reviewed: "
@@ -79,6 +82,7 @@ class ReviewScreen(Screen):
         Binding("ctrl+p", "prev_question", "Prev Q"),
         Binding("f", "toggle_pending", "Pending"),
         Binding("e", "focus_score", "Edit Score"),
+        Binding("ctrl+c", "quit", "Quit"),
     ]
 
     def __init__(
@@ -133,6 +137,8 @@ class ReviewScreen(Screen):
                 yield Static("", id="review-question-text")
                 yield Static("", id="review-code")
                 yield Static("", id="review-answer")
+                yield Static("", id="review-correct")
+                yield Static("", id="review-pattern")
                 yield Static("", id="review-prelim")
                 yield Static("", id="review-final")
                 yield Static("", id="review-reviewed")
@@ -151,6 +157,9 @@ class ReviewScreen(Screen):
                 yield Static("", id="review-counter")
                 yield Button(
                     REVIEW_SAVE_LABEL, id="review-save", variant="primary"
+                )
+                yield Button(
+                    REVIEW_QUIT_LABEL, id="review-quit", variant="default"
                 )
         yield FormtuistFooter()
 
@@ -265,6 +274,38 @@ class ReviewScreen(Screen):
                 self.query_one("#review-answer", Static).update(
                     REVIEW_NO_RESPONSES
                 )
+                correct = getattr(question, "correct_answer", None)
+                if correct is None:
+                    correct_str = "(no expected answer)"
+                else:
+                    correct_str = _format_answer(correct)
+                self.query_one("#review-correct", Static).update(
+                    f"{REVIEW_CORRECT_LABEL}{correct_str}"
+                )
+                grading_type = getattr(question, "grading_type", None)
+                accepts = getattr(question, "accepts", None)
+                if grading_type == "regex":
+                    pat = accepts
+                    if pat is None and isinstance(correct, str):
+                        pat = correct
+                    pat_str = f"regex: {pat}" if pat else "(no pattern)"
+                elif grading_type == "contains":
+                    pat_str = (
+                        f"contains: {_format_answer(correct)}"
+                        if correct is not None
+                        else "(none)"
+                    )
+                elif grading_type:
+                    pat_str = (
+                        f"{grading_type}: {_format_answer(correct)}"
+                        if correct is not None
+                        else f"{grading_type}"
+                    )
+                else:
+                    pat_str = "(none)"
+                self.query_one("#review-pattern", Static).update(
+                    f"{REVIEW_PATTERN_LABEL}{pat_str}"
+                )
                 self.query_one("#review-prelim", Static).update("")
                 self.query_one("#review-final", Static).update("")
                 self.query_one("#review-reviewed", Static).update("")
@@ -293,6 +334,39 @@ class ReviewScreen(Screen):
         try:
             self.query_one("#review-answer", Static).update(
                 f"{REVIEW_ANSWER_LABEL}{_format_answer(answer)}"
+            )
+            # expected answer and pattern for the reviewer
+            correct = getattr(question, "correct_answer", None)
+            if correct is None:
+                correct_str = "(no expected answer)"
+            else:
+                correct_str = _format_answer(correct)
+            self.query_one("#review-correct", Static).update(
+                f"{REVIEW_CORRECT_LABEL}{correct_str}"
+            )
+            grading_type = getattr(question, "grading_type", None)
+            accepts = getattr(question, "accepts", None)
+            if grading_type == "regex":
+                pat = accepts
+                if pat is None and isinstance(correct, str):
+                    pat = correct
+                pat_str = f"regex: {pat}" if pat else "(no pattern)"
+            elif grading_type == "contains":
+                pat_str = (
+                    f"contains: {_format_answer(correct)}"
+                    if correct is not None
+                    else "(none)"
+                )
+            elif grading_type:
+                pat_str = (
+                    f"{grading_type}: {_format_answer(correct)}"
+                    if correct is not None
+                    else f"{grading_type}"
+                )
+            else:
+                pat_str = "(none)"
+            self.query_one("#review-pattern", Static).update(
+                f"{REVIEW_PATTERN_LABEL}{pat_str}"
             )
             if entry is not None:
                 prelim = entry.get(BREAKDOWN_SCORE_KEY)
@@ -453,6 +527,8 @@ class ReviewScreen(Screen):
             self.notify(f"Save failed: {error}", severity="error")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle save button."""
+        """Handle save and quit buttons."""
         if event.button.id == "review-save":
             self.action_save()
+        elif event.button.id == "review-quit":
+            self.app.exit()
