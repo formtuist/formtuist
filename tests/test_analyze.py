@@ -323,6 +323,34 @@ class TestAnalyzeCli:
         assert result.exit_code != 0
         assert "unknown question" in result.output
 
+    def test_sparklines_all(self, tmp_path: Path) -> None:
+        """--sparklines-all adds sparklines for all gradeable questions."""
+        form_path, db, _ = _populate(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            app, ["analyze", str(form_path), str(db), "--sparklines-all"]
+        )
+        assert result.exit_code == 0
+        assert "Sparkline" in result.output
+
+    def test_sparklines_all_and_id_error(self, tmp_path: Path) -> None:
+        """Using both --sparklines-all and --sparklines-id is an error."""
+        form_path, db, _ = _populate(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                str(form_path),
+                str(db),
+                "--sparklines-all",
+                "--sparklines-id",
+                "q1",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "cannot use both" in result.output
+
     def test_prelim_vs_final(self, tmp_path: Path) -> None:
         """--review prelim shows different totals than final."""
         form_path, db, _ = _populate(tmp_path)
