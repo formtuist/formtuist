@@ -338,11 +338,14 @@ uvx formtuist analyze examples/quiz.json responses.db
 uvx formtuist analyze examples/quiz.json responses.db --question q7_lambda_square
 
 # Prelim vs final — what Sheets saw before human review
-uvx formtuist analyze examples/quiz.json responses.db --review prelim --format json | python -m json.tool | head -n 40
-uvx formtuist analyze examples/quiz.json responses.db --review final --format json | python -m json.tool | head -n 40
+uvx formtuist analyze examples/quiz.json responses.db \
+  --review prelim --format json | python -m json.tool | head -n 40
+uvx formtuist analyze examples/quiz.json responses.db \
+  --review final --format json | python -m json.tool | head -n 40
 
 # Sparklines (also try uvx sparklines 2 7 1 8 2 8 1 8 → ▂▇▁█▂█▁█)
-uvx formtuist analyze examples/quiz.json responses.db --sparklines-id q2_mutability,q7_lambda_square
+uvx formtuist analyze examples/quiz.json responses.db \
+  --sparklines-id q2_mutability,q7_lambda_square
 uvx formtuist analyze examples/quiz.json responses.db --sparklines-all
 
 # Machine-readable for Sheets or scripting
@@ -353,11 +356,14 @@ uvx formtuist analyze examples/quiz.json responses.db --format csv --output stat
 uvx formtuist analyze examples/quiz.json responses.db --bins 5
 ```
 
-The `table` view has three panels: **Quiz Statistics** (mean/median/stddev +
-five-number), **Distribution** (binned `percentage` with `Bar: 1 █ = 1
-response (min 0, max N per bin)` legend), and **Per-question** (easiest →
-hardest, with `Avg`, `p%`, `Correct%`, `Pending`, and `Sparkline` when
-requested).
+The `table` view has three panels:
+
+- **Quiz Statistics** (mean/median/stddev + five-number)
+
+- **Distribution** (binned `percentage` with a legend to explain the bar
+
+- **Per-question** (easiest → hardest, with `Avg`, `p%`, `Correct%`, `Pending`,
+  and `Sparkline` when requested).
 
 ## Keyboard shortcuts
 
