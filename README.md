@@ -289,6 +289,76 @@ score, re-grades each stored answer with the form's current `correct_answer`
 and `points`, and is read-only -- `export --form` writes fresh numbers to the
 output file but does not update the database.
 
+### `analyze` — Analyze quiz statistics
+
+```bash
+uvx formtuist analyze examples/quiz.json responses.db
+```
+
+Prints a terminal-native summary for a quiz without leaving the terminal or
+uploading to a spreadsheet: the quiz-level average and five-number summary,
+the score distribution as a binned histogram, and the per-question difficulty
+ranking from easiest to hardest. It reuses the stored `grade_json` snapshots
+so `review` decisions (`manual_score`/`final_score`) and `pending` states are
+already reflected — no recompute unless you ask for it.
+
+By default `analyze` uses `final` scores (`manual_score` when present,
+otherwise the prelim) and shows both `n_total` (all responses for the form)
+and `n_finalized` (responses with no `review: required` pending). Means,
+medians, and per-question averages are computed over `n_finalized` only, so
+a pending manual pile does not pull the mean down. The header shows
+`n=42 (finalized 38, pending 4)` when any manual grading is still open.
+
+**Options:**
+
+| Flag | Description | Default |
+|---|---|---|
+| `--code-dir` | Directory that code file references are relative to | form file's directory |
+| `--review` | Which scores to summarize: `final` or `prelim` | `final` |
+| `--question` | Only analyze this question id | all gradeable |
+| `--format` | `table` (rich), `json`, or `csv` | `table` |
+| `--output` / `-o` | Write `json`/`csv` to a file instead of printing | — |
+| `--bins` | Number of histogram bins for `percentage` | `10` |
+| `--sparklines-id` | Comma-separated question ids for sparklines (table only) | — |
+| `--sparklines-all` | Show sparklines for every gradeable question (table only) | off |
+
+`--sparklines-id` and `--sparklines-all` are mutually exclusive; omit both
+for a compact table with no sparklines. When enabled, each per-question row
+gains a `Sparkline` column — a tiny inline bar like `▂▇▁█` that shows the
+sequence of `final_score` values across students in `id` order (the same
+order `grade` and `export` use). `json`/`csv` omit the visual column.
+
+**Examples:**
+
+```bash
+# Rich table with average, histogram, and per-question ranking
+uvx formtuist analyze examples/quiz.json responses.db
+
+# Focus one question (deep dive)
+uvx formtuist analyze examples/quiz.json responses.db --question q7_lambda_square
+
+# Prelim vs final — what Sheets saw before human review
+uvx formtuist analyze examples/quiz.json responses.db --review prelim --format json | python -m json.tool | head -n 40
+uvx formtuist analyze examples/quiz.json responses.db --review final --format json | python -m json.tool | head -n 40
+
+# Sparklines (also try uvx sparklines 2 7 1 8 2 8 1 8 → ▂▇▁█▂█▁█)
+uvx formtuist analyze examples/quiz.json responses.db --sparklines-id q2_mutability,q7_lambda_square
+uvx formtuist analyze examples/quiz.json responses.db --sparklines-all
+
+# Machine-readable for Sheets or scripting
+uvx formtuist analyze examples/quiz.json responses.db --format json --output stats.json
+uvx formtuist analyze examples/quiz.json responses.db --format csv --output stats.csv
+
+# Fewer histogram buckets
+uvx formtuist analyze examples/quiz.json responses.db --bins 5
+```
+
+The `table` view has three panels: **Quiz Statistics** (mean/median/stddev +
+five-number), **Distribution** (binned `percentage` with `Bar: 1 █ = 1
+response (min 0, max N per bin)` legend), and **Per-question** (easiest →
+hardest, with `Avg`, `p%`, `Correct%`, `Pending`, and `Sparkline` when
+requested).
+
 ## Keyboard shortcuts
 
 Inside the form TUI:
