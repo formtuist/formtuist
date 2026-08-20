@@ -161,6 +161,49 @@ All tests must follow these standards:
   `@pytest.mark.propertybased`.
 - Tests must not produce console output.
 
+## CLI Output Testing and Rich and Textual Encoding Traps to Avoid
+
+A recurring flake is `task test` failing while `task test-parallel` passes
+(or the converse) on a `CliRunner` assertion for CLI output. The cause is
+`rich`/`textual` TTY detection:
+
+- `rich.console.Console()` defaults to `stderr` and, when `isatty()` is true,
+  emits ANSI escape codes and may use a different encoding. Under
+  `pytest -n auto` (`task test-parallel`) each `xdist` worker is not a TTY
+  (plain `utf-8` to `stdout`); under single-process `task test` it may be a
+  TTY (ANSI to `stderr`). `CliRunner` captures `stdout`/`stderr` separately,
+  so `assert "Applied 1" in result.stdout` can be empty or ANSI-wrapped
+  while `result.output` holds the text.
+
+Required process for every agent working in Python on this repo:
+
+- For any CLI output that a test asserts, prefer plain `typer.echo()` or
+  `print(..., file=sys.stdout)` over `rich.console.Console().print()`. Plain
+  output is stable across `task test` and `task test-parallel` and has no
+  ANSI/encoding branch.
+- If `rich` must be used, construct the console explicitly:
+  `Console(file=sys.stdout, force_terminal=False, highlight=False)` and
+  avoid markup unless the test strips ANSI (e.g., via `rich.ansi` or a
+  substring check).
+- In tests using `typer.testing.CliRunner`, assert against
+  `result.output` (combined `stdout` + `stderr`) with a substring check
+  (`assert "Applied 1" in result.output`) rather than an exact
+  `result.stdout == "..."` check. This tolerates `stdout` vs `stderr`
+  splits and ANSI. Never assert a hard-coded ANSI string.
+- Verify both variants before completing:
+  `uv run task test` and `uv run task test-parallel`. The canonical gate
+  is `uv run task all`, but the two variants must both be green.
+- Always pass `encoding="utf-8"` to `Path.read_text`/`write_text` and to
+  `open(..., encoding="utf-8", newline="")` for CSV/JSON so the suite
+  behaves identically on Linux, macOS, and Windows.
+- When a fix touches CLI output, run `uv run task test-coverage` as well;
+  a coverage drop from an untested `rich` branch is a signal, not just a
+  lint failure.
+
+This process prevents the `review --batch`/`Applied 1 manual grade(s).`
+flake seen in `tests/test_postgrade.py::TestCliReviewBatch` and keeps the
+suite green on local machines and in CI.
+
 ## Web Interface Testing Workflow
 
 When the `textual-serve` web interface has a layout or rendering bug (for
