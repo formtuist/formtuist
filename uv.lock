@@ -634,7 +634,7 @@ wheels = [
 
 [[package]]
 name = "formtuist"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "bitbang" },
@@ -643,6 +643,7 @@ dependencies = [
     { name = "platformdirs" },
     { name = "pydantic" },
     { name = "rich" },
+    { name = "sparklines" },
     { name = "textual" },
     { name = "textual-serve" },
     { name = "textual-timepiece" },
@@ -682,6 +683,7 @@ requires-dist = [
     { name = "platformdirs", specifier = ">=4.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
+    { name = "sparklines", specifier = ">=0.4.1" },
     { name = "textual", specifier = ">=1.0.0" },
     { name = "textual-serve", specifier = ">=1.1.0" },
     { name = "textual-timepiece", specifier = ">=0.7.0" },
@@ -1987,6 +1989,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e8/c4/ba2f8066cceb6f23394729afe52f3bf7adec04bf9ed2c820b39e19299111/sortedcontainers-2.4.0.tar.gz", hash = "sha256:25caa5a06cc30b6b83d11423433f65d1f9d76c4c6a0c90e3379eaa43b9bfdb88", size = 30594, upload-time = "2021-05-16T22:03:42.897Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/46/9cb0e58b2deb7f82b84065f37f3bffeb12413f947f9388e4cac22c4621ce/sortedcontainers-2.4.0-py2.py3-none-any.whl", hash = "sha256:a163dcaede0f1c021485e957a39245190e74249897e2ae4b2aa38595db237ee0", size = 29575, upload-time = "2021-05-16T22:03:41.177Z" },
+]
+
+[[package]]
+name = "sparklines"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "termcolor" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/be/52/3e3c437c665397047e2c9364e27f53f85024c57fe990f422a30593fd8c98/sparklines-1.0.0.tar.gz", hash = "sha256:eee3ed5ac6dc954096ab092ce336941050eca790e2f33f85de65a4ea0a43cf74", size = 243390, upload-time = "2026-06-08T18:55:24.141Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2d/1b/712ddc74da87118f4f0c60a2adb5d6faadc986c72fa4bcef3d45be999c58/sparklines-1.0.0-py3-none-any.whl", hash = "sha256:6d3d2cd7ad955b071c3f0abcb5e04662c65cc51ab287342ed2602f3b95576033", size = 15319, upload-time = "2026-06-08T18:55:25.316Z" },
 ]
 
 [[package]]
