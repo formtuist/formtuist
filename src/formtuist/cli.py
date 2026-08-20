@@ -853,7 +853,8 @@ def review(  # noqa: PLR0913, PLR0917
                         reviewer=row_reviewer,
                     )
                     count += 1
-            console.print(f"Applied {count} manual grade(s).")
+            # report the number of manual grades applied
+            typer.echo(f"Applied {count} manual grade(s).")
         finally:
             conn.close()
         raise typer.Exit(code=0)
