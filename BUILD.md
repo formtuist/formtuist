@@ -118,9 +118,8 @@ first module:
 - `test` → `pytest -x -s -vv`
 - `test-parallel` → `pytest -x -s -vv -n auto -p no:sugar`
 - `test-silent` → `pytest -x --show-capture=no -n auto`
-- `test-coverage` → `pytest -s --cov=formtuist
---cov-branch --cov-fail-under={coveragefailunder}
---cov-report=term-missing tests/`
+- `test-coverage` → `pytest -s --cov=formtuist --cov-branch
+  --cov-fail-under={coveragefailunder} --cov-report=term-missing tests/`
 - `test-propertybased` → `pytest -x -s -vv -m propertybased`
 - `test-not-propertybased` → `pytest -x -s -vv -m 'not propertybased'`
 - `display` → `uv run formtuist display`
@@ -211,6 +210,7 @@ ______________________________________________________________________
 ```json
 {
   "name": "CS 101 Attendance",
+  "version": "0.1.0",
   "description": "Daily attendance check-in",
   "config": {
     "randomize_questions": false,
@@ -238,8 +238,13 @@ ______________________________________________________________________
 }
 ```
 
+The optional `version` field is author-supplied descriptive metadata. On
+submission, Formtuist additionally records the exact input JSON contents, its
+fully qualified source path, and a SHA-256 hash; those provenance fields are
+the authoritative form identity.
+
 When `allow_multiple_submissions` is `false` the form must also declare an
-`auth` provider. Without an identity there is no way to recognise a repeat
+`auth` provider. Without an identity there is no way to recognize a repeat
 submitter, so such definitions are rejected at parse time instead of silently
 promising an enforcement they cannot deliver. Anonymous forms keep
 `allow_multiple_submissions` at its default of `true`.
@@ -434,9 +439,14 @@ Design a SQLite schema:
 CREATE TABLE responses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     form_name TEXT NOT NULL,
+    attempt_id TEXT,
     submitted_at TEXT NOT NULL,  -- ISO 8601
     answers_json TEXT NOT NULL,  -- JSON object mapping question_id -> answer
-    grade_json TEXT              -- JSON grade snapshot (auto-graded forms)
+    grade_json TEXT,             -- JSON grade snapshot (auto-graded forms)
+    form_version TEXT,
+    form_hash TEXT,
+    form_path TEXT,
+    form_contents TEXT
 );
 ```
 
@@ -465,7 +475,8 @@ submit a timed quiz within a 10-second window.
 Functions needed:
 
 - `init_db(db_path: Path) -> sqlite3.Connection` — runs WAL + busy_timeout
-- `save_response(conn, form_name, answers, *, attempt_id=None) -> int`
+- `save_response(conn, form_name, answers, *, attempt_id=None,
+  form_version=None, form_hash=None, form_path=None, form_contents=None) -> int`
 - `update_response_grade(conn, response_id: int, grade: dict) -> None`
 - `get_responses(conn, form_name: str | None) -> list[dict]`
 - `get_response_count(conn, form_name: str) -> int`
@@ -475,7 +486,10 @@ Functions needed:
 `save_response` accepts an optional `grade` keyword argument holding a
 JSON-safe report snapshot; `update_response_grade` overwrites the snapshot
 for an existing row (used by `grade --recompute`). Every row also carries an
-`attempt_id` column that scopes a submission to one run of the form.
+`attempt_id` column that scopes a submission to one run of the form. Every
+new submission also stores the optional author version, the SHA-256 hash of the
+exact input JSON bytes, its fully qualified source path, and the exact input
+JSON contents. Older rows are migrated with nullable provenance fields.
 
 For a single-submission form, `ensure_single_submission_index()` creates a
 partial unique index on `(form_name, attempt_id, github_username)` restricted
@@ -497,15 +511,17 @@ duplicate identity rows skip the index and rely on that check alone.
   `export_grades_to_{csv,json,jsonl}` writers for the graded view.
 
 All full-view formats flatten each response into one row: metadata columns
-(id, form_name, submitted_at, github_username, github_url), the stored grade
+(id, form_name, attempt_id, submitted_at, github_username, github_url,
+form_version, form_hash, form_path, form_contents), the stored grade
 totals (total, max, percentage), and one column per question id (the sorted
 union of answer keys across responses). Missing answers become empty cells,
 `null`s, or NULLs. List answers are JSON-encoded in csv and sqlite cells
 and stay native arrays in json. The sqlite export writes a fresh
 `responses_flat` table so datasette shows real columns.
 
-The graded view (`--type graded`) writes only the grades: id, form_name,
-attempt_id, student (github_username or the `-` placeholder), per-question
+The graded view (`--type graded`) writes only the grades plus provenance:
+id, form_name, attempt_id, student (github_username or the `-` placeholder),
+form_version, form_hash, form_path, form_contents, per-question
 scores, total, max, and percentage. With a form the per-question columns
 follow the form's question order and each grade is recomputed; without a form
 the columns follow the stored snapshot's breakdown order and grades are read
@@ -1024,7 +1040,22 @@ time for gradeable forms, a graded export works without the form file.
 1. Launch `datasette serve <responses.db>` with optional args.
 1. Print URL to console.
 
-### 5.7 `grade <form.json> <responses.db> [--recompute]`
+### 5.7 `provenance [responses.db] [--view ...]`
+
+1. Open a read-only TUI using the default database or an explicit database
+   path.
+1. Show a submission list by default, including response ID, form name,
+   version, timestamp, identity, and shortened hash.
+1. Let the user navigate to a response and inspect its author version, SHA-256
+   hash, fully qualified source path, exact JSON contents, and source
+   availability.
+1. Support `--latest`, `--response-id`, and `--view list|latest|response`.
+1. Return a nonzero exit code when a requested response ID does not exist.
+
+The stored JSON contents are the reproducibility authority. A source path is
+only a convenience because the file may be moved or edited after submission.
+
+### 5.8 `grade <form.json> <responses.db> [--recompute]`
 
 1. Load form definition (with `correct_answer` fields).
 1. Load all responses from DB.
