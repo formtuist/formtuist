@@ -367,21 +367,52 @@ The `table` view has three panels:
 
 ## Keyboard shortcuts
 
-Inside the form TUI:
+The command-line TUIs share a small set of consistent keys, so a shortcut
+means the same thing on every screen:
+
+| Key | Meaning everywhere |
+|---|---|
+| `Ctrl+N` | Next question |
+| `Ctrl+P` | Previous question |
+| `Ctrl+B` | Toggle the sidebar |
+| `Ctrl+O` | Open the command palette |
+| `Ctrl+C` | Quit |
+
+### Form TUI (fill in and submit a survey/quiz)
 
 | Key | Action |
 |---|---|
 | `Ctrl+S` | Submit the form |
-| `Ctrl+J` | Focus the next question |
-| `Ctrl+K` | Focus the previous question |
+| `Ctrl+N` | Focus the next question |
+| `Ctrl+P` | Focus the previous question |
 | `Ctrl+F` | Focus the first input (or the auth token field) |
 | `Ctrl+B` | Toggle the sidebar |
+| `Ctrl+R` | Restart the form (on the confirmation screen) |
+| `Ctrl+O` | Open the command palette |
 | `Ctrl+C` | Quit |
-| `Ctrl+P` | Open the command palette |
 
-The left sidebar shows an abbreviated list of the questions and highlights
-the one you are currently answering. A counter at the bottom shows
-`Question X / Y`.
+The left sidebar shows an abbreviated list of the questions and
+highlights the one you are currently answering. A counter at the bottom
+shows `Question X / Y`.
+
+### Review TUI (post-grade manual review for assessments)
+
+Navigation in the reviewer is question-first: you step through the
+responses for one question with `Ctrl+J`/`Ctrl+K`, then move between
+questions with `Ctrl+N`/`Ctrl+P`.
+
+| Key | Action |
+|---|---|
+| `Ctrl+S` | Save the current manual score and comment |
+| `Ctrl+J` | Next response (within the current question) |
+| `Ctrl+K` | Previous response |
+| `Ctrl+N` | Next question |
+| `Ctrl+P` | Previous question |
+| `e` | Focus the score input (validated to `0..points`) |
+| `f` | Toggle pending-only (only unsaved responses) |
+| `Ctrl+B` | Toggle the sidebar |
+| `Ctrl+O` | Open the command palette |
+| `Ctrl+C` | Quit |
 
 ## Authentication
 
