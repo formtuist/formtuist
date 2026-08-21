@@ -38,6 +38,44 @@
     text-wrap: wrap;
 }
 
+#provenance-layout {
+    height: 1fr;
+}
+
+#provenance-list-pane {
+    width: 2fr;
+    height: 100%;
+    border-right: solid white;
+    overflow-y: auto;
+    padding: 1;
+    scrollbar-size: 0 0;
+}
+
+#provenance-list-title {
+    text-style: bold;
+    padding-bottom: 1;
+    border-bottom: solid white;
+    margin-bottom: 1;
+}
+
+.provenance-item {
+    padding: 0 1;
+    margin-bottom: 1;
+    text-wrap: wrap;
+}
+
+.provenance-item.current {
+    background: $accent 50%;
+}
+
+#provenance-detail {
+    width: 3fr;
+    height: 100%;
+    padding: 1;
+    text-wrap: wrap;
+    scrollbar-size-vertical: 1;
+}
+
 Label {
     margin-top: 1;
     margin-bottom: 1;
