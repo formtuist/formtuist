@@ -166,8 +166,8 @@ class FormScreen(Screen):
         ("ctrl+s", "submit", "Submit"),
         ("ctrl+f", "focus_first_input", "Focus Input"),
         ("ctrl+b", "toggle_sidebar", "Sidebar"),
-        Binding("ctrl+j", "focus_next", "Next Q", priority=True),
-        Binding("ctrl+k", "focus_previous", "Prev Q", priority=True),
+        Binding("ctrl+n", "focus_next", "Next Q", priority=True),
+        Binding("ctrl+p", "focus_previous", "Prev Q", priority=True),
     ]
 
     def __init__(
@@ -487,7 +487,7 @@ class SubmitScreen(Screen):
         if self.grade_report is not None:
             yield from self._compose_grade_review()
         yield Static(
-            "[dim]Tip: Press Ctrl+P for the command palette.[/dim]",
+            "[dim]Tip: Press Ctrl+O for the command palette.[/dim]",
             id="confirm-tip",
         )
         if self.form.config.allow_multiple_submissions:
