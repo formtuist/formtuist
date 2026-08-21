@@ -122,13 +122,14 @@ class ReviewApp(App):
         Binding("ctrl+c", "quit", "Quit"),
     ]
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         form_path: Path,
         db_path: Path,
         review_type: str = "required",
         question_filter: str | None = None,
         reviewer: str | None = None,
+        show_student_name: bool = True,
     ) -> None:
         """Store review filters and load the form definition."""
         self.form_path = form_path
@@ -136,6 +137,7 @@ class ReviewApp(App):
         self.review_type = review_type
         self.question_filter = question_filter
         self.reviewer = reviewer
+        self.show_student_name = show_student_name
         self.form = parse_form(form_path)
         super().__init__()
         self.theme = "ansi-dark"
@@ -151,5 +153,6 @@ class ReviewApp(App):
                 review_type=self.review_type,
                 question_filter=self.question_filter,
                 reviewer=self.reviewer,
+                show_student_name=self.show_student_name,
             )
         )
