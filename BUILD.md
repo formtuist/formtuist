@@ -268,6 +268,13 @@ to `false` keeps its exact file position while the remaining questions
 are shuffled into the other positions. This suits questions that only
 make sense at a fixed point, such as a closing confidence rating.
 
+`multiple_choice` and `checkbox` questions additionally accept a
+`randomize_choices` field that defaults to `false` (opt-in). Set it to
+`true` to shuffle the display order of the question's options once per
+session, seeded the same way as question ordering, so each student sees
+a different (but stable) option order. Grading is unaffected because
+submitted answers are the choice labels and `correct_answer` is a label.
+
 ### 2.3 Grading Fields
 
 Each question may optionally include:
