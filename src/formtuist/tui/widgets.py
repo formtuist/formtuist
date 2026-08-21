@@ -236,10 +236,10 @@ class FormtuistFooter(Footer):
     """Footer that groups form navigation bindings together.
 
     Textual renders footer keys in the order that bindings are registered.
-    Because the Input widget binds ctrl+k internally (kill line), our
-    priority binding for ctrl+k keeps the input's early position, which
-    splits the navigation keys apart.  This footer re-sorts the bindings
-    so that the navigation keys (ctrl+j / ctrl+k) are displayed together.
+    Because the Input widget binds ctrl+k internally (kill line), a priority
+    binding for a nav key can split the navigation keys apart. This footer
+    re-sorts the bindings so that the navigation keys (ctrl+n / ctrl+p) are
+    displayed together.
     """
 
     # sort priority for known form actions (lower is displayed first)
