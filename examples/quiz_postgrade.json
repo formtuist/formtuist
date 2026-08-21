@@ -1,5 +1,6 @@
 {
   "name": "CS 101 — Week 3 Quiz (Post-Grade Demo)",
+  "version": "0.1.0",
   "description": "Post-grade demo: prelim regex plus human review. Required review must be judged before the grade is final; permitted appears only in an all review pass.",
   "config": {
     "auth": "github",
