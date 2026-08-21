@@ -381,6 +381,13 @@ class TestExporterPostGrade:
 class TestCliReviewBatch:
     """Tests for the review CLI batch mode."""
 
+    def test_review_help_lists_student_flag(self) -> None:
+        """Review help documents the show-student-name toggle."""
+        runner = CliRunner()
+        result = runner.invoke(app, ["review", "--help"])
+        assert result.exit_code == 0
+        assert "show-student-name" in result.output
+
     def test_batch_applies_scores(self, tmp_path: Path) -> None:
         """Batch CSV applies manual scores via set_post_grade."""
         form = _manual_form()
@@ -501,6 +508,24 @@ class TestCliReviewBatch:
 class TestTuiReview:
     """Smoke tests for the reviewer TUI."""
 
+    def _review_db(
+        self, tmp_path: Path, username: str | None
+    ) -> tuple[FormDefinition, Path]:
+        """Build a manual form and a DB with one graded response."""
+        form = _manual_form()
+        db = tmp_path / "review_student.db"
+        conn = init_db(db)
+        report = grade_report_to_json(grade_response(form, {"m1": "hi"}))
+        save_response(
+            conn,
+            form.name,
+            {"m1": "hi"},
+            github_username=username,
+            grade=report,
+        )
+        conn.close()
+        return form, db
+
     def test_review_screen_instantiates(self, tmp_path: Path) -> None:
         """ReviewScreen can be instantiated with required questions."""
         form = _manual_form()
@@ -510,6 +535,129 @@ class TestTuiReview:
 
         screen = ReviewScreen(form, db, review_type="required")
         assert len(screen.reviewable_questions) == 1
+
+    def test_review_shows_student_name(self, tmp_path: Path) -> None:
+        """The review detail shows the student's name by default."""
+        form, db = self._review_db(tmp_path, "alice")
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                student = screen.query_one("#review-student", Static)
+                assert "Student: alice" in str(student.render())
+
+        asyncio.run(run())
+
+    def test_review_student_name_can_be_hidden(self, tmp_path: Path) -> None:
+        """Review hides the student name when the flag is off."""
+        form, db = self._review_db(tmp_path, "alice")
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(
+                    form, db, review_type="required", show_student_name=False
+                )
+                await app.push_screen(screen)
+                student = screen.query_one("#review-student", Static)
+                assert student.render() == ""
+
+        asyncio.run(run())
+
+    def test_review_anonymous_student_fallback(self, tmp_path: Path) -> None:
+        """Review shows anonymous when the response has no username."""
+        form, db = self._review_db(tmp_path, None)
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                student = screen.query_one("#review-student", Static)
+                assert "Student: anonymous" in str(student.render())
+
+        asyncio.run(run())
+
+    def test_review_overview_shows_quiz_totals(self, tmp_path: Path) -> None:
+        """The detail overview shows quiz name and total scores."""
+        form = _form_with_review(tmp_path)
+        db = tmp_path / "overview.db"
+        conn = init_db(db)
+        report = grade_report_to_json(
+            grade_response(form, {"q1": "answer", "q3": "essay"})
+        )
+        save_response(
+            conn,
+            form.name,
+            {"q1": "answer", "q3": "essay"},
+            github_username="alice",
+            grade=report,
+        )
+        conn.close()
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                name = screen.query_one("#review-overview-name", Static)
+                total = screen.query_one("#review-overview-total", Static)
+                updated = screen.query_one("#review-overview-updated", Static)
+                assert "ReviewForm" in str(name.render())
+                assert "Total: 10 / 30" in str(total.render())
+                assert "Updated overall: 10 / 30" in str(updated.render())
+                title = screen.query_one("#review-question-title", Static)
+                assert str(title.render()).startswith("\n")
+
+        asyncio.run(run())
+
+    def test_review_overview_updates_after_manual_score(
+        self, tmp_path: Path
+    ) -> None:
+        """The overall total updates when a manual score is applied."""
+        form = _form_with_review(tmp_path)
+        db = tmp_path / "overview2.db"
+        conn = init_db(db)
+        report = grade_report_to_json(
+            grade_response(form, {"q1": "answer", "q3": "essay"})
+        )
+        rid = save_response(
+            conn,
+            form.name,
+            {"q1": "answer", "q3": "essay"},
+            github_username="alice",
+            grade=report,
+        )
+        conn.close()
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                updated = screen.query_one("#review-overview-updated", Static)
+                assert "Updated overall: 10 / 30" in str(updated.render())
+                assert screen.conn is not None
+                set_post_grade(
+                    screen.conn, form, rid, "q3", 12, reviewer="prof"
+                )
+                screen.responses = get_responses(
+                    screen.conn, form_name=form.name
+                )
+                screen._render_detail()
+                total = screen.query_one("#review-overview-total", Static)
+                updated = screen.query_one("#review-overview-updated", Static)
+                assert "Total: 10 / 30" in str(total.render())
+                assert "Updated overall: 22 / 30" in str(updated.render())
+
+        asyncio.run(run())
 
     def test_review_shows_required_and_permitted_modes(
         self, tmp_path: Path
