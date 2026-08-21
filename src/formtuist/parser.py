@@ -1,5 +1,6 @@
 """JSON validation and parsing for form definition files."""
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,12 @@ ERROR_LINE_SUFFIX = " (type="
 ERROR_LINE_CLOSE = ")"
 ERROR_TYPE_DEFAULT = "unknown"
 ENCODING = "utf-8"
+
+
+def read_form_source(path: Path) -> tuple[str, str]:
+    """Read exact form contents and return them with a SHA-256 hash."""
+    raw = path.read_bytes()
+    return raw.decode(ENCODING), hashlib.sha256(raw).hexdigest()
 
 
 def _format_error_path(loc: tuple[Any, ...]) -> str:
@@ -83,7 +90,7 @@ def parse_form(
         ValidationError: If the JSON content is invalid.
 
     """
-    raw = path.read_text(encoding=ENCODING)
+    raw, _form_hash = read_form_source(path)
     base_dir = code_dir if code_dir is not None else path.parent
     try:
         definition = FormDefinition.model_validate_json(
