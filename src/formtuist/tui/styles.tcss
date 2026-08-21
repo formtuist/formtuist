@@ -1,3 +1,8 @@
+/* thin, consistent vertical scrollbars in every scrollable pane */
+ScrollableContainer {
+    scrollbar-size-vertical: 1;
+}
+
 #question-scroll {
     width: 4fr;
     scrollbar-size: 0 0;
@@ -76,6 +81,14 @@
     scrollbar-size-vertical: 1;
 }
 
+#review-detail {
+    width: 3fr;
+    height: 100%;
+    padding: 1;
+    text-wrap: wrap;
+    scrollbar-size-vertical: 1;
+}
+
 Label {
     margin-top: 1;
     margin-bottom: 1;
@@ -100,12 +113,12 @@ DatePicker {
     margin-bottom: 1;
 }
 
-DatePicker > #input-control {
+DatePicker>#input-control {
     border: tall white;
     padding: 0;
 }
 
-DatePicker > #input-control:focus-within {
+DatePicker>#input-control:focus-within {
     border: tall $accent;
 }
 
@@ -178,14 +191,14 @@ TextArea:focus {
 }
 
 /* Code block styling */
-Static > .code {
+Static>.code {
     background: $surface;
     padding: 1;
     margin-bottom: 1;
 }
 
 /* URL hint styling */
-Static > .url {
+Static>.url {
     color: $accent;
     text-style: italic;
     margin-bottom: 1;
@@ -204,9 +217,39 @@ Static > .url {
     border: tall white;
 }
 
+/* Save-confirmation dialog for the reviewer */
+
+#review-dialog {
+    width: 62;
+    height: 11;
+    border: round $accent;
+    background: $surface;
+    padding: 1 2;
+    align: center middle;
+}
+
+#review-dialog-title {
+    text-style: bold;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+#review-dialog-text {
+    text-align: center;
+    margin-bottom: 1;
+}
+
+#review-dialog-buttons {
+    align: center middle;
+}
+
+#review-dialog-buttons Button {
+    margin: 0 1;
+}
+
 /* Command palette styling for readability and contrast */
 
-CommandPalette > Vertical {
+CommandPalette>Vertical {
     padding: 1;
     background: $surface;
 }
@@ -220,12 +263,12 @@ CommandPalette CommandList {
     color: $text;
 }
 
-CommandPalette CommandList > .option-list--option {
+CommandPalette CommandList>.option-list--option {
     color: $text;
     background: $surface;
 }
 
-CommandPalette CommandList > .option-list--option-highlighted {
+CommandPalette CommandList>.option-list--option-highlighted {
     color: $text;
     background: $accent;
 }
