@@ -18,6 +18,10 @@ from textual.widgets import Button, Header, Input, Label, Static
 
 from formtuist.auth import GitHubIdentity, fetch_github_identity
 from formtuist.database import (
+    FORM_CONTENTS_COLUMN,
+    FORM_HASH_COLUMN,
+    FORM_PATH_COLUMN,
+    FORM_VERSION_COLUMN,
     ensure_single_submission_index,
     has_submission,
     init_db,
@@ -170,17 +174,25 @@ class FormScreen(Screen):
         Binding("ctrl+p", "focus_previous", "Prev Q", priority=True),
     ]
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         form: FormDefinition,
         db_path: Path,
         code_theme: str = CODE_THEME_AUTO,
         seed: int | None = DEFAULT_SEED,
+        form_version: str | None = None,
+        form_hash: str | None = None,
+        form_source_path: Path | None = None,
+        form_contents: str | None = None,
     ) -> None:
         """Store the form definition, database path, and initialise input map."""
         self.form = form
         self.db_path = db_path
         self.code_theme = code_theme
+        self.form_version = form_version
+        self.form_hash = form_hash
+        self.form_source_path = form_source_path
+        self.form_contents = form_contents
         self.inputs: dict[str, Widget] = {}
         self.code_widgets: dict[str, Static] = {}
         self.sidebar_items: list[Static] = []
@@ -191,6 +203,17 @@ class FormScreen(Screen):
         else:
             self.ordered_questions = list(form.questions)
         super().__init__()
+
+    def _form_provenance(self) -> dict[str, str | None]:
+        """Return provenance fields when the source form is available."""
+        if self.form_source_path is None:
+            return {}
+        return {
+            FORM_VERSION_COLUMN: self.form_version,
+            FORM_HASH_COLUMN: self.form_hash,
+            FORM_PATH_COLUMN: str(self.form_source_path),
+            FORM_CONTENTS_COLUMN: self.form_contents,
+        }
 
     def compose(self) -> ComposeResult:
         """Render the sidebar, scrolling form, and footer."""
@@ -402,6 +425,7 @@ class FormScreen(Screen):
                 identity.profile_url if identity is not None else None,
                 grade=grade_json,
                 attempt_id=attempt_id,
+                **self._form_provenance(),
             )
         except sqlite3.IntegrityError:
             conn.close()
