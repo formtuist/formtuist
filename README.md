@@ -540,6 +540,12 @@ default. Set `"randomize": false` on a question to keep it at its file
 position while the other questions shuffle around it — useful for a
 closing question such as a confidence rating.
 
+For `multiple_choice` and `checkbox` questions you can also randomize
+the order of the options themselves. Set `"randomize_choices": true` on
+the question to shuffle its options per student (deterministic across
+re-renders). Answered values stay the choice labels, so grading is
+unaffected.
+
 See `examples/` for complete form definitions.
 
 ## Database
