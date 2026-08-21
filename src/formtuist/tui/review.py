@@ -82,6 +82,7 @@ class ReviewScreen(Screen):
         Binding("ctrl+p", "prev_question", "Prev Q"),
         Binding("f", "toggle_pending", "Pending"),
         Binding("e", "focus_score", "Edit Score"),
+        Binding("ctrl+b", "toggle_sidebar", "Sidebar"),
         Binding("ctrl+c", "quit", "Quit"),
     ]
 
@@ -464,6 +465,11 @@ class ReviewScreen(Screen):
         state = "pending only" if self.pending_only else "all"
         self.notify(f"Showing {state} responses")
         self._render_detail()
+
+    def action_toggle_sidebar(self) -> None:
+        """Show or hide the sidebar."""
+        sidebar = self.query_one("#sidebar")
+        sidebar.toggle_class("hidden")
 
     def action_focus_score(self) -> None:
         """Focus the score input."""
