@@ -9,7 +9,7 @@ from textual.app import App
 from textual.binding import Binding
 
 from formtuist.database import ATTEMPT_ID_ENV_NAME
-from formtuist.parser import parse_form
+from formtuist.parser import parse_form, read_form_source
 
 
 class FormtuistApp(App):
@@ -29,11 +29,18 @@ class FormtuistApp(App):
         Binding("ctrl+c", "quit", "Quit"),
     ]
 
-    def __init__(self, form_path: Path, db_path: Path) -> None:
-        """Initialise the app with paths to a form JSON and a SQLite database."""
+    def __init__(
+        self,
+        form_path: Path,
+        db_path: Path,
+        code_dir: Path | None = None,
+    ) -> None:
+        """Initialise the app with form and database paths."""
         self.form_path = form_path
+        self.form_source_path = form_path.resolve()
         self.db_path = db_path
-        self.form = parse_form(form_path)
+        self.form_contents, self.form_hash = read_form_source(form_path)
+        self.form = parse_form(form_path, code_dir)
         # one shared attempt id for this run; the serve command injects it
         # so every client of the run lands in the same fairness domain
         self.attempt_id = os.environ.get(ATTEMPT_ID_ENV_NAME) or str(
@@ -46,7 +53,56 @@ class FormtuistApp(App):
         """Push the form screen directly on startup, skipping the welcome screen."""
         from formtuist.tui.screens import FormScreen  # noqa: PLC0415
 
-        self.push_screen(FormScreen(self.form, self.db_path))
+        self.push_screen(
+            FormScreen(
+                self.form,
+                self.db_path,
+                form_version=self.form.version,
+                form_hash=self.form_hash,
+                form_source_path=self.form_source_path,
+                form_contents=self.form_contents,
+            )
+        )
+
+
+class ProvenanceApp(App):
+    """Textual application for read-only form provenance inspection."""
+
+    TITLE = "formtuist provenance"
+    CSS_PATH = "styles.tcss"
+    COMMAND_PALETTE_BINDING = "ctrl+o"
+    COMMAND_PALETTE_DISPLAY = "Ctrl+O"
+
+    BINDINGS: ClassVar[
+        list[Binding | tuple[str, str] | tuple[str, str, str]]
+    ] = [
+        Binding("ctrl+c", "quit", "Quit"),
+    ]
+
+    def __init__(
+        self,
+        db_path: Path,
+        initial_view: str = "list",
+        response_id: int | None = None,
+    ) -> None:
+        """Store the database path and initial provenance view."""
+        self.db_path = db_path
+        self.initial_view = initial_view
+        self.response_id = response_id
+        super().__init__()
+        self.theme = "ansi-dark"
+
+    def on_mount(self) -> None:
+        """Push the provenance screen on startup."""
+        from formtuist.tui.provenance import ProvenanceScreen  # noqa: PLC0415
+
+        self.push_screen(
+            ProvenanceScreen(
+                self.db_path,
+                initial_view=self.initial_view,
+                response_id=self.response_id,
+            )
+        )
 
 
 class ReviewApp(App):
