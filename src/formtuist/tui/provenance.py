@@ -32,6 +32,7 @@ PROVENANCE_UNKNOWN = "unavailable"
 PROVENANCE_LEGACY = "unavailable (legacy response)"
 PROVENANCE_HASH_LENGTH = 12
 PROVENANCE_TIMESTAMP_LENGTH = 16
+PROVENANCE_SCROLL_LINES = 3
 PROVENANCE_SEPARATOR = "\n" + ("─" * 40) + "\n"
 
 
@@ -46,6 +47,8 @@ class ProvenanceScreen(Screen):
         Binding("b", "back_to_list", "Back"),
         Binding("ctrl+n", "next_response", "Next"),
         Binding("ctrl+p", "prev_response", "Previous"),
+        Binding("ctrl+j", "scroll_detail_down", "Scroll Down"),
+        Binding("ctrl+k", "scroll_detail_up", "Scroll Up"),
         Binding("q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit"),
     ]
@@ -167,6 +170,9 @@ class ProvenanceScreen(Screen):
             detail.update(self._detail_text(response))
         else:
             detail.update(PROVENANCE_SELECT_HINT)
+        self.query_one("#provenance-detail", VerticalScroll).scroll_home(
+            animate=False
+        )
 
     def action_next_response(self) -> None:
         """Select the next response, wrapping at the end."""
@@ -190,3 +196,17 @@ class ProvenanceScreen(Screen):
         """Return to the submission-list view."""
         self.detail_mode = False
         self._refresh_view()
+
+    def action_scroll_detail_down(self) -> None:
+        """Scroll the provenance detail down by a fixed number of lines."""
+        detail = self.query_one("#provenance-detail", VerticalScroll)
+        detail.scroll_relative(
+            y=PROVENANCE_SCROLL_LINES, animate=False, immediate=True
+        )
+
+    def action_scroll_detail_up(self) -> None:
+        """Scroll the provenance detail up by a fixed number of lines."""
+        detail = self.query_one("#provenance-detail", VerticalScroll)
+        detail.scroll_relative(
+            y=-PROVENANCE_SCROLL_LINES, animate=False, immediate=True
+        )
