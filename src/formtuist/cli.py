@@ -1,5 +1,6 @@
 """Typer-based CLI entry point for the formtuist application."""
 
+import getpass
 import os
 import sqlite3
 import uuid
@@ -766,8 +767,18 @@ def _response_report(
 
 REVIEW_TYPE_HELP = "Which review queue to open: required or all."
 REVIEW_QUESTION_HELP = "Only review this question id."
-REVIEWER_HELP = "Reviewer identity for reviewed_by."
+REVIEWER_HELP = (
+    "Reviewer identity for reviewed_by; defaults to the detected local"
+    " username when omitted."
+)
 REVIEW_BATCH_HELP = "Batch-apply manual scores from a CSV file."
+
+
+def _resolve_reviewer(reviewer: str | None) -> str:
+    """Return the reviewer identity, defaulting to the OS username."""
+    if reviewer is not None and reviewer.strip():
+        return reviewer.strip()
+    return getpass.getuser()
 
 
 @app.command()
@@ -831,11 +842,9 @@ def review(  # noqa: PLR0913, PLR0917
 
         conn = init_db(responses_path)
         try:
-            # resolve reviewer identity for batch if not given
-            batch_reviewer = reviewer
-            if batch_reviewer is None and form.config.auth is not None:
-                # batch without reviewer keeps None
-                pass
+            # reviewer defaults to the local OS username; each CSV row may
+            # still override it with its own reviewer column
+            batch_reviewer = _resolve_reviewer(reviewer)
             count = 0
             with batch.open(encoding="utf-8", newline="") as file:
                 reader = csv.DictReader(file)
@@ -869,14 +878,8 @@ def review(  # noqa: PLR0913, PLR0917
         finally:
             conn.close()
         raise typer.Exit(code=0)
-    # interactive TUI mode
-    effective_reviewer = reviewer
-    if effective_reviewer is None and form.config.auth is not None:
-        # reuse GitHub token flow when form requires auth
-        console.print(
-            "[dim]Form requires GitHub auth; reviewer identity will be"
-            " recorded as provided via --reviewer.[/dim]"
-        )
+    # interactive TUI mode; defaults to the local OS username
+    effective_reviewer = _resolve_reviewer(reviewer)
     from formtuist.tui.app import ReviewApp  # noqa: PLC0415
 
     app_ui = ReviewApp(
