@@ -46,6 +46,7 @@ REVIEW_COMMENT_LABEL = "Comment"
 REVIEW_SAVE_LABEL = "Save"
 REVIEW_QUIT_LABEL = "Quit"
 REVIEW_ANSWER_LABEL = "Student answer: "
+REVIEW_MODE_LABEL = "Review mode: "
 REVIEW_CORRECT_LABEL = "Expected: "
 REVIEW_PATTERN_LABEL = "Pattern: "
 REVIEW_PRELIM_LABEL = "Prelim: "
@@ -136,6 +137,7 @@ class ReviewScreen(Screen):
             with VerticalScroll(id="review-detail"):
                 yield Static("", id="review-question-title")
                 yield Static("", id="review-question-text")
+                yield Static("", id="review-mode")
                 yield Static("", id="review-code")
                 yield Static("", id="review-answer")
                 yield Static("", id="review-correct")
@@ -182,7 +184,7 @@ class ReviewScreen(Screen):
         text = question.text
         if len(text) > SIDEBAR_TITLE_MAX:
             text = text[: SIDEBAR_TITLE_MAX - 3] + "..."
-        return f"{text} ({pending}{REVIEW_PENDING_SUFFIX})"
+        return f"{text} ({question.review}, {pending}{REVIEW_PENDING_SUFFIX})"
 
     def _pending_for_question(self, qid: str) -> int:
         """Count pending reviews for a question."""
@@ -254,6 +256,9 @@ class ReviewScreen(Screen):
             qtext = self.query_one("#review-question-text", Static)
             points = getattr(question, "points", 0)
             qtext.update(f"id: {question.id} • points: {points}")
+            self.query_one("#review-mode", Static).update(
+                f"{REVIEW_MODE_LABEL}{question.review}"
+            )
             code_area = self.query_one("#review-code", Static)
             if question.code is not None:
                 from rich.syntax import Syntax  # noqa: PLC0415
