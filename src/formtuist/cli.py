@@ -246,7 +246,7 @@ def display(
         "--database-name",
         help=DB_NAME_HELP,
     ),
-    code_dir: Path = typer.Option(
+    code_dir: Path | None = typer.Option(
         None,
         "--code-dir",
         help=CODE_DIR_HELP,
@@ -266,7 +266,10 @@ def display(
 
     from formtuist.tui.app import FormtuistApp  # noqa: PLC0415
 
-    app_ui = FormtuistApp(form_path, db_path)
+    if code_dir is None:
+        app_ui = FormtuistApp(form_path, db_path)
+    else:
+        app_ui = FormtuistApp(form_path, db_path, code_dir)
     app_ui.run()
 
 
@@ -561,6 +564,104 @@ def export(  # noqa: PLR0913, PLR0917
         f"[bold]{output}[/bold]"
     )
     raise typer.Exit(code=0)
+
+
+PROVENANCE_VIEW_HELP = "Initial view: list, latest, or response."
+PROVENANCE_RESPONSE_HELP = "Optional response ID to open directly."
+PROVENANCE_LATEST_HELP = "Open the newest response directly."
+PROVENANCE_NO_RESPONSE = "No response found for ID "
+PROVENANCE_OPTION_CONFLICT = "Choose only one provenance selection option."
+PROVENANCE_RESPONSE_REQUIRED = (
+    "--view response requires --response-id or a response ID argument."
+)
+
+
+@app.command()
+def provenance(  # noqa: PLR0913, PLR0917
+    responses_path: Path | None = typer.Argument(
+        None,
+        help=RESPONSES_PATH_HELP,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    response_id: int | None = typer.Argument(
+        None,
+        help=PROVENANCE_RESPONSE_HELP,
+    ),
+    view_mode: Literal["list", "latest", "response"] = typer.Option(
+        "list",
+        "--view",
+        help=PROVENANCE_VIEW_HELP,
+    ),
+    latest: bool = typer.Option(
+        False,
+        "--latest",
+        help=PROVENANCE_LATEST_HELP,
+    ),
+    response_id_option: int | None = typer.Option(
+        None,
+        "--response-id",
+        help=PROVENANCE_RESPONSE_HELP,
+    ),
+    db_dir: Path | None = typer.Option(
+        None,
+        help=DB_DIR_HELP,
+        file_okay=False,
+        dir_okay=True,
+    ),
+    database_name: str | None = typer.Option(
+        None,
+        "--database-name",
+        help=DB_NAME_HELP,
+    ),
+) -> None:
+    """Inspect stored form provenance in a read-only TUI."""
+    if response_id is not None and response_id_option is not None:
+        typer.echo(PROVENANCE_OPTION_CONFLICT)
+        raise typer.Exit(code=2)
+    selected_id = (
+        response_id_option if response_id_option is not None else response_id
+    )
+    if latest and selected_id is not None:
+        typer.echo(PROVENANCE_OPTION_CONFLICT)
+        raise typer.Exit(code=2)
+    if latest and view_mode != "list":
+        typer.echo(PROVENANCE_OPTION_CONFLICT)
+        raise typer.Exit(code=2)
+    if selected_id is not None and view_mode not in {"list", "response"}:
+        typer.echo(PROVENANCE_OPTION_CONFLICT)
+        raise typer.Exit(code=2)
+    initial_view = "latest" if latest else view_mode
+    if selected_id is not None:
+        initial_view = "response"
+    if initial_view == "response" and selected_id is None:
+        typer.echo(PROVENANCE_RESPONSE_REQUIRED)
+        raise typer.Exit(code=2)
+    db_path = (
+        responses_path
+        if responses_path is not None
+        else resolve_db_path(db_dir, database_name)
+    )
+    if selected_id is not None:
+        conn = init_db(db_path)
+        try:
+            response_ids = {
+                response[ID_COLUMN] for response in get_responses(conn)
+            }
+        finally:
+            conn.close()
+        if selected_id not in response_ids:
+            typer.echo(f"{PROVENANCE_NO_RESPONSE}{selected_id}.")
+            raise typer.Exit(code=1)
+    from formtuist.tui.app import ProvenanceApp  # noqa: PLC0415
+
+    app_ui = ProvenanceApp(
+        db_path,
+        initial_view=initial_view,
+        response_id=selected_id,
+    )
+    app_ui.run()
 
 
 VIEW_START_PREFIX = "Starting datasette for "
