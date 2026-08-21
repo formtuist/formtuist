@@ -16,6 +16,7 @@ from pygments.styles import ClassNotFound
 from rich.syntax import Syntax
 from textual._context import NoActiveAppError
 from textual.app import App
+from textual.containers import VerticalScroll
 from textual.widgets import (
     Footer,
     Input,
@@ -56,7 +57,10 @@ from formtuist.schema import (
     YesNoQuestion,
 )
 from formtuist.tui.app import FormtuistApp, ProvenanceApp
-from formtuist.tui.provenance import ProvenanceScreen
+from formtuist.tui.provenance import (
+    PROVENANCE_SCROLL_LINES,
+    ProvenanceScreen,
+)
 from formtuist.tui.screens import (
     ALREADY_SUBMITTED_MESSAGE,
     SINGLE_SUBMISSION_NOTE,
@@ -2614,6 +2618,50 @@ class TestProvenanceScreen:
 
         asyncio.run(run())
         assert first_id == 1
+
+    def test_scroll_detail_with_ctrl_j_and_ctrl_k(
+        self, tmp_path: Path
+    ) -> None:
+        """The provenance detail scrolls a fixed number of lines."""
+        db_path = tmp_path / "responses.db"
+        long_contents = "\n".join(
+            f'{{"line": {index}}}' for index in range(80)
+        )
+        conn = init_db(db_path)
+        save_response(
+            conn,
+            "Quiz",
+            {"q1": "x"},
+            form_version="1.0.0",
+            form_hash="abcdef1234567890",
+            form_path=str((tmp_path / "quiz.json").resolve()),
+            form_contents=long_contents,
+        )
+        conn.close()
+
+        async def run() -> None:
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test() as pilot:
+                screen = ProvenanceScreen(db_path)
+                await app.push_screen(screen)
+                screen.action_open_detail()
+                await pilot.pause()
+                detail = screen.query_one("#provenance-detail", VerticalScroll)
+                assert detail.scroll_offset.y == 0
+                await pilot.press("ctrl+j")
+                await pilot.pause()
+                assert detail.scroll_offset.y == PROVENANCE_SCROLL_LINES
+                await pilot.press("ctrl+k")
+                await pilot.pause()
+                assert detail.scroll_offset.y == 0
+                await pilot.press("ctrl+j")
+                await pilot.pause()
+                assert detail.scroll_offset.y == PROVENANCE_SCROLL_LINES
+                screen.action_next_response()
+                await pilot.pause()
+                assert detail.scroll_offset.y == 0
+
+        asyncio.run(run())
 
     def test_latest_and_direct_response_views(self, tmp_path: Path) -> None:
         """Latest and direct views select the intended response."""
