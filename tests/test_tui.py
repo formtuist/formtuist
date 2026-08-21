@@ -1658,7 +1658,7 @@ class TestRandomizedOrder:
         )
 
     def test_focus_navigation_follows_shuffled_order(self) -> None:
-        """ctrl+j moves focus to the next question in the shuffled order."""
+        """Ctrl+N moves focus to the next question in the shuffled order."""
 
         async def run() -> None:
             form = FormDefinition(
@@ -1670,7 +1670,7 @@ class TestRandomizedOrder:
             async with app.run_test() as pilot:
                 screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
                 await app.push_screen(screen)
-                await pilot.press("ctrl+j")
+                await pilot.press("ctrl+n")
                 assert screen.focused is not None
                 expected = screen.ordered_questions[1].id
                 assert screen.focused.id == f"input-{expected}"
@@ -1994,7 +1994,7 @@ class TestSubmitScreen:
         screen = SubmitScreen(form, Path("/tmp/test.db"))
         children = list(screen.compose())
         texts = [str(c.content) for c in children if hasattr(c, "content")]
-        assert any("Ctrl+P" in t for t in texts)
+        assert any("Ctrl+O" in t for t in texts)
 
     def test_compose_shows_identity(self) -> None:
         """SubmitScreen displays the authenticated identity when present."""
@@ -2463,7 +2463,7 @@ class TestFormtuistApp:
         tui_app.push_screen.assert_called_once()
 
     def test_footer_orders_navigation_keys_together(self) -> None:
-        """The custom footer shows ctrl+j and ctrl+k adjacent."""
+        """The custom footer shows Ctrl+N and Ctrl+P adjacent."""
 
         async def run() -> None:
             app = FormtuistApp(Path("examples/minimal.json"), Path(":memory:"))

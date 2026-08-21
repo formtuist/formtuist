@@ -1,11 +1,14 @@
 """Tests for the post-grade manual review feature."""
 
 # ruff: noqa: PLR2004
+import asyncio
 import csv
+import getpass
 import json
 from pathlib import Path
 
 import pytest
+from textual.app import App
 from typer.testing import CliRunner
 
 from formtuist.cli import app
@@ -32,6 +35,7 @@ from formtuist.grader import (
     MANUAL_SCORE_KEY,
     NEEDS_REVIEW_KEY,
     PERCENTAGE_FINAL_KEY,
+    REVIEWED_BY_KEY,
     TOTAL_FINAL_KEY,
     apply_post_grade,
     finalize_report,
@@ -433,6 +437,57 @@ class TestCliReviewBatch:
         assert resp["grade_json"]["breakdown"][0][COMMENT_KEY] == "batch"
         conn2.close()
 
+    def test_batch_reviewer_defaults_to_local_user(
+        self, tmp_path: Path
+    ) -> None:
+        """Batch without --reviewer records the local OS username."""
+        form = _manual_form()
+        form_path = tmp_path / "form.json"
+        form_path.write_text(form.model_dump_json(), encoding="utf-8")
+        db = tmp_path / "batch.db"
+        conn = init_db(db)
+        report = grade_report_to_json(grade_response(form, {"m1": "hi"}))
+        rid = save_response(conn, form.name, {"m1": "hi"}, grade=report)
+        conn.close()
+        batch = tmp_path / "overrides.csv"
+        with batch.open("w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "response_id",
+                    "question_id",
+                    "manual_score",
+                ],
+            )
+            w.writeheader()
+            w.writerow(
+                {
+                    "response_id": rid,
+                    "question_id": "m1",
+                    "manual_score": "8",
+                }
+            )
+        runner = CliRunner()
+        result = runner.invoke(
+            app,
+            [
+                "review",
+                str(form_path),
+                str(db),
+                "--batch",
+                str(batch),
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Applied 1" in result.output
+        conn2 = init_db(db)
+        resp = get_responses(conn2)[0]
+        assert (
+            resp["grade_json"]["breakdown"][0][REVIEWED_BY_KEY]
+            == getpass.getuser()
+        )
+        conn2.close()
+
     def test_review_interactive_exits_without_form(
         self, tmp_path: Path
     ) -> None:
@@ -466,3 +521,24 @@ class TestTuiReview:
 
         app_inst = ReviewApp(form_path, db, review_type="required")
         assert app_inst.form.name == "ManualForm"
+
+    def test_review_toggles_sidebar(self, tmp_path: Path) -> None:
+        """action_toggle_sidebar hides and shows the review sidebar."""
+        form = _manual_form()
+        db = tmp_path / "tui_side.db"
+        init_db(db).close()
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                sidebar = screen.query_one("#sidebar")
+                assert "hidden" not in sidebar.classes
+                screen.action_toggle_sidebar()
+                assert "hidden" in sidebar.classes
+                screen.action_toggle_sidebar()
+                assert "hidden" not in sidebar.classes
+
+        asyncio.run(run())
