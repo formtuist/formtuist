@@ -31,10 +31,13 @@ from formtuist.grader import (
     BREAKDOWN_ANSWER_KEY,
     BREAKDOWN_CORRECT_ANSWER_KEY,
     BREAKDOWN_CORRECT_KEY,
+    BREAKDOWN_ID_KEY,
     BREAKDOWN_KEY,
     BREAKDOWN_LANGUAGE_KEY,
+    BREAKDOWN_MAX_KEY,
     BREAKDOWN_TEXT_KEY,
     MAX_KEY,
+    NEEDS_REVIEW_KEY,
     PERCENTAGE_KEY,
     TOTAL_KEY,
     grade_report_to_json,
@@ -42,6 +45,7 @@ from formtuist.grader import (
     has_gradeable_questions,
 )
 from formtuist.schema import (
+    REVIEW_NONE,
     AuthProvider,
     CodeBlock,
     FormDefinition,
@@ -70,10 +74,19 @@ NEWLINE = "\n"
 
 # labels for the post-submission grade review
 GRADE_SCORE_PREFIX = "Score: "
+GRADE_PRELIMINARY_SCORE_PREFIX = "Preliminary score: "
 GRADE_PERCENT_SUFFIX = "%"
 GRADE_REVIEW_TITLE = "Incorrect answers"
+GRADE_PENDING_TITLE = "Pending manual review"
+GRADE_PENDING_PREFIX = "Pending manual review: "
+GRADE_PENDING_POINT_SUFFIX = " (up to {points} {label})"
+GRADE_QUESTION_SINGULAR = "question"
+GRADE_QUESTION_PLURAL = "questions"
+GRADE_POINT_SINGULAR = "point"
+GRADE_POINT_PLURAL = "points"
 GRADE_ALL_CORRECT = "All answers correct!"
 GRADE_NO_GRADED = "This form has no auto-graded questions."
+GRADE_REVIEW_MODE_PREFIX = "Review mode: "
 GRADE_YOUR_ANSWER = "Your answer: "
 GRADE_CORRECT_ANSWER = "Correct answer: "
 GRADE_CORRECT_ANSWERS = "Correct answers: "
@@ -521,63 +534,116 @@ class SubmitScreen(Screen):
         yield Button("Quit", id="quit", variant="default")
         yield FormtuistFooter()
 
+    def _review_mode(self, entry: dict[str, Any]) -> str:
+        """Return the configured review mode for a grade entry."""
+        question_id = entry.get(BREAKDOWN_ID_KEY)
+        for question in self.form.questions:
+            if question.id == question_id:
+                return question.review
+        return REVIEW_NONE
+
+    def _compose_given_answer(
+        self, entry: dict[str, Any], theme: str
+    ) -> ComposeResult:
+        """Yield the student's answer for a grade-review entry."""
+        review_mode = self._review_mode(entry)
+        if review_mode != REVIEW_NONE:
+            yield Static(f"{GRADE_REVIEW_MODE_PREFIX}{review_mode}")
+        language = entry.get(BREAKDOWN_LANGUAGE_KEY)
+        given = entry[BREAKDOWN_ANSWER_KEY]
+        if language is not None and isinstance(given, str):
+            yield Static(GRADE_YOUR_ANSWER)
+            yield _code_static(
+                CodeBlock(language=language, content=given),
+                theme,
+            )
+        else:
+            yield Static(f"{GRADE_YOUR_ANSWER}{_format_answer(given)}")
+
+    def _compose_correct_answer(
+        self, entry: dict[str, Any], theme: str
+    ) -> ComposeResult:
+        """Yield the expected answer for an automatically graded entry."""
+        language = entry.get(BREAKDOWN_LANGUAGE_KEY)
+        answer = entry[BREAKDOWN_CORRECT_ANSWER_KEY]
+        if isinstance(answer, CodeBlock):
+            yield Static(GRADE_CORRECT_ANSWER)
+            yield _code_static(answer, theme)
+        elif isinstance(answer, list) and all(
+            isinstance(item, CodeBlock) for item in answer
+        ):
+            yield Static(GRADE_CORRECT_ANSWERS)
+            for block in answer:
+                yield _code_static(block, theme)
+        elif language is not None and isinstance(answer, str):
+            yield Static(GRADE_CORRECT_ANSWER)
+            yield _code_static(
+                CodeBlock(language=language, content=answer),
+                theme,
+            )
+        else:
+            yield Static(f"{GRADE_CORRECT_ANSWER}{_format_answer(answer)}")
+
     def _compose_grade_review(self) -> ComposeResult:
-        """Yield the score summary and the incorrect-answer review."""
+        """Yield preliminary scores and separated manual-review feedback."""
         assert self.grade_report is not None
         total = self.grade_report[TOTAL_KEY]
         max_total = self.grade_report[MAX_KEY]
         percentage = self.grade_report[PERCENTAGE_KEY]
         breakdown = self.grade_report[BREAKDOWN_KEY]
+        pending = [entry for entry in breakdown if entry.get(NEEDS_REVIEW_KEY)]
+        incorrect = [
+            entry
+            for entry in breakdown
+            if not entry.get(NEEDS_REVIEW_KEY)
+            and not entry[BREAKDOWN_CORRECT_KEY]
+        ]
+        score_prefix = (
+            GRADE_PRELIMINARY_SCORE_PREFIX if pending else GRADE_SCORE_PREFIX
+        )
         yield Static(
-            f"{GRADE_SCORE_PREFIX}{total} / {max_total}"
+            f"{score_prefix}{total} / {max_total}"
             f" ({percentage:g}{GRADE_PERCENT_SUFFIX})",
             id="grade-score",
         )
-        incorrect = [
-            entry for entry in breakdown if not entry[BREAKDOWN_CORRECT_KEY]
-        ]
+        pending_points = sum(
+            entry.get(BREAKDOWN_MAX_KEY, 0) for entry in pending
+        )
+        question_label = (
+            GRADE_QUESTION_SINGULAR
+            if len(pending) == 1
+            else GRADE_QUESTION_PLURAL
+        )
+        point_label = (
+            GRADE_POINT_SINGULAR if pending_points == 1 else GRADE_POINT_PLURAL
+        )
         theme = self._code_theme()
         with VerticalScroll(id="grade-review"):
             if not breakdown:
                 yield Static(GRADE_NO_GRADED)
-            elif not incorrect:
+            elif not incorrect and not pending:
                 yield Static(GRADE_ALL_CORRECT)
             else:
-                yield Static(f"[bold]{GRADE_REVIEW_TITLE}[/bold]")
-                for entry in incorrect:
-                    yield Static(f"[bold]{entry[BREAKDOWN_TEXT_KEY]}[/bold]")
-                    language = entry.get(BREAKDOWN_LANGUAGE_KEY)
-                    given = entry[BREAKDOWN_ANSWER_KEY]
-                    if language is not None and isinstance(given, str):
-                        yield Static(GRADE_YOUR_ANSWER)
-                        yield _code_static(
-                            CodeBlock(language=language, content=given),
-                            theme,
-                        )
-                    else:
+                if incorrect:
+                    yield Static(f"[bold]{GRADE_REVIEW_TITLE}[/bold]")
+                    for entry in incorrect:
                         yield Static(
-                            f"{GRADE_YOUR_ANSWER}{_format_answer(given)}"
+                            f"[bold]{entry[BREAKDOWN_TEXT_KEY]}[/bold]"
                         )
-                    answer = entry[BREAKDOWN_CORRECT_ANSWER_KEY]
-                    if isinstance(answer, CodeBlock):
-                        yield Static(GRADE_CORRECT_ANSWER)
-                        yield _code_static(answer, theme)
-                    elif isinstance(answer, list) and all(
-                        isinstance(item, CodeBlock) for item in answer
-                    ):
-                        yield Static(GRADE_CORRECT_ANSWERS)
-                        for block in answer:
-                            yield _code_static(block, theme)
-                    elif language is not None and isinstance(answer, str):
-                        yield Static(GRADE_CORRECT_ANSWER)
-                        yield _code_static(
-                            CodeBlock(language=language, content=answer),
-                            theme,
-                        )
-                    else:
+                        yield from self._compose_given_answer(entry, theme)
+                        yield from self._compose_correct_answer(entry, theme)
+                if pending:
+                    yield Static(f"[bold]{GRADE_PENDING_TITLE}[/bold]")
+                    yield Static(
+                        f"{GRADE_PENDING_PREFIX}{len(pending)} "
+                        f"{question_label}"
+                        f"{GRADE_PENDING_POINT_SUFFIX.format(points=pending_points, label=point_label)}"
+                    )
+                    for entry in pending:
                         yield Static(
-                            f"{GRADE_CORRECT_ANSWER}{_format_answer(answer)}"
+                            f"[bold]{entry[BREAKDOWN_TEXT_KEY]}[/bold]"
                         )
+                        yield from self._compose_given_answer(entry, theme)
 
     def _code_theme(self) -> str:
         """Return a Pygments theme matching the app when one is active."""
