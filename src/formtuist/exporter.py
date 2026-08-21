@@ -9,7 +9,11 @@ from typing import Any
 from formtuist.database import (
     ANSWERS_JSON_COLUMN,
     ATTEMPT_ID_COLUMN,
+    FORM_CONTENTS_COLUMN,
+    FORM_HASH_COLUMN,
     FORM_NAME_COLUMN,
+    FORM_PATH_COLUMN,
+    FORM_VERSION_COLUMN,
     GITHUB_URL_COLUMN,
     GITHUB_USERNAME_COLUMN,
     GRADE_JSON_COLUMN,
@@ -40,6 +44,10 @@ FLAT_ATTEMPT_ID = "attempt_id"
 FLAT_SUBMITTED_AT = "submitted_at"
 FLAT_GITHUB_USERNAME = "github_username"
 FLAT_GITHUB_URL = "github_url"
+FLAT_FORM_VERSION = "form_version"
+FLAT_FORM_HASH = "form_hash"
+FLAT_FORM_PATH = "form_path"
+FLAT_FORM_CONTENTS = "form_contents"
 FLAT_TOTAL = "total"
 FLAT_MAX = "max"
 FLAT_PERCENTAGE = "percentage"
@@ -61,6 +69,10 @@ METADATA_COLUMNS = [
     FLAT_FINAL_TOTAL,
     FLAT_FINAL_PERCENTAGE,
     FLAT_PENDING_COUNT,
+    FLAT_FORM_VERSION,
+    FLAT_FORM_HASH,
+    FLAT_FORM_PATH,
+    FLAT_FORM_CONTENTS,
 ]
 
 # flat name for the student column in the graded export and its placeholder
@@ -79,6 +91,10 @@ GRADE_COLUMNS = [
     FLAT_FINAL_TOTAL,
     FLAT_FINAL_PERCENTAGE,
     FLAT_PENDING_COUNT,
+    FLAT_FORM_VERSION,
+    FLAT_FORM_HASH,
+    FLAT_FORM_PATH,
+    FLAT_FORM_CONTENTS,
 ]
 
 # the flat table written by the sqlite export for datasette browsing
@@ -122,6 +138,10 @@ def flatten_response(
         FLAT_SUBMITTED_AT: response[SUBMITTED_AT_COLUMN],
         FLAT_GITHUB_USERNAME: response[GITHUB_USERNAME_COLUMN],
         FLAT_GITHUB_URL: response[GITHUB_URL_COLUMN],
+        FLAT_FORM_VERSION: response.get(FORM_VERSION_COLUMN),
+        FLAT_FORM_HASH: response.get(FORM_HASH_COLUMN),
+        FLAT_FORM_PATH: response.get(FORM_PATH_COLUMN),
+        FLAT_FORM_CONTENTS: response.get(FORM_CONTENTS_COLUMN),
         FLAT_TOTAL: grade[TOTAL_KEY] if grade is not None else None,
         FLAT_MAX: grade[MAX_KEY] if grade is not None else None,
         FLAT_PERCENTAGE: (
@@ -324,6 +344,10 @@ def flatten_grades(
             FLAT_ID: response[ID_COLUMN],
             FLAT_FORM_NAME: response[FORM_NAME_COLUMN],
             FLAT_ATTEMPT_ID: response[ATTEMPT_ID_COLUMN],
+            FLAT_FORM_VERSION: response.get(FORM_VERSION_COLUMN),
+            FLAT_FORM_HASH: response.get(FORM_HASH_COLUMN),
+            FLAT_FORM_PATH: response.get(FORM_PATH_COLUMN),
+            FLAT_FORM_CONTENTS: response.get(FORM_CONTENTS_COLUMN),
             FLAT_STUDENT: (
                 response[GITHUB_USERNAME_COLUMN] or GRADE_UNKNOWN_STUDENT
             ),
