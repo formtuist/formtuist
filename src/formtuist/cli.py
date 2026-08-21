@@ -222,6 +222,44 @@ def _display_db_dir() -> str:
 DB_DIR_HELP = (
     f"Directory for the responses database (default: {_display_db_dir()})."
 )
+
+DB_NOT_FOUND_PREFIX = "Responses database not found at "
+DB_NOT_FOUND_SUFFIX = ". Create it with the display or serve command."
+
+
+def _resolve_responses_path(
+    responses_path: Path | None,
+    db_dir: Path | None,
+    database_name: str | None,
+) -> Path:
+    """Return the responses DB path, defaulting to the platformdir.
+
+    An explicit path wins when it names an existing file. A bare
+    filename that only exists inside the default database directory
+    resolves there too, so every reader command can be run from any
+    working directory against the databases that display or serve
+    created.
+    """
+    if responses_path is None:
+        return resolve_db_path(db_dir, database_name)
+    path = Path(responses_path)
+    if path.exists():
+        return path
+    if not path.is_absolute():
+        base_dir = db_dir if db_dir is not None else get_default_db_dir()
+        candidate = base_dir / path
+        if candidate.exists():
+            return candidate
+    return path
+
+
+def _require_responses_db(db_path: Path) -> None:
+    """Exit with a friendly error when the responses database is absent."""
+    if not db_path.exists():
+        console.print(f"{DB_NOT_FOUND_PREFIX}{db_path}{DB_NOT_FOUND_SUFFIX}")
+        raise typer.Exit(code=1)
+
+
 HOST_HELP = "Host address for the web server."
 PORT_HELP = "Port for the web server."
 
@@ -487,10 +525,9 @@ def _export_graded(
 
 @app.command()
 def export(  # noqa: PLR0913, PLR0917
-    responses_path: Path = typer.Argument(
-        ...,
+    responses_path: Path | None = typer.Argument(
+        None,
         help=RESPONSES_PATH_HELP,
-        exists=True,
         dir_okay=False,
         readable=True,
     ),
@@ -532,9 +569,22 @@ def export(  # noqa: PLR0913, PLR0917
         file_okay=False,
         dir_okay=True,
     ),
+    db_dir: Path | None = typer.Option(
+        None,
+        help=DB_DIR_HELP,
+        file_okay=False,
+        dir_okay=True,
+    ),
+    database_name: str | None = typer.Option(
+        None,
+        "--database-name",
+        help=DB_NAME_HELP,
+    ),
 ) -> None:
     """Export responses to CSV, JSON, JSONL, or SQLite format."""
-    conn = init_db(responses_path)
+    db_path = _resolve_responses_path(responses_path, db_dir, database_name)
+    _require_responses_db(db_path)
+    conn = init_db(db_path)
     try:
         responses = get_responses(conn, form_name=form_name)
     finally:
@@ -581,7 +631,6 @@ def provenance(  # noqa: PLR0913, PLR0917
     responses_path: Path | None = typer.Argument(
         None,
         help=RESPONSES_PATH_HELP,
-        exists=True,
         dir_okay=False,
         readable=True,
     ),
@@ -638,11 +687,8 @@ def provenance(  # noqa: PLR0913, PLR0917
     if initial_view == "response" and selected_id is None:
         typer.echo(PROVENANCE_RESPONSE_REQUIRED)
         raise typer.Exit(code=2)
-    db_path = (
-        responses_path
-        if responses_path is not None
-        else resolve_db_path(db_dir, database_name)
-    )
+    db_path = _resolve_responses_path(responses_path, db_dir, database_name)
+    _require_responses_db(db_path)
     if selected_id is not None:
         conn = init_db(db_path)
         try:
@@ -673,28 +719,39 @@ VIEW_DATASETTE_MISSING = (
 
 @app.command()
 def view(
-    responses_path: Path = typer.Argument(
-        ...,
+    responses_path: Path | None = typer.Argument(
+        None,
         help=RESPONSES_PATH_HELP,
-        exists=True,
         dir_okay=False,
         readable=True,
     ),
     port: int = typer.Option(8001, "--port", help="Port for datasette."),
+    db_dir: Path | None = typer.Option(
+        None,
+        help=DB_DIR_HELP,
+        file_okay=False,
+        dir_okay=True,
+    ),
+    database_name: str | None = typer.Option(
+        None,
+        "--database-name",
+        help=DB_NAME_HELP,
+    ),
 ) -> None:
     """Browse responses in a web browser via datasette."""
     import importlib.util  # noqa: PLC0415
     import subprocess  # noqa: PLC0415
     import sys  # noqa: PLC0415
 
+    db_path = _resolve_responses_path(responses_path, db_dir, database_name)
+    _require_responses_db(db_path)
     # datasette must live in the same environment as formtuist so the
     # subprocess below can resolve it through the project virtualenv
     if importlib.util.find_spec("datasette") is None:
         console.print(VIEW_DATASETTE_MISSING)
         raise typer.Exit(code=1)
     console.print(
-        f"{VIEW_START_PREFIX}[bold]{responses_path}[/bold]"
-        f"{VIEW_START_SUFFIX}{port}"
+        f"{VIEW_START_PREFIX}[bold]{db_path}[/bold]{VIEW_START_SUFFIX}{port}"
     )
     subprocess.run(
         [
@@ -702,7 +759,7 @@ def view(
             "-m",
             "datasette",
             "serve",
-            str(responses_path),
+            str(db_path),
             "--port",
             str(port),
             "--open",
@@ -748,7 +805,7 @@ def schema(
 
 
 @app.command(hidden=True)
-def grade(
+def grade(  # noqa: PLR0913, PLR0917
     form_path: Path = typer.Argument(
         ...,
         help=FORM_PATH_HELP,
@@ -756,10 +813,9 @@ def grade(
         dir_okay=False,
         readable=True,
     ),
-    responses_path: Path = typer.Argument(
-        ...,
+    responses_path: Path | None = typer.Argument(
+        None,
         help=RESPONSES_PATH_HELP,
-        exists=True,
         dir_okay=False,
         readable=True,
     ),
@@ -777,13 +833,26 @@ def grade(
         help="Re-grade every response with the current form and update"
         " stored snapshots.",
     ),
+    db_dir: Path | None = typer.Option(
+        None,
+        help=DB_DIR_HELP,
+        file_okay=False,
+        dir_okay=True,
+    ),
+    database_name: str | None = typer.Option(
+        None,
+        "--database-name",
+        help=DB_NAME_HELP,
+    ),
 ) -> None:
     """Grade responses against a form with correct answers."""
     try:
         form = parse_form(form_path, code_dir)
     except ValidationError:
         raise typer.Exit(code=1)
-    conn = init_db(responses_path)
+    db_path = _resolve_responses_path(responses_path, db_dir, database_name)
+    _require_responses_db(db_path)
+    conn = init_db(db_path)
     try:
         responses = get_responses(conn, form_name=form.name)
         if not responses:
@@ -891,10 +960,9 @@ def review(  # noqa: PLR0913, PLR0917
         dir_okay=False,
         readable=True,
     ),
-    responses_path: Path = typer.Argument(
-        ...,
+    responses_path: Path | None = typer.Argument(
+        None,
         help=RESPONSES_PATH_HELP,
-        exists=True,
         dir_okay=False,
         readable=True,
     ),
@@ -929,19 +997,32 @@ def review(  # noqa: PLR0913, PLR0917
         file_okay=False,
         dir_okay=True,
     ),
+    db_dir: Path | None = typer.Option(
+        None,
+        help=DB_DIR_HELP,
+        file_okay=False,
+        dir_okay=True,
+    ),
+    database_name: str | None = typer.Option(
+        None,
+        "--database-name",
+        help=DB_NAME_HELP,
+    ),
 ) -> None:
     """Review and post-grade responses requiring human judgement."""
     try:
         form = parse_form(form_path, code_dir)
     except ValidationError:
         raise typer.Exit(code=1)
+    db_path = _resolve_responses_path(responses_path, db_dir, database_name)
+    _require_responses_db(db_path)
     # batch mode: apply CSV overrides without launching the TUI
     if batch is not None:
         import csv  # noqa: PLC0415
 
         from formtuist.database import set_post_grade  # noqa: PLC0415
 
-        conn = init_db(responses_path)
+        conn = init_db(db_path)
         try:
             # reviewer defaults to the local OS username; each CSV row may
             # still override it with its own reviewer column
@@ -984,7 +1065,7 @@ def review(  # noqa: PLR0913, PLR0917
     from formtuist.tui.app import ReviewApp  # noqa: PLC0415
 
     app_ui = ReviewApp(
-        form_path, responses_path, review_type, question, effective_reviewer
+        form_path, db_path, review_type, question, effective_reviewer
     )
     app_ui.run()
 
@@ -1011,10 +1092,9 @@ def analyze(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
         dir_okay=False,
         readable=True,
     ),
-    responses_path: Path = typer.Argument(
-        ...,
+    responses_path: Path | None = typer.Argument(
+        None,
         help=RESPONSES_PATH_HELP,
-        exists=True,
         dir_okay=False,
         readable=True,
     ),
@@ -1063,6 +1143,17 @@ def analyze(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
         "--sparklines-all",
         help=ANALYZE_SPARKLINES_ALL_HELP,
     ),
+    db_dir: Path | None = typer.Option(
+        None,
+        help=DB_DIR_HELP,
+        file_okay=False,
+        dir_okay=True,
+    ),
+    database_name: str | None = typer.Option(
+        None,
+        "--database-name",
+        help=DB_NAME_HELP,
+    ),
 ) -> None:
     """Analyze quiz statistics with average, distribution, and ranking."""
     import csv as csvlib  # noqa: PLC0415
@@ -1072,7 +1163,9 @@ def analyze(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
         form = parse_form(form_path, code_dir)
     except ValidationError:
         raise typer.Exit(code=1)
-    conn = init_db(responses_path)
+    db_path = _resolve_responses_path(responses_path, db_dir, database_name)
+    _require_responses_db(db_path)
+    conn = init_db(db_path)
     try:
         responses = get_responses(conn, form_name=form.name)
     finally:
