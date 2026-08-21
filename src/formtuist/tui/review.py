@@ -2,12 +2,12 @@
 
 import sqlite3
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, Callable, ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import Screen
+from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, Header, Input, Label, Static
 
 from formtuist.database import get_responses, init_db, set_post_grade
@@ -60,6 +60,11 @@ REVIEW_PRELIM_LABEL = "Prelim: "
 REVIEW_FINAL_LABEL = "Final: "
 REVIEW_REVIEWED_LABEL = "Reviewed: "
 REVIEW_QUESTION_COUNTER = "Q {cur} / {total} • R {rcur} / {rtotal}"
+REVIEW_DIALOG_TITLE = "[bold]Unsaved changes[/bold]"
+REVIEW_DIALOG_TEXT = "Save the current score and comment before moving on?"
+REVIEW_DIALOG_SAVE = "Save"
+REVIEW_DIALOG_DISCARD = "Discard"
+REVIEW_DIALOG_CANCEL = "Cancel"
 
 SIDEBAR_TITLE_MAX = 28
 
@@ -77,21 +82,67 @@ def _format_answer(value: Any) -> str:
     return str(value)
 
 
+class ReviewSaveDialog(ModalScreen[bool | None]):
+    """Ask whether to save unsaved edits before navigating away."""
+
+    BINDINGS: ClassVar[
+        list[Binding | tuple[str, str] | tuple[str, str, str]]
+    ] = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        """Render the save confirmation dialog."""
+        with Vertical(id="review-dialog"):
+            yield Static(REVIEW_DIALOG_TITLE, id="review-dialog-title")
+            yield Static(REVIEW_DIALOG_TEXT, id="review-dialog-text")
+            with Horizontal(id="review-dialog-buttons"):
+                yield Button(
+                    REVIEW_DIALOG_SAVE,
+                    id="review-dialog-save",
+                    variant="primary",
+                )
+                yield Button(
+                    REVIEW_DIALOG_DISCARD,
+                    id="review-dialog-discard",
+                    variant="warning",
+                )
+                yield Button(
+                    REVIEW_DIALOG_CANCEL,
+                    id="review-dialog-cancel",
+                    variant="default",
+                )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Dismiss the dialog with the chosen action."""
+        if event.button.id == "review-dialog-save":
+            self.dismiss(True)
+        elif event.button.id == "review-dialog-discard":
+            self.dismiss(False)
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        """Keep the current item and do not navigate."""
+        self.dismiss(None)
+
+
 class ReviewScreen(Screen):
     """Question-first reviewer screen for post-grading."""
 
     BINDINGS: ClassVar[
         list[Binding | tuple[str, str] | tuple[str, str, str]]
     ] = [
-        Binding("ctrl+s", "save", "Save"),
-        Binding("ctrl+j", "next_response", "Next R"),
-        Binding("ctrl+k", "prev_response", "Prev R"),
-        Binding("ctrl+n", "next_question", "Next Q"),
-        Binding("ctrl+p", "prev_question", "Prev Q"),
+        Binding("ctrl+s", "save", "Save", priority=True),
+        Binding("ctrl+j", "next_response", "Next R", priority=True),
+        Binding("ctrl+k", "prev_response", "Prev R", priority=True),
+        Binding("ctrl+n", "next_question", "Next Q", priority=True),
+        Binding("ctrl+p", "prev_question", "Prev Q", priority=True),
         Binding("f", "toggle_pending", "Pending"),
         Binding("e", "focus_score", "Edit Score"),
-        Binding("ctrl+b", "toggle_sidebar", "Sidebar"),
-        Binding("ctrl+c", "quit", "Quit"),
+        Binding("ctrl+b", "toggle_sidebar", "Sidebar", priority=True),
+        Binding("ctrl+c", "quit", "Quit", priority=True),
+        Binding("escape", "unfocus", "Leave"),
     ]
 
     def __init__(  # noqa: PLR0913, PLR0917
@@ -473,8 +524,66 @@ class ReviewScreen(Screen):
         except Exception:
             return CODE_THEME_FALLBACK_DARK
 
+    def _current_dirty(self) -> bool:
+        """Return True when the current item has unsaved edits."""
+        if not self.reviewable_questions:
+            return False
+        question = self.reviewable_questions[self.current_q]
+        rlist = self._responses_for_question(question.id)
+        if not rlist:
+            return False
+        resp = rlist[self.current_r]
+        grade = resp.get("grade_json")
+        entry = None
+        if grade is not None:
+            for e in grade.get("breakdown", []):
+                if e.get(BREAKDOWN_ID_KEY) == question.id:
+                    entry = e
+                    break
+        stored_score = ""
+        if entry is not None:
+            manual = entry.get(MANUAL_SCORE_KEY)
+            prelim = entry.get(BREAKDOWN_SCORE_KEY)
+            final = entry.get(FINAL_SCORE_KEY, prelim)
+            val = manual if manual is not None else final
+            stored_score = str(val) if val is not None else ""
+        stored_comment = (entry or {}).get(COMMENT_KEY) or ""
+        current_score = (
+            self.score_input.value.strip()
+            if self.score_input is not None
+            else ""
+        )
+        current_comment = ""
+        if self.comment_input is not None:
+            try:
+                current_comment = self.comment_input.text or ""
+            except Exception:
+                current_comment = ""
+        return (
+            current_score != stored_score or current_comment != stored_comment
+        )
+
+    def _navigate(self, move: Callable[[], None]) -> None:
+        """Move after saving or discarding any unsaved edits."""
+        if not self._current_dirty():
+            move()
+            return
+
+        def on_result(result: bool | None) -> None:
+            if result is None:
+                return
+            if result is True and not self._save_current():
+                return
+            move()
+
+        self.app.push_screen(ReviewSaveDialog(), on_result)
+
     def action_next_response(self) -> None:
         """Go to the next response for the current question."""
+        self._navigate(self._next_response)
+
+    def _next_response(self) -> None:
+        """Step to the next response without a dirty guard."""
         if not self.reviewable_questions:
             return
         qid = self.reviewable_questions[self.current_q].id
@@ -486,6 +595,10 @@ class ReviewScreen(Screen):
 
     def action_prev_response(self) -> None:
         """Go to the previous response for the current question."""
+        self._navigate(self._prev_response)
+
+    def _prev_response(self) -> None:
+        """Step to the previous response without a dirty guard."""
         if not self.reviewable_questions:
             return
         qid = self.reviewable_questions[self.current_q].id
@@ -497,6 +610,10 @@ class ReviewScreen(Screen):
 
     def action_next_question(self) -> None:
         """Go to the next question."""
+        self._navigate(self._next_question)
+
+    def _next_question(self) -> None:
+        """Step to the next question without a dirty guard."""
         if not self.reviewable_questions:
             return
         self.current_q = (self.current_q + 1) % len(self.reviewable_questions)
@@ -505,6 +622,10 @@ class ReviewScreen(Screen):
 
     def action_prev_question(self) -> None:
         """Go to the previous question."""
+        self._navigate(self._prev_question)
+
+    def _prev_question(self) -> None:
+        """Step to the previous question without a dirty guard."""
         if not self.reviewable_questions:
             return
         self.current_q = (self.current_q - 1) % len(self.reviewable_questions)
@@ -513,6 +634,10 @@ class ReviewScreen(Screen):
 
     def action_toggle_pending(self) -> None:
         """Toggle pending-only filtering."""
+        self._navigate(self._toggle_pending)
+
+    def _toggle_pending(self) -> None:
+        """Toggle pending-only without a dirty guard."""
         self.pending_only = not self.pending_only
         self.current_r = 0
         state = "pending only" if self.pending_only else "all"
@@ -529,15 +654,19 @@ class ReviewScreen(Screen):
         if self.score_input is not None:
             self.set_focus(self.score_input)
 
-    def action_save(self) -> None:  # noqa: PLR0911
-        """Persist the current manual score and comment."""
+    def action_unfocus(self) -> None:
+        """Return focus to the screen so letter shortcuts work again."""
+        self.set_focus(None)
+
+    def _save_current(self) -> bool:  # noqa: PLR0911
+        """Persist the current score and comment; return success."""
         if not self.reviewable_questions:
-            return
+            return False
         question = self.reviewable_questions[self.current_q]
         rlist = self._responses_for_question(question.id)
         if not rlist:
             self.notify("No response to save", severity="error")
-            return
+            return False
         resp = rlist[self.current_r]
         response_id = resp["id"]
         manual: int | None = None
@@ -545,16 +674,16 @@ class ReviewScreen(Screen):
             text = self.score_input.value.strip()
             if not text:
                 self.notify("Enter a score 0..points", severity="error")
-                return
+                return False
             try:
                 manual = int(text)
             except ValueError:
                 self.notify("Score must be an integer", severity="error")
-                return
+                return False
             points = getattr(question, "points", 0)
             if not 0 <= manual <= points:
                 self.notify(f"Score must be 0..{points}", severity="error")
-                return
+                return False
         comment = None
         if self.comment_input is not None:
             try:
@@ -565,10 +694,10 @@ class ReviewScreen(Screen):
                 comment = None
         if manual is None:
             self.notify("No score to save", severity="error")
-            return
+            return False
         if self.conn is None:
             self.notify("DB not open", severity="error")
-            return
+            return False
         try:
             set_post_grade(
                 self.conn,
@@ -579,15 +708,46 @@ class ReviewScreen(Screen):
                 comment=comment,
                 reviewer=self.reviewer,
             )
-            self.responses = get_responses(self.conn, form_name=self.form.name)
-            self.notify(f"Saved {question.id}={manual} for #{response_id}")
-            self._render_detail()
         except Exception as error:
             self.notify(f"Save failed: {error}", severity="error")
+            return False
+        return True
+
+    def action_save(self) -> None:
+        """Persist the current manual score and comment and refresh."""
+        if not self.reviewable_questions:
+            return
+        question = self.reviewable_questions[self.current_q]
+        rlist = self._responses_for_question(question.id)
+        if not rlist:
+            return
+        resp = rlist[self.current_r]
+        if not self._save_current():
+            return
+        if self.conn is None:
+            return
+        self.responses = get_responses(self.conn, form_name=self.form.name)
+        self.notify(f"Saved {question.id} for #{resp['id']}")
+        self._render_detail()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle save and quit buttons."""
         if event.button.id == "review-save":
             self.action_save()
         elif event.button.id == "review-quit":
+            self.action_quit()
+
+    def action_quit(self) -> None:
+        """Quit after confirming any unsaved edits."""
+        if not self._current_dirty():
             self.app.exit()
+            return
+
+        def on_result(result: bool | None) -> None:
+            if result is None:
+                return
+            if result is True and not self._save_current():
+                return
+            self.app.exit()
+
+        self.app.push_screen(ReviewSaveDialog(), on_result)
