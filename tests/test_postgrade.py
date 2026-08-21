@@ -6,6 +6,7 @@ import csv
 import getpass
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 from textual.app import App
@@ -526,6 +527,38 @@ class TestTuiReview:
         conn.close()
         return form, db
 
+    def _review_db_many(
+        self, tmp_path: Path, count: int
+    ) -> tuple[FormDefinition, Path]:
+        """Build a manual form and a DB with several graded responses."""
+        form = _manual_form()
+        db = tmp_path / "review_many.db"
+        conn = init_db(db)
+        for index in range(count):
+            report = grade_report_to_json(grade_response(form, {"m1": "hi"}))
+            save_response(
+                conn,
+                form.name,
+                {"m1": "hi"},
+                github_username=f"user{index}",
+                grade=report,
+            )
+        conn.close()
+        return form, db
+
+    def _manual_score_for(self, db: Path, response_id: int) -> int | None:
+        """Return the stored manual score for m1 in one response."""
+        conn = init_db(db)
+        try:
+            resp = next(
+                r for r in get_responses(conn) if r["id"] == response_id
+            )
+        finally:
+            conn.close()
+        entries = resp["grade_json"]["breakdown"]
+        entry = next(e for e in entries if e["id"] == "m1")
+        return cast(int | None, entry[MANUAL_SCORE_KEY])
+
     def test_review_screen_instantiates(self, tmp_path: Path) -> None:
         """ReviewScreen can be instantiated with required questions."""
         form = _manual_form()
@@ -711,5 +744,136 @@ class TestTuiReview:
                 assert "hidden" in sidebar.classes
                 screen.action_toggle_sidebar()
                 assert "hidden" not in sidebar.classes
+
+        asyncio.run(run())
+
+    def test_review_navigate_without_edits_skips_dialog(
+        self, tmp_path: Path
+    ) -> None:
+        """Navigating without edits moves immediately, no dialog."""
+        form, db = self._review_db_many(tmp_path, 2)
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test() as pilot:
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                await pilot.press("ctrl+j")
+                assert isinstance(app.screen, ReviewScreen)
+                assert screen.current_r == 1
+
+        asyncio.run(run())
+
+    def test_review_navigation_prompts_on_unsaved_edits(
+        self, tmp_path: Path
+    ) -> None:
+        """Navigating with unsaved edits opens the save dialog."""
+        form, db = self._review_db_many(tmp_path, 2)
+        from formtuist.tui.review import (  # noqa: PLC0415
+            ReviewSaveDialog,
+            ReviewScreen,
+        )
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test() as pilot:
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                assert screen.score_input is not None
+                screen.score_input.value = "7"
+                await pilot.press("ctrl+j")
+                assert isinstance(app.screen, ReviewSaveDialog)
+                await pilot.press("escape")
+                assert isinstance(app.screen, ReviewScreen)
+                assert screen.current_r == 0
+
+        asyncio.run(run())
+
+    def test_review_dialog_discard_navigates(self, tmp_path: Path) -> None:
+        """Discard navigates without persisting the edit."""
+        form, db = self._review_db_many(tmp_path, 2)
+        from formtuist.tui.review import (  # noqa: PLC0415
+            ReviewSaveDialog,
+            ReviewScreen,
+        )
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test() as pilot:
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                assert screen.score_input is not None
+                screen.score_input.value = "7"
+                await pilot.press("ctrl+j")
+                assert isinstance(app.screen, ReviewSaveDialog)
+                await pilot.click("#review-dialog-discard")
+                assert isinstance(app.screen, ReviewScreen)
+                assert screen.current_r == 1
+                assert self._manual_score_for(db, 1) is None
+
+        asyncio.run(run())
+
+    def test_review_dialog_save_persists_and_navigates(
+        self, tmp_path: Path
+    ) -> None:
+        """Save persists the edit and then navigates."""
+        form, db = self._review_db_many(tmp_path, 2)
+        from formtuist.tui.review import (  # noqa: PLC0415
+            ReviewSaveDialog,
+            ReviewScreen,
+        )
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test() as pilot:
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                assert screen.score_input is not None
+                screen.score_input.value = "7"
+                await pilot.press("ctrl+j")
+                assert isinstance(app.screen, ReviewSaveDialog)
+                await pilot.click("#review-dialog-save")
+                assert isinstance(app.screen, ReviewScreen)
+                assert screen.current_r == 1
+                assert self._manual_score_for(db, 1) == 7
+
+        asyncio.run(run())
+
+    def test_review_priority_nav_from_score_input(
+        self, tmp_path: Path
+    ) -> None:
+        """Ctrl+K navigates even while the score input is focused."""
+        form, db = self._review_db_many(tmp_path, 2)
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test() as pilot:
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                assert screen.score_input is not None
+                screen.set_focus(screen.score_input)
+                assert app.focused is screen.score_input
+                await pilot.press("ctrl+k")
+                assert screen.current_r == 1
+
+        asyncio.run(run())
+
+    def test_review_escape_unfocuses(self, tmp_path: Path) -> None:
+        """Escape returns focus to the screen, off the score input."""
+        form, db = self._review_db_many(tmp_path, 2)
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test() as pilot:
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                assert screen.score_input is not None
+                screen.set_focus(screen.score_input)
+                assert app.focused is screen.score_input
+                await pilot.press("escape")
+                assert app.focused is None
 
         asyncio.run(run())
