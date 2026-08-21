@@ -24,6 +24,7 @@
       "points": 10,
       "grading_type": "exact",
       "review": "permitted",
+      "randomize_choices": true,
       "code": {
         "language": "python",
         "content": "print([x ** 2 for x in range(5)])"
@@ -87,7 +88,8 @@
       ],
       "points": 10,
       "grading_type": "exact",
-      "review": "permitted"
+      "review": "permitted",
+      "randomize_choices": true
     },
     {
       "id": "q13_confidence",
