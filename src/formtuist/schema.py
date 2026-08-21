@@ -365,6 +365,7 @@ class FormDefinition(BaseModel):
     """Top-level form definition containing metadata, config, and questions."""
 
     name: str
+    version: str | None = None
     description: str = ""
     config: FormConfig = Field(default_factory=FormConfig)
     questions: list[Question]
