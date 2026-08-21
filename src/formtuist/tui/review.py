@@ -18,9 +18,12 @@ from formtuist.grader import (
     COMMENT_KEY,
     FINAL_SCORE_KEY,
     MANUAL_SCORE_KEY,
+    MAX_KEY,
     NEEDS_REVIEW_KEY,
     REVIEWED_AT_KEY,
     REVIEWED_BY_KEY,
+    TOTAL_FINAL_KEY,
+    TOTAL_KEY,
 )
 from formtuist.schema import (
     REVIEW_PERMITTED,
@@ -46,6 +49,10 @@ REVIEW_COMMENT_LABEL = "Comment"
 REVIEW_SAVE_LABEL = "Save"
 REVIEW_QUIT_LABEL = "Quit"
 REVIEW_ANSWER_LABEL = "Student answer: "
+REVIEW_STUDENT_LABEL = "Student: "
+REVIEW_STUDENT_ANONYMOUS = "anonymous"
+REVIEW_OVERVIEW_TOTAL_LABEL = "Total: "
+REVIEW_OVERVIEW_UPDATED_LABEL = "Updated overall: "
 REVIEW_MODE_LABEL = "Review mode: "
 REVIEW_CORRECT_LABEL = "Expected: "
 REVIEW_PATTERN_LABEL = "Pattern: "
@@ -87,13 +94,14 @@ class ReviewScreen(Screen):
         Binding("ctrl+c", "quit", "Quit"),
     ]
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         form: FormDefinition,
         db_path: Path,
         review_type: str = "required",
         question_filter: str | None = None,
         reviewer: str | None = None,
+        show_student_name: bool = True,
     ) -> None:
         """Store form, db path, and review filters."""
         self.form = form
@@ -101,6 +109,7 @@ class ReviewScreen(Screen):
         self.review_type = review_type
         self.question_filter = question_filter
         self.reviewer = reviewer
+        self.show_student_name = show_student_name
         self.pending_only = False
         if review_type == "all":
             allowed = {REVIEW_REQUIRED, REVIEW_PERMITTED}
@@ -135,6 +144,10 @@ class ReviewScreen(Screen):
                     self.sidebar_items.append(item)
                     yield item
             with VerticalScroll(id="review-detail"):
+                yield Static("", id="review-overview-name")
+                yield Static("", id="review-overview-total")
+                yield Static("", id="review-overview-updated")
+                yield Static("", id="review-student")
                 yield Static("", id="review-question-title")
                 yield Static("", id="review-question-text")
                 yield Static("", id="review-mode")
@@ -241,6 +254,26 @@ class ReviewScreen(Screen):
                     idx == self.current_q, "current"
                 )
 
+    def _render_overview(self, grade: dict[str, Any] | None) -> None:
+        """Render the quiz name and total scores from a grade report."""
+        if grade is None:
+            self.query_one("#review-overview-name", Static).update("")
+            self.query_one("#review-overview-total", Static).update("")
+            self.query_one("#review-overview-updated", Static).update("")
+            return
+        total = grade.get(TOTAL_KEY, 0)
+        max_total = grade.get(MAX_KEY, 0)
+        total_final = grade.get(TOTAL_FINAL_KEY, total)
+        self.query_one("#review-overview-name", Static).update(
+            f"[bold]{self.form.name}[/bold]"
+        )
+        self.query_one("#review-overview-total", Static).update(
+            f"{REVIEW_OVERVIEW_TOTAL_LABEL}{total} / {max_total}"
+        )
+        self.query_one("#review-overview-updated", Static).update(
+            f"{REVIEW_OVERVIEW_UPDATED_LABEL}{total_final} / {max_total}"
+        )
+
     def _render_detail(self) -> None:  # noqa: PLR0912, PLR0915
         """Render the current question and response detail."""
         if not self.reviewable_questions:
@@ -252,7 +285,8 @@ class ReviewScreen(Screen):
         self._refresh_sidebar()
         try:
             title = self.query_one("#review-question-title", Static)
-            title.update(f"[bold]{question.text}[/bold]")
+            # leading newline separates the quiz overview from the question
+            title.update(f"\n[bold]{question.text}[/bold]")
             qtext = self.query_one("#review-question-text", Static)
             points = getattr(question, "points", 0)
             qtext.update(f"id: {question.id} • points: {points}")
@@ -276,6 +310,7 @@ class ReviewScreen(Screen):
         except Exception:
             pass
         if not rlist:
+            self._render_overview(None)
             try:
                 self.query_one("#review-answer", Static).update(
                     REVIEW_NO_RESPONSES
@@ -315,6 +350,7 @@ class ReviewScreen(Screen):
                 self.query_one("#review-prelim", Static).update("")
                 self.query_one("#review-final", Static).update("")
                 self.query_one("#review-reviewed", Static).update("")
+                self.query_one("#review-student", Static).update("")
                 self.query_one("#review-counter", Static).update(
                     REVIEW_QUESTION_COUNTER.format(
                         cur=self.current_q + 1,
@@ -330,6 +366,7 @@ class ReviewScreen(Screen):
             return
         resp = rlist[self.current_r]
         grade = resp.get("grade_json")
+        self._render_overview(grade)
         entry = None
         if grade is not None:
             for e in grade.get("breakdown", []):
@@ -338,6 +375,17 @@ class ReviewScreen(Screen):
                     break
         answer = resp.get("answers_json", {}).get(question.id)
         try:
+            student_name = (resp.get("github_username") or "").strip()
+            if self.show_student_name and student_name:
+                self.query_one("#review-student", Static).update(
+                    f"{REVIEW_STUDENT_LABEL}{student_name}"
+                )
+            elif self.show_student_name:
+                self.query_one("#review-student", Static).update(
+                    f"{REVIEW_STUDENT_LABEL}{REVIEW_STUDENT_ANONYMOUS}"
+                )
+            else:
+                self.query_one("#review-student", Static).update("")
             self.query_one("#review-answer", Static).update(
                 f"{REVIEW_ANSWER_LABEL}{_format_answer(answer)}"
             )
