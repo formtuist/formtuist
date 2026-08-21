@@ -471,6 +471,7 @@ Forms are defined as JSON files. Here is a minimal example:
 ```json
 {
   "name": "My Form",
+  "version": "0.1.0",
   "description": "An example form.",
   "config": {
     "randomize_questions": false,
@@ -488,6 +489,11 @@ Forms are defined as JSON files. Here is a minimal example:
   ]
 }
 ```
+
+The optional `version` field is author-supplied descriptive metadata. Formtuist
+also records the exact source file contents, resolved path, and SHA-256 hash
+with each submitted response; those stored provenance fields, rather than
+`version`, establish the reproducible form identity.
 
 ### Config options
 
@@ -544,26 +550,55 @@ Responses are stored in a SQLite database with a single `responses` table:
 |---|---|---|
 | `id` | INTEGER | Auto-incrementing primary key |
 | `form_name` | TEXT | Name of the submitted form |
+| `attempt_id` | TEXT | Identifier for the form run |
 | `submitted_at` | TEXT | ISO 8601 timestamp |
 | `answers_json` | TEXT | JSON object of question IDs to answers |
 | `github_username` | TEXT | GitHub username (when auth is enabled) |
 | `github_url` | TEXT | GitHub profile URL (when auth is enabled) |
+| `grade_json` | TEXT | JSON grade snapshot when grading is available |
+| `form_version` | TEXT | Optional author-supplied form version |
+| `form_hash` | TEXT | SHA-256 hash of the exact input JSON bytes |
+| `form_path` | TEXT | Fully qualified path to the input JSON file |
+| `form_contents` | TEXT | Exact input JSON contents |
 
 The database is created in the platform-appropriate data directory
 (`~/.local/share/formtuist/` on Linux). Use `--db-dir` to override.
 Existing databases are migrated automatically when new columns are added.
+Older responses have `NULL` provenance values because their original form
+source was not captured.
 
-Browse saved responses with:
+The `form_hash` and `form_contents` fields identify and reproduce the exact
+form source used at submission time. The author-supplied `form_version` is
+helpful metadata but is not authoritative. Browse saved responses with:
 
 ```bash
 uvx formtuist view ~/.local/share/formtuist/responses.db
 ```
 
+Inspect stored form provenance in the read-only TUI:
+
+```bash
+# show the submission list using the default database
+uvx formtuist provenance
+
+# use a specific database and open the newest response
+uvx formtuist provenance responses.db --latest
+
+# open one response directly after selecting its ID from the list
+uvx formtuist provenance responses.db --response-id 42
+```
+
+The default list shows response IDs, form names, author versions, submission
+times, identities, and shortened hashes. The detail view reports the author
+version, complete SHA-256 hash, fully qualified source path, source availability,
+exact JSON contents, and submission metadata. The full JSON contents remain
+authoritative even when the source file has been moved or edited.
+
 Or peek with `sqlite3`:
 
 ```bash
 sqlite3 -header -column ~/.local/share/formtuist/responses.db \
-  "SELECT id, form_name, github_username, submitted_at FROM responses;"
+  "SELECT id, form_name, form_version, form_hash, form_path, submitted_at FROM responses;"
 ```
 
 ## Example forms
