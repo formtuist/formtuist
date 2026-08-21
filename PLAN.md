@@ -17,8 +17,10 @@ This is a plan for building Formtuist, a tool that lets you:
   is not something that needs to be a specific part of the plan for implementing
   Formtuist.)
 - Once the form has been filled out and submitted, the program will save the
-  responses in a JSON file. The program will also provide an option to export the
-  responses in CSV or the sqlite database format.
+  responses in a SQLite database together with the form version, exact source
+  contents, fully qualified source path, and SHA-256 source hash. The program
+  will also provide an option to export the responses in CSV or the sqlite
+  database format.
 - The tool will also have a mode that uses datasette to make it possible for
   someone to view the responses in a web browser. This will be done by using
   datasette to serve the responses as a web application.
@@ -62,6 +64,7 @@ application:
 Here are some details about the JSON format for specifying a form:
 
 - Name of the form
+- Optional author-supplied form version for descriptive provenance
 - Configuration details about the display of the form:
   - Whether or not questions are displayed in a random order
   - Whether or not the questions are automatically graded
