@@ -2304,6 +2304,77 @@ class TestSubmitScreen:
 
         asyncio.run(run())
 
+    def test_compose_separates_pending_manual_review(self) -> None:
+        """SubmitScreen shows pending questions and their point value."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Quiz",
+                questions=[
+                    ShortTextQuestion(
+                        id="wrong",
+                        text="Automatically graded?",
+                        type="short_text",
+                        correct_answer="yes",
+                        points=5,
+                        grading_type="exact",
+                    ),
+                    ShortTextQuestion(
+                        id="permitted",
+                        text="Permitted review?",
+                        type="short_text",
+                        correct_answer="yes",
+                        points=5,
+                        grading_type="exact",
+                        review="permitted",
+                    ),
+                    ParagraphQuestion(
+                        id="manual_one",
+                        text="Explain one.",
+                        type="paragraph",
+                        points=20,
+                        review="required",
+                    ),
+                    ParagraphQuestion(
+                        id="manual_two",
+                        text="Explain two.",
+                        type="paragraph",
+                        points=20,
+                        review="required",
+                    ),
+                ],
+            )
+            report = grade_response(
+                form,
+                {
+                    "wrong": "no",
+                    "permitted": "no",
+                    "manual_one": "first response",
+                    "manual_two": "second response",
+                },
+            )
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                screen = SubmitScreen(
+                    form, Path("/tmp/test.db"), grade_report=report
+                )
+                await app.push_screen(screen)
+                rendered = " ".join(
+                    str(s.content) for s in screen.query(Static)
+                )
+                assert "Preliminary score: 0 / 50" in rendered
+                assert "Pending manual review" in rendered
+                assert "2 questions (up to 40 points)" in rendered
+                assert "Incorrect answers" in rendered
+                assert "Automatically graded?" in rendered
+                assert "Correct answer: yes" in rendered
+                assert "Review mode: permitted" in rendered
+                assert "Correct answer: (no answer)" not in rendered
+                assert "Explain one." in rendered
+                assert "Explain two." in rendered
+
+        asyncio.run(run())
+
     def test_compose_shows_all_correct_message(self) -> None:
         """SubmitScreen celebrates when every answer is correct."""
 
@@ -2605,6 +2676,7 @@ class TestProvenanceScreen:
                 )
                 assert "legacy response" in rendered
                 assert "Source available: no" in rendered
+                await app.pop_screen()
 
         asyncio.run(run())
 
@@ -2636,6 +2708,7 @@ class TestProvenanceScreen:
         assert isinstance(screen, ProvenanceScreen)
         assert screen.initial_view == "response"
         assert screen.current_index == 0
+        screen.on_unmount()
 
 
 class TestFormtuistApp:

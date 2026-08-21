@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from textual.app import App
+from textual.widgets import Static
 from typer.testing import CliRunner
 
 from formtuist.cli import app
@@ -509,6 +510,28 @@ class TestTuiReview:
 
         screen = ReviewScreen(form, db, review_type="required")
         assert len(screen.reviewable_questions) == 1
+
+    def test_review_shows_required_and_permitted_modes(
+        self, tmp_path: Path
+    ) -> None:
+        """Review TUI labels each question's review mode."""
+        form = _form_with_review(tmp_path)
+        db = tmp_path / "modes.db"
+        init_db(db).close()
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(form, db, review_type="all")
+                await app.push_screen(screen)
+                mode = screen.query_one("#review-mode", Static)
+                assert "Review mode: required" in str(mode.render())
+                labels = [str(item.render()) for item in screen.sidebar_items]
+                assert any("(required," in label for label in labels)
+                assert any("(permitted," in label for label in labels)
+
+        asyncio.run(run())
 
     def test_review_app_instantiates(self, tmp_path: Path) -> None:
         """ReviewApp can be instantiated without error."""

@@ -275,6 +275,41 @@ class TestStubCommands:
         assert "uv add datasette" in _plain(result)
         mock_find.assert_called_once_with("datasette")
 
+    def test_view_resolves_db_dir(self, tmp_path: Path) -> None:
+        """View finds the database via --db-dir when no path is given."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        init_db(db_dir / "responses.db").close()
+        with patch("subprocess.run") as mock_run:
+            result = runner.invoke(app, ["view", "--db-dir", str(db_dir)])
+        assert result.exit_code == 0
+        args = mock_run.call_args[0][0]
+        assert str(db_dir / "responses.db") in args
+
+    def test_view_missing_database_error(self, tmp_path: Path) -> None:
+        """View reports a friendly error when the resolved DB is absent."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        result = runner.invoke(app, ["view", "--db-dir", str(db_dir)])
+        assert result.exit_code == 1
+        assert "Responses database not found" in _plain(result)
+
+    def test_view_resolves_bare_name_via_platformdir(
+        self, tmp_path: Path
+    ) -> None:
+        """View resolves a bare filename found only in the platformdir."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        init_db(db_dir / "bare_only.db").close()
+        with (
+            patch("formtuist.cli.get_default_db_dir", return_value=db_dir),
+            patch("subprocess.run") as mock_run,
+        ):
+            result = runner.invoke(app, ["view", "bare_only.db"])
+        assert result.exit_code == 0
+        args = mock_run.call_args[0][0]
+        assert str(db_dir / "bare_only.db") in args
+
 
 class TestGradeCommand:
     """Tests for the `formtuist grade` subcommand."""
@@ -568,6 +603,51 @@ class TestExportCommand:
         assert rows[0]["form_name"] == "Quiz"
         assert rows[0]["q1"] == "a"
         assert rows[0]["total"] == str(EXPECTED_GRADE_TOTAL_FULL)
+
+    def test_export_resolves_db_dir(self, tmp_path: Path) -> None:
+        """Export finds the database via --db-dir when no path is given."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        self._responses_db(db_dir)
+        out = tmp_path / "out.csv"
+        result = runner.invoke(
+            app, ["export", "--db-dir", str(db_dir), "--output", str(out)]
+        )
+        assert result.exit_code == 0
+        assert "Exported 1 response(s) to" in _plain(result)
+        with out.open("r", encoding="utf-8", newline="") as file:
+            rows = list(csv.DictReader(file))
+        assert rows[0]["form_name"] == "Quiz"
+
+    def test_export_resolves_bare_name_via_platformdir(
+        self, tmp_path: Path
+    ) -> None:
+        """Export resolves a bare filename found only in the platformdir."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        conn = init_db(db_dir / "bare_only.db")
+        save_response(conn, "Quiz", {"q1": "a"})
+        conn.close()
+        out = tmp_path / "out.csv"
+        with patch("formtuist.cli.get_default_db_dir", return_value=db_dir):
+            result = runner.invoke(
+                app, ["export", "bare_only.db", "--output", str(out)]
+            )
+        assert result.exit_code == 0
+        assert "Exported 1 response(s) to" in _plain(result)
+        assert out.exists()
+
+    def test_export_missing_database_error(self, tmp_path: Path) -> None:
+        """Export reports a friendly error for an absent database."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        out = tmp_path / "out.csv"
+        result = runner.invoke(
+            app, ["export", "--db-dir", str(db_dir), "--output", str(out)]
+        )
+        assert result.exit_code == 1
+        assert "Responses database not found" in _plain(result)
+        assert not out.exists()
 
     def test_export_json_writes_array(self, tmp_path: Path) -> None:
         """Export --format json writes a JSON array."""
