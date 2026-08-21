@@ -22,7 +22,7 @@
       "correct_answer": "[0, 1, 4, 9, 16]",
       "points": 10,
       "grading_type": "exact",
-      "review": "none",
+      "review": "permitted",
       "code": {
         "language": "python",
         "content": "print([x ** 2 for x in range(5)])"
