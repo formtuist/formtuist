@@ -21,6 +21,10 @@ ANSWERS_JSON_COLUMN = "answers_json"
 GITHUB_USERNAME_COLUMN = "github_username"
 GITHUB_URL_COLUMN = "github_url"
 GRADE_JSON_COLUMN = "grade_json"
+FORM_VERSION_COLUMN = "form_version"
+FORM_HASH_COLUMN = "form_hash"
+FORM_PATH_COLUMN = "form_path"
+FORM_CONTENTS_COLUMN = "form_contents"
 RESPONSES_TABLE = "responses"
 
 # environment variable carrying the shared attempt id for a server run
@@ -34,7 +38,12 @@ CREATE_TABLE_SQL = (
     f"    {SUBMITTED_AT_COLUMN} TEXT NOT NULL,"
     f"    {ANSWERS_JSON_COLUMN} TEXT NOT NULL,"
     f"    {GITHUB_USERNAME_COLUMN} TEXT,"
-    f"    {GITHUB_URL_COLUMN} TEXT"
+    f"    {GITHUB_URL_COLUMN} TEXT,"
+    f"    {GRADE_JSON_COLUMN} TEXT,"
+    f"    {FORM_VERSION_COLUMN} TEXT,"
+    f"    {FORM_HASH_COLUMN} TEXT,"
+    f"    {FORM_PATH_COLUMN} TEXT,"
+    f"    {FORM_CONTENTS_COLUMN} TEXT"
     f")"
 )
 
@@ -44,6 +53,10 @@ EXTRA_COLUMNS: dict[str, str] = {
     GITHUB_USERNAME_COLUMN: "TEXT",
     GITHUB_URL_COLUMN: "TEXT",
     GRADE_JSON_COLUMN: "TEXT",
+    FORM_VERSION_COLUMN: "TEXT",
+    FORM_HASH_COLUMN: "TEXT",
+    FORM_PATH_COLUMN: "TEXT",
+    FORM_CONTENTS_COLUMN: "TEXT",
 }
 
 # per-form unique index that blocks duplicate identity submissions
@@ -119,14 +132,19 @@ def save_response(  # noqa: PLR0913, PLR0917
     github_url: str | None = None,
     grade: dict[str, Any] | None = None,
     attempt_id: str | None = None,
+    form_version: str | None = None,
+    form_hash: str | None = None,
+    form_path: str | None = None,
+    form_contents: str | None = None,
 ) -> int:
     """Insert a response row and return the new row id.
 
     The *github_username* and *github_url* identity fields are optional
     and stored as nullable columns. The *grade* argument is an optional
     JSON-safe grade snapshot stored in the grade_json column. The
-    *attempt_id* scopes a submission to one run of the form. The raw
-    authentication token is never stored.
+    *attempt_id* scopes a submission to one run of the form. Form provenance
+    fields identify and reproduce the input JSON used for the submission. The
+    raw authentication token is never stored.
     """
     submitted_at = datetime.now(timezone.utc).isoformat()
     answers_json = json.dumps(answers)
@@ -135,8 +153,10 @@ def save_response(  # noqa: PLR0913, PLR0917
         f"INSERT INTO {RESPONSES_TABLE} "
         f"({FORM_NAME_COLUMN}, {ATTEMPT_ID_COLUMN}, {SUBMITTED_AT_COLUMN},"
         f" {ANSWERS_JSON_COLUMN}, {GITHUB_USERNAME_COLUMN},"
-        f" {GITHUB_URL_COLUMN}, {GRADE_JSON_COLUMN}) "
-        f"VALUES (?, ?, ?, ?, ?, ?, ?)",
+        f" {GITHUB_URL_COLUMN}, {GRADE_JSON_COLUMN},"
+        f" {FORM_VERSION_COLUMN}, {FORM_HASH_COLUMN}, {FORM_PATH_COLUMN},"
+        f" {FORM_CONTENTS_COLUMN}) "
+        f"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             form_name,
             attempt_id,
@@ -145,6 +165,10 @@ def save_response(  # noqa: PLR0913, PLR0917
             github_username,
             github_url,
             grade_json,
+            form_version,
+            form_hash,
+            form_path,
+            form_contents,
         ),
     )
     conn.commit()
@@ -305,7 +329,9 @@ def get_responses(
             f"SELECT {ID_COLUMN}, {FORM_NAME_COLUMN}, "
             f"{SUBMITTED_AT_COLUMN}, {ANSWERS_JSON_COLUMN}, "
             f"{GITHUB_USERNAME_COLUMN}, {GITHUB_URL_COLUMN}, "
-            f"{GRADE_JSON_COLUMN}, {ATTEMPT_ID_COLUMN} "
+            f"{GRADE_JSON_COLUMN}, {ATTEMPT_ID_COLUMN}, "
+            f"{FORM_VERSION_COLUMN}, {FORM_HASH_COLUMN}, "
+            f"{FORM_PATH_COLUMN}, {FORM_CONTENTS_COLUMN} "
             f"FROM {RESPONSES_TABLE} ORDER BY {ID_COLUMN}"
         ).fetchall()
     else:
@@ -313,7 +339,9 @@ def get_responses(
             f"SELECT {ID_COLUMN}, {FORM_NAME_COLUMN}, "
             f"{SUBMITTED_AT_COLUMN}, {ANSWERS_JSON_COLUMN}, "
             f"{GITHUB_USERNAME_COLUMN}, {GITHUB_URL_COLUMN}, "
-            f"{GRADE_JSON_COLUMN}, {ATTEMPT_ID_COLUMN} "
+            f"{GRADE_JSON_COLUMN}, {ATTEMPT_ID_COLUMN}, "
+            f"{FORM_VERSION_COLUMN}, {FORM_HASH_COLUMN}, "
+            f"{FORM_PATH_COLUMN}, {FORM_CONTENTS_COLUMN} "
             f"FROM {RESPONSES_TABLE} "
             f"WHERE {FORM_NAME_COLUMN} = ? ORDER BY {ID_COLUMN}",
             (form_name,),
@@ -330,9 +358,33 @@ def get_responses(
                 json.loads(row[6]) if row[6] is not None else None
             ),
             ATTEMPT_ID_COLUMN: row[7],
+            FORM_VERSION_COLUMN: row[8],
+            FORM_HASH_COLUMN: row[9],
+            FORM_PATH_COLUMN: row[10],
+            FORM_CONTENTS_COLUMN: row[11],
         }
         for row in rows
     ]
+
+
+def get_response_provenance(
+    conn: sqlite3.Connection, response_id: int
+) -> dict[str, Any] | None:
+    """Return stored form provenance for a response, or None if missing."""
+    row = conn.execute(
+        f"SELECT {FORM_VERSION_COLUMN}, {FORM_HASH_COLUMN}, "
+        f"{FORM_PATH_COLUMN}, {FORM_CONTENTS_COLUMN} "
+        f"FROM {RESPONSES_TABLE} WHERE {ID_COLUMN} = ?",
+        (response_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        FORM_VERSION_COLUMN: row[0],
+        FORM_HASH_COLUMN: row[1],
+        FORM_PATH_COLUMN: row[2],
+        FORM_CONTENTS_COLUMN: row[3],
+    }
 
 
 def get_response_count(
