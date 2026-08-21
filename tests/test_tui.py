@@ -1,6 +1,7 @@
 """Smoke tests for TUI screens and application construction."""
 
 import asyncio
+import hashlib
 import json
 import sqlite3
 from math import factorial
@@ -29,6 +30,14 @@ from textual_timepiece.pickers import DatePicker
 from whenever import Date
 
 from formtuist.auth import GitHubIdentity
+from formtuist.database import (
+    FORM_CONTENTS_COLUMN,
+    FORM_HASH_COLUMN,
+    FORM_PATH_COLUMN,
+    FORM_VERSION_COLUMN,
+    init_db,
+    save_response,
+)
 from formtuist.grader import TOTAL_KEY, grade_response
 from formtuist.schema import (
     AuthProvider,
@@ -46,7 +55,8 @@ from formtuist.schema import (
     ShortTextQuestion,
     YesNoQuestion,
 )
-from formtuist.tui.app import FormtuistApp
+from formtuist.tui.app import FormtuistApp, ProvenanceApp
+from formtuist.tui.provenance import ProvenanceScreen
 from formtuist.tui.screens import (
     ALREADY_SUBMITTED_MESSAGE,
     SINGLE_SUBMISSION_NOTE,
@@ -67,6 +77,8 @@ from formtuist.tui.widgets import (
 
 MIN_WELCOME_CHILDREN = 3
 MIN_SUBMIT_CHILDREN = 3
+PROVENANCE_RESPONSE_COUNT = 2
+PROVENANCE_RESPONSE_ID = 3
 
 # project stylesheet needed to verify text-wrapping behavior
 STYLESHEET_PATH = (
@@ -254,6 +266,53 @@ class TestFormScreen:
         )
         mock_app.push_screen.assert_called_once()
         mock_notify.assert_not_called()
+
+    def test_action_submit_saves_provenance(self, tmp_path: Path) -> None:
+        """FormScreen passes source provenance to save_response."""
+        raw = b'{"name":"Saved","version":"v2","questions":[]}\n'
+        source_path = tmp_path / "saved.json"
+        source_path.write_bytes(raw)
+        form = FormDefinition(
+            name="Saved",
+            version="v2",
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text")
+            ],
+        )
+        screen = FormScreen(
+            form,
+            Path(":memory:"),
+            form_version=form.version,
+            form_hash=hashlib.sha256(raw).hexdigest(),
+            form_source_path=source_path.resolve(),
+            form_contents=raw.decode("utf-8"),
+        )
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify"):
+                with patch("formtuist.tui.screens.init_db"):
+                    with patch(
+                        "formtuist.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        asyncio.run(screen.action_submit())
+        assert mock_save.call_args.kwargs[FORM_VERSION_COLUMN] == "v2"
+        assert mock_save.call_args.kwargs[FORM_HASH_COLUMN] == (
+            hashlib.sha256(raw).hexdigest()
+        )
+        assert mock_save.call_args.kwargs[FORM_PATH_COLUMN] == str(
+            source_path.resolve()
+        )
+        assert mock_save.call_args.kwargs[FORM_CONTENTS_COLUMN] == raw.decode(
+            "utf-8"
+        )
 
     def test_action_submit_stores_iso_date_from_picker(self) -> None:
         """action_submit saves the ISO date string from the DatePicker."""
@@ -2443,6 +2502,142 @@ class TestSubmitScreen:
         asyncio.run(run())
 
 
+class TestProvenanceScreen:
+    """Tests for the read-only provenance screen."""
+
+    def test_list_and_detail_views(self, tmp_path: Path) -> None:
+        """The provenance screen lists and renders stored responses."""
+        db_path = tmp_path / "responses.db"
+        source_path = tmp_path / "quiz.json"
+        contents = '{"name":"Quiz","version":"1.0.0"}\n'
+        source_path.write_text(contents, encoding="utf-8")
+        conn = init_db(db_path)
+        first_id = save_response(
+            conn,
+            "Quiz",
+            {"q1": "first"},
+            form_version="1.0.0",
+            form_hash="abcdef1234567890",
+            form_path=str(source_path.resolve()),
+            form_contents=contents,
+        )
+        save_response(conn, "Quiz", {"q1": "second"})
+        conn.close()
+
+        async def run() -> None:
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                screen = ProvenanceScreen(db_path)
+                await app.push_screen(screen)
+                assert len(screen.list_items) == PROVENANCE_RESPONSE_COUNT
+                assert screen.current_index == 0
+                screen.action_open_detail()
+                detail = screen.query_one("#provenance-detail-content", Static)
+                assert "Response ID: 1" in str(detail.render())
+                assert "SHA-256: abcdef1234567890" in str(detail.render())
+                assert contents in str(detail.render())
+                screen.action_next_response()
+                assert screen.current_index == 1
+                screen.action_back_to_list()
+                assert "Select a response" in str(detail.render())
+
+        asyncio.run(run())
+        assert first_id == 1
+
+    def test_latest_and_direct_response_views(self, tmp_path: Path) -> None:
+        """Latest and direct views select the intended response."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        save_response(conn, "Quiz", {"q1": "first"})
+        second_id = save_response(conn, "Quiz", {"q1": "second"})
+        conn.close()
+
+        async def run() -> None:
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                latest = ProvenanceScreen(db_path, initial_view="latest")
+                await app.push_screen(latest)
+                assert latest.current_index == 1
+                assert latest.detail_mode is True
+                assert "Response ID: 2" in str(
+                    latest.query_one(
+                        "#provenance-detail-content", Static
+                    ).render()
+                )
+                await app.pop_screen()
+                direct = ProvenanceScreen(
+                    db_path, initial_view="response", response_id=second_id
+                )
+                await app.push_screen(direct)
+                assert direct.current_index == 1
+                assert direct.detail_mode is True
+
+        asyncio.run(run())
+
+    def test_legacy_and_empty_views(self, tmp_path: Path) -> None:
+        """Legacy and empty databases render clear provenance states."""
+        empty_db = tmp_path / "empty.db"
+        init_db(empty_db).close()
+        legacy_db = tmp_path / "legacy.db"
+        conn = init_db(legacy_db)
+        save_response(conn, "Old", {"q": "answer"})
+        conn.close()
+
+        async def run() -> None:
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                empty = ProvenanceScreen(empty_db)
+                await app.push_screen(empty)
+                assert "No responses" in str(
+                    empty.query_one(
+                        "#provenance-detail-content", Static
+                    ).render()
+                )
+                await app.pop_screen()
+                legacy = ProvenanceScreen(
+                    legacy_db, initial_view="response", response_id=1
+                )
+                await app.push_screen(legacy)
+                rendered = str(
+                    legacy.query_one(
+                        "#provenance-detail-content", Static
+                    ).render()
+                )
+                assert "legacy response" in rendered
+                assert "Source available: no" in rendered
+
+        asyncio.run(run())
+
+    def test_provenance_app_starts(self, tmp_path: Path) -> None:
+        """ProvenanceApp stores its initial view and response selection."""
+        db_path = tmp_path / "responses.db"
+        init_db(db_path).close()
+        app = ProvenanceApp(
+            db_path,
+            initial_view="latest",
+            response_id=PROVENANCE_RESPONSE_ID,
+        )
+        assert app.db_path == db_path
+        assert app.initial_view == "latest"
+        assert app.response_id == PROVENANCE_RESPONSE_ID
+
+    def test_provenance_app_mounts_screen(self, tmp_path: Path) -> None:
+        """ProvenanceApp pushes its screen with the selected response."""
+        db_path = tmp_path / "responses.db"
+        init_db(db_path).close()
+        app = ProvenanceApp(
+            db_path,
+            initial_view="response",
+            response_id=PROVENANCE_RESPONSE_ID,
+        )
+        with patch.object(app, "push_screen") as mock_push_screen:
+            app.on_mount()
+        screen = mock_push_screen.call_args.args[0]
+        assert isinstance(screen, ProvenanceScreen)
+        assert screen.initial_view == "response"
+        assert screen.current_index == 0
+
+
 class TestFormtuistApp:
     """Tests for the main application class."""
 
@@ -2458,9 +2653,26 @@ class TestFormtuistApp:
         """on_mount pushes the welcome screen."""
         db_path = Path(":memory:")
         tui_app = FormtuistApp(minimal_form_path, db_path)
-        tui_app.push_screen = MagicMock()
-        tui_app.on_mount()
-        tui_app.push_screen.assert_called_once()
+        with patch.object(tui_app, "push_screen") as mock_push_screen:
+            tui_app.on_mount()
+        mock_push_screen.assert_called_once()
+
+    def test_form_provenance_is_loaded_and_passed_to_screen(
+        self, tmp_path: Path
+    ) -> None:
+        """FormtuistApp passes exact source provenance to FormScreen."""
+        raw = b'{\n  "name": "Versioned",\n  "version": "v1",\n'
+        raw += b'  "questions": []\n}\n'
+        form_path = tmp_path / "versioned.json"
+        form_path.write_bytes(raw)
+        tui_app = FormtuistApp(form_path, tmp_path / "responses.db")
+        with patch.object(tui_app, "push_screen") as mock_push_screen:
+            tui_app.on_mount()
+        screen = mock_push_screen.call_args.args[0]
+        assert screen.form.version == "v1"
+        assert screen.form_hash == hashlib.sha256(raw).hexdigest()
+        assert screen.form_source_path == form_path.resolve()
+        assert screen.form_contents == raw.decode("utf-8")
 
     def test_footer_orders_navigation_keys_together(self) -> None:
         """The custom footer shows Ctrl+N and Ctrl+P adjacent."""

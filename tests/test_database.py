@@ -1,5 +1,6 @@
 """Tests for the SQLite database storage layer."""
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -8,6 +9,10 @@ import pytest
 
 from formtuist.database import (
     DATABASE_FILENAME,
+    FORM_CONTENTS_COLUMN,
+    FORM_HASH_COLUMN,
+    FORM_PATH_COLUMN,
+    FORM_VERSION_COLUMN,
     ensure_db_dir,
     ensure_single_submission_index,
     get_default_db_dir,
@@ -457,6 +462,66 @@ class TestGitHubIdentityColumns:
         }
         conn2.close()
         assert "attempt_id" in columns
+
+    def test_provenance_columns_and_values(self, tmp_path: Path) -> None:
+        """Provenance columns store the exact form source metadata."""
+        contents = '{\n  "name": "Quiz"\n}\n'
+        form_path = tmp_path / "quiz.json"
+        form_path.write_text(contents, encoding="utf-8")
+        form_hash = hashlib.sha256(contents.encode("utf-8")).hexdigest()
+        conn = init_db(tmp_path / "test.db")
+        save_response(
+            conn,
+            "Quiz",
+            {"q1": "answer"},
+            form_version="2026.08",
+            form_hash=form_hash,
+            form_path=str(form_path.resolve()),
+            form_contents=contents,
+        )
+        result = get_responses(conn)[0]
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(responses)").fetchall()
+        }
+        conn.close()
+        assert {
+            FORM_VERSION_COLUMN,
+            FORM_HASH_COLUMN,
+            FORM_PATH_COLUMN,
+            FORM_CONTENTS_COLUMN,
+        }.issubset(columns)
+        assert result[FORM_VERSION_COLUMN] == "2026.08"
+        assert result[FORM_HASH_COLUMN] == form_hash
+        assert result[FORM_PATH_COLUMN] == str(form_path.resolve())
+        assert result[FORM_CONTENTS_COLUMN] == contents
+
+    def test_old_database_provenance_is_nullable(self, tmp_path: Path) -> None:
+        """Migration leaves provenance unknown for old response rows."""
+        db_path = tmp_path / "old.db"
+        conn = init_db(db_path)
+        conn.execute("DROP TABLE responses")
+        conn.execute(
+            "CREATE TABLE responses ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "form_name TEXT NOT NULL,"
+            "submitted_at TEXT NOT NULL,"
+            "answers_json TEXT NOT NULL"
+            ")"
+        )
+        conn.execute(
+            "INSERT INTO responses (form_name, submitted_at, answers_json) "
+            "VALUES ('Old', '2024-01-01', '{}')"
+        )
+        conn.commit()
+        conn.close()
+        conn2 = init_db(db_path)
+        result = get_responses(conn2)[0]
+        conn2.close()
+        assert result[FORM_VERSION_COLUMN] is None
+        assert result[FORM_HASH_COLUMN] is None
+        assert result[FORM_PATH_COLUMN] is None
+        assert result[FORM_CONTENTS_COLUMN] is None
 
 
 class TestHasSubmission:

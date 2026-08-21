@@ -403,6 +403,14 @@ class TestFormDefinition:
         assert form.description == ""
         assert len(form.questions) == 1
 
+    def test_version_is_optional_and_round_trips(self) -> None:
+        """A form version is optional descriptive metadata."""
+        data = {**VALID_MINIMAL, "version": "2026.08"}
+        form = FormDefinition.model_validate(data)
+        assert form.version == "2026.08"
+        restored = FormDefinition.model_validate_json(form.model_dump_json())
+        assert restored.version == "2026.08"
+
     def test_valid_all_types(self) -> None:
         """Form with all 8 question types parses correctly."""
         form = FormDefinition.model_validate(VALID_ALL_TYPES)

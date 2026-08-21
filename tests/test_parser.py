@@ -1,12 +1,13 @@
 """Tests for the JSON form parser and image path resolution."""
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from formtuist.parser import parse_form
+from formtuist.parser import parse_form, read_form_source
 from formtuist.schema import CODE_DIR_CONTEXT_KEY, CodeBlock
 
 ALL_QUESTION_TYPES_COUNT = 8
@@ -21,6 +22,17 @@ def _write_form(tmp_path: Path, data: dict) -> Path:
 
 class TestParseFormBasic:
     """Tests for basic parse_form functionality."""
+
+    def test_read_form_source_preserves_exact_bytes(
+        self, tmp_path: Path
+    ) -> None:
+        """read_form_source preserves contents and hashes exact bytes."""
+        raw = b'{\r\n  "name": "Test",\r\n  "questions": []\r\n}\r\n'
+        path = tmp_path / "form.json"
+        path.write_bytes(raw)
+        contents, form_hash = read_form_source(path)
+        assert contents == raw.decode("utf-8")
+        assert form_hash == hashlib.sha256(raw).hexdigest()
 
     def test_parse_valid_minimal(self, tmp_path: Path) -> None:
         """parse_form returns a FormDefinition for valid minimal JSON."""

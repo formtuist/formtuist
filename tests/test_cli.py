@@ -926,6 +926,140 @@ class TestMainFunction:
         assert "Grade responses" in _plain(result)
 
 
+class TestProvenanceCommand:
+    """Tests for the provenance inspection command."""
+
+    def test_provenance_defaults_to_list_tui(self, tmp_path: Path) -> None:
+        """Provenance opens the list TUI by default."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        conn.close()
+        with patch("formtuist.tui.app.ProvenanceApp") as mock_app_cls:
+            result = runner.invoke(app, ["provenance", str(db_path)])
+        assert result.exit_code == 0
+        mock_app_cls.assert_called_once_with(
+            db_path, initial_view="list", response_id=None
+        )
+        mock_app_cls.return_value.run.assert_called_once()
+
+    def test_provenance_uses_default_database(self, tmp_path: Path) -> None:
+        """Provenance resolves the default database when no path is given."""
+        db_path = tmp_path / "default.db"
+        conn = init_db(db_path)
+        conn.close()
+        with patch(
+            "formtuist.cli.resolve_db_path", return_value=db_path
+        ) as mock_resolve:
+            with patch("formtuist.tui.app.ProvenanceApp") as mock_app_cls:
+                result = runner.invoke(app, ["provenance"])
+        assert result.exit_code == 0
+        mock_resolve.assert_called_once_with(None, None)
+        mock_app_cls.assert_called_once_with(
+            db_path, initial_view="list", response_id=None
+        )
+
+    def test_provenance_latest_opens_newest_response(
+        self, tmp_path: Path
+    ) -> None:
+        """The latest option opens the newest response detail view."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        save_response(conn, "Quiz", {"q1": "first"})
+        newest_id = save_response(conn, "Quiz", {"q1": "last"})
+        conn.close()
+        with patch("formtuist.tui.app.ProvenanceApp") as mock_app_cls:
+            result = runner.invoke(
+                app, ["provenance", str(db_path), "--latest"]
+            )
+        assert result.exit_code == 0
+        mock_app_cls.assert_called_once_with(
+            db_path, initial_view="latest", response_id=None
+        )
+        assert newest_id > 0
+
+    def test_provenance_positional_id_opens_detail(
+        self, tmp_path: Path
+    ) -> None:
+        """The legacy positional response ID still opens detail mode."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        response_id = save_response(conn, "Quiz", {"q1": "answer"})
+        conn.close()
+        with patch("formtuist.tui.app.ProvenanceApp") as mock_app_cls:
+            result = runner.invoke(
+                app, ["provenance", str(db_path), str(response_id)]
+            )
+        assert result.exit_code == 0
+        mock_app_cls.assert_called_once_with(
+            db_path, initial_view="response", response_id=response_id
+        )
+
+    def test_provenance_response_id_opens_detail(self, tmp_path: Path) -> None:
+        """The response-id option opens one validated response."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        response_id = save_response(conn, "Quiz", {"q1": "answer"})
+        conn.close()
+        with patch("formtuist.tui.app.ProvenanceApp") as mock_app_cls:
+            result = runner.invoke(
+                app,
+                [
+                    "provenance",
+                    str(db_path),
+                    "--response-id",
+                    str(response_id),
+                ],
+            )
+        assert result.exit_code == 0
+        mock_app_cls.assert_called_once_with(
+            db_path, initial_view="response", response_id=response_id
+        )
+
+    def test_provenance_unknown_response_exits(self, tmp_path: Path) -> None:
+        """Provenance exits nonzero for an unknown response ID."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        conn.close()
+        result = runner.invoke(
+            app, ["provenance", str(db_path), "--response-id", "99"]
+        )
+        assert result.exit_code == 1
+        assert "No response found" in _plain(result)
+
+    def test_provenance_conflicting_selection_options_exit(
+        self, tmp_path: Path
+    ) -> None:
+        """Conflicting provenance selectors are rejected."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        conn.close()
+        result = runner.invoke(
+            app,
+            [
+                "provenance",
+                str(db_path),
+                "--latest",
+                "--response-id",
+                "1",
+            ],
+        )
+        assert result.exit_code == USAGE_ERROR_EXIT_CODE
+        assert "only one" in _plain(result)
+
+    def test_provenance_response_view_requires_id(
+        self, tmp_path: Path
+    ) -> None:
+        """The response view requires a response ID."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        conn.close()
+        result = runner.invoke(
+            app, ["provenance", str(db_path), "--view", "response"]
+        )
+        assert result.exit_code == USAGE_ERROR_EXIT_CODE
+        assert "requires" in _plain(result)
+
+
 class TestDisplayCommand:
     """Tests for the display command body using mocking."""
 
@@ -945,6 +1079,46 @@ class TestDisplayCommand:
             expected_db_path = db_dir / "responses.db"
             mock_app_cls.assert_called_once_with(form, expected_db_path)
             mock_instance.run.assert_called_once()
+
+    def test_display_passes_code_dir_to_app(self, tmp_path: Path) -> None:
+        """Display forwards code_dir when launching the TUI app."""
+        code_dir = tmp_path / "code"
+        code_dir.mkdir()
+        (code_dir / "snippet.py").write_text("x = 1\n", encoding="utf-8")
+        form = _write_form(
+            tmp_path / "form.json",
+            {
+                "name": "T",
+                "questions": [
+                    {
+                        "id": "q",
+                        "text": "Q?",
+                        "type": "short_text",
+                        "code": {
+                            "language": "python",
+                            "file": "snippet.py",
+                        },
+                    }
+                ],
+            },
+        )
+        db_dir = tmp_path / "db_out"
+        with patch("formtuist.tui.app.FormtuistApp") as mock_app_cls:
+            result = runner.invoke(
+                app,
+                [
+                    "display",
+                    str(form),
+                    "--db-dir",
+                    str(db_dir),
+                    "--code-dir",
+                    str(code_dir),
+                ],
+            )
+        assert result.exit_code == 0
+        mock_app_cls.assert_called_once_with(
+            form, db_dir / "responses.db", code_dir
+        )
 
     def test_display_invalid_form_exits(self, tmp_path: Path) -> None:
         """Display exits 1 for an invalid form."""

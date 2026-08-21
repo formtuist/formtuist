@@ -19,7 +19,11 @@ from formtuist.database import (
     save_response,
 )
 from formtuist.exporter import (
+    FLAT_FORM_CONTENTS,
+    FLAT_FORM_HASH,
     FLAT_FORM_NAME,
+    FLAT_FORM_PATH,
+    FLAT_FORM_VERSION,
     FLAT_GITHUB_USERNAME,
     FLAT_ID,
     FLAT_MAX,
@@ -144,6 +148,30 @@ class TestFlattenResponse:
         assert row[FLAT_GITHUB_USERNAME] == "alice"
         assert row["q1"] == FIRST_ANSWER
         assert row["q2"] == NUMERIC_ANSWER
+
+    def test_provenance_metadata_is_exported(self, tmp_path: Path) -> None:
+        """Flat rows include form provenance metadata."""
+        db_path = tmp_path / "provenance.db"
+        contents = '{"name":"Quiz","questions":[]}\n'
+        form_path = tmp_path / "quiz.json"
+        form_path.write_text(contents, encoding="utf-8")
+        conn = init_db(db_path)
+        save_response(
+            conn,
+            FORM_NAME,
+            {"q1": "a"},
+            form_version="v1",
+            form_hash="hash",
+            form_path=str(form_path.resolve()),
+            form_contents=contents,
+        )
+        response = get_responses(conn)[0]
+        conn.close()
+        row = flatten_response(response, ["q1"])
+        assert row[FLAT_FORM_VERSION] == "v1"
+        assert row[FLAT_FORM_HASH] == "hash"
+        assert row[FLAT_FORM_PATH] == str(form_path.resolve())
+        assert row[FLAT_FORM_CONTENTS] == contents
 
     def test_missing_answer_and_grade(self, tmp_path: Path) -> None:
         """Missing answers and grades become None values."""
