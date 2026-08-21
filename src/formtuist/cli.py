@@ -942,6 +942,7 @@ REVIEWER_HELP = (
     " username when omitted."
 )
 REVIEW_BATCH_HELP = "Batch-apply manual scores from a CSV file."
+REVIEW_STUDENT_HELP = "Show the student's name during review."
 
 
 def _resolve_reviewer(reviewer: str | None) -> str:
@@ -1008,6 +1009,11 @@ def review(  # noqa: PLR0913, PLR0917
         "--database-name",
         help=DB_NAME_HELP,
     ),
+    show_student_name: bool = typer.Option(
+        True,
+        "--show-student-name/--no-show-student-name",
+        help=REVIEW_STUDENT_HELP,
+    ),
 ) -> None:
     """Review and post-grade responses requiring human judgement."""
     try:
@@ -1065,7 +1071,12 @@ def review(  # noqa: PLR0913, PLR0917
     from formtuist.tui.app import ReviewApp  # noqa: PLC0415
 
     app_ui = ReviewApp(
-        form_path, db_path, review_type, question, effective_reviewer
+        form_path,
+        db_path,
+        review_type,
+        question,
+        effective_reviewer,
+        show_student_name,
     )
     app_ui.run()
 
