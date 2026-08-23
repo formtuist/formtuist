@@ -60,7 +60,11 @@ from formtuist.grader import (
     refresh_prelim,
 )
 from formtuist.parser import parse_form
-from formtuist.schema import FormDefinition
+from formtuist.schema import (
+    REVIEW_PERMITTED,
+    REVIEW_REQUIRED,
+    FormDefinition,
+)
 from formtuist.version import FORMTUIST_VERSION
 
 # rich console for all user-facing output
@@ -1087,7 +1091,13 @@ def review(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
             # reviewer defaults to the local OS username; each CSV row may
             # still override it with its own reviewer column
             batch_reviewer = _resolve_reviewer(reviewer)
+            allowed_modes = (
+                {REVIEW_REQUIRED, REVIEW_PERMITTED}
+                if review_type == "all"
+                else {REVIEW_REQUIRED}
+            )
             count = 0
+            rejected = 0
             with batch.open(encoding="utf-8", newline="") as file:
                 reader = csv.DictReader(file)
                 for row in reader:
@@ -1095,28 +1105,50 @@ def review(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
                     qid = row.get("question_id") or row.get("id_")
                     score_raw = row.get("manual_score") or row.get("score")
                     if rid_raw is None or qid is None or score_raw is None:
+                        rejected += 1
                         continue
                     try:
                         rid = int(str(rid_raw).strip())
                         score = int(str(score_raw).strip())
+                        qid_clean = str(qid).strip()
                     except ValueError:
+                        rejected += 1
+                        continue
+                    if question is not None and qid_clean != question:
+                        rejected += 1
+                        continue
+                    row_question = next(
+                        (q for q in form.questions if q.id == qid_clean),
+                        None,
+                    )
+                    if (
+                        row_question is None
+                        or row_question.review not in allowed_modes
+                    ):
+                        rejected += 1
                         continue
                     comment = row.get("comment")
                     if comment is not None and not str(comment).strip():
                         comment = None
                     row_reviewer = row.get("reviewer") or batch_reviewer
-                    set_post_grade(
-                        conn,
-                        form,
-                        rid,
-                        str(qid).strip(),
-                        score,
-                        comment=comment,
-                        reviewer=row_reviewer,
-                    )
+                    try:
+                        set_post_grade(
+                            conn,
+                            form,
+                            rid,
+                            qid_clean,
+                            score,
+                            comment=comment,
+                            reviewer=row_reviewer,
+                        )
+                    except ValueError:
+                        rejected += 1
+                        continue
                     count += 1
             # report the number of manual grades applied
             typer.echo(f"Applied {count} manual grade(s).")
+            if rejected:
+                typer.echo(f"Rejected {rejected} invalid row(s).")
         finally:
             conn.close()
         raise typer.Exit(code=0)
@@ -1131,6 +1163,7 @@ def review(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
         question,
         effective_reviewer,
         show_student_name,
+        code_dir=code_dir,
     )
     app_ui.run()
 
