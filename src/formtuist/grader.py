@@ -194,7 +194,9 @@ def apply_post_grade(
 
     *overrides* maps question id to a dict with
     ``manual_score``, ``comment``, and ``reviewer``.
-    Re-applying overwrites the previous manual values.
+    Re-applying overwrites the previous manual values; a None
+    ``comment`` or ``reviewer`` clears the stored value, and a
+    successfully applied score marks the entry no longer pending.
     """
     cloned = deepcopy(report)
     by_id = {entry[BREAKDOWN_ID_KEY]: entry for entry in cloned[BREAKDOWN_KEY]}
@@ -211,10 +213,10 @@ def apply_post_grade(
             entry[BREAKDOWN_CORRECT_KEY] = (
                 int(manual) == entry[BREAKDOWN_MAX_KEY]
             )
-        if comment is not None:
-            entry[COMMENT_KEY] = comment
-        if reviewer is not None:
-            entry[REVIEWED_BY_KEY] = reviewer
+            entry[NEEDS_REVIEW_KEY] = False
+        # replace unconditionally so an explicit None clears old values
+        entry[COMMENT_KEY] = comment
+        entry[REVIEWED_BY_KEY] = reviewer
         entry[REVIEWED_AT_KEY] = datetime.now(timezone.utc).isoformat()
     # recompute totals for final
     total_final = sum(
@@ -237,6 +239,7 @@ def finalize_report(report: dict[str, Any]) -> dict[str, Any]:
     for entry in cloned[BREAKDOWN_KEY]:
         if entry.get(MANUAL_SCORE_KEY) is not None:
             entry[FINAL_SCORE_KEY] = entry[MANUAL_SCORE_KEY]
+            entry[NEEDS_REVIEW_KEY] = False
         else:
             entry[FINAL_SCORE_KEY] = entry.get(
                 PRELIM_SCORE_KEY, entry[BREAKDOWN_SCORE_KEY]
@@ -278,6 +281,7 @@ def refresh_prelim(
             entry[COMMENT_KEY] = old.get(COMMENT_KEY)
             entry[REVIEWED_BY_KEY] = old.get(REVIEWED_BY_KEY)
             entry[REVIEWED_AT_KEY] = old.get(REVIEWED_AT_KEY)
+            entry[NEEDS_REVIEW_KEY] = False
             entry[BREAKDOWN_CORRECT_KEY] = (
                 entry[FINAL_SCORE_KEY] == entry[BREAKDOWN_MAX_KEY]
             )
