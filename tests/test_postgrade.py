@@ -10,7 +10,7 @@ from typing import cast
 
 import pytest
 from textual.app import App
-from textual.widgets import Static
+from textual.widgets import Label, Static
 from typer.testing import CliRunner
 
 from formtuist.cli import app
@@ -46,7 +46,12 @@ from formtuist.grader import (
     is_pending,
     refresh_prelim,
 )
-from formtuist.schema import FormConfig, FormDefinition, ShortTextQuestion
+from formtuist.schema import (
+    FormConfig,
+    FormDefinition,
+    MultipleChoiceQuestion,
+    ShortTextQuestion,
+)
 
 
 def _form_with_review(tmp_path: Path) -> FormDefinition:
@@ -92,6 +97,24 @@ def _manual_form() -> FormDefinition:
                 id="m1",
                 text="Essay?",
                 type="short_text",
+                points=10,
+                review="required",
+            )
+        ],
+    )
+
+
+def _choice_form() -> FormDefinition:
+    """Form with a required multiple-choice question worth 10 points."""
+    return FormDefinition(
+        name="ChoiceReviewForm",
+        questions=[
+            MultipleChoiceQuestion(
+                id="c1",
+                text="Pick one?",
+                type="multiple_choice",
+                choices=["A", "B"],
+                correct_answer="A",
                 points=10,
                 review="required",
             )
@@ -233,6 +256,39 @@ class TestGraderReview:
         assert second["breakdown"][0][MANUAL_SCORE_KEY] == 9
         assert second[TOTAL_FINAL_KEY] == 9
 
+    def test_apply_post_grade_clears_needs_review(
+        self, tmp_path: Path
+    ) -> None:
+        """A manual score marks the entry no longer pending."""
+        form = _manual_form()
+        report = grade_response(form, {"m1": "x"})
+        updated = apply_post_grade(report, {"m1": {"manual_score": 7}})
+        entry = updated["breakdown"][0]
+        assert entry[NEEDS_REVIEW_KEY] is False
+        assert is_pending(updated) is False
+
+    def test_apply_none_clears_comment_and_reviewer(
+        self, tmp_path: Path
+    ) -> None:
+        """A None comment and reviewer clear the stored metadata."""
+        form = _manual_form()
+        report = grade_response(form, {"m1": "x"})
+        first = apply_post_grade(
+            report,
+            {
+                "m1": {
+                    "manual_score": 5,
+                    "comment": "old",
+                    "reviewer": "prof",
+                }
+            },
+        )
+        second = apply_post_grade(first, {"m1": {"manual_score": 8}})
+        entry = second["breakdown"][0]
+        assert entry[COMMENT_KEY] is None
+        assert entry[REVIEWED_BY_KEY] is None
+        assert entry[MANUAL_SCORE_KEY] == 8
+
     def test_finalize_report(self, tmp_path: Path) -> None:
         """finalize_report recomputes final totals."""
         form = _manual_form()
@@ -241,6 +297,31 @@ class TestGraderReview:
         report["breakdown"][0][FINAL_SCORE_KEY] = 6
         fin = finalize_report(report)
         assert fin[TOTAL_FINAL_KEY] == 6
+
+    def test_finalize_report_clears_needs_review_for_manual(
+        self, tmp_path: Path
+    ) -> None:
+        """finalize_report stops marking manual entries as pending."""
+        form = _manual_form()
+        report = grade_response(form, {"m1": "x"})
+        report["breakdown"][0][MANUAL_SCORE_KEY] = 6
+        report["breakdown"][0][FINAL_SCORE_KEY] = 6
+        fin = finalize_report(report)
+        assert fin["breakdown"][0][NEEDS_REVIEW_KEY] is False
+
+    def test_refresh_prelim_keeps_reviewed_not_pending(
+        self, tmp_path: Path
+    ) -> None:
+        """refresh_prelim keeps a reviewed question non-pending."""
+        form = _form_with_review(tmp_path)
+        report = grade_response(form, {"q1": "answer", "q3": "hello"})
+        patched = apply_post_grade(report, {"q1": {"manual_score": 5}})
+        refreshed = refresh_prelim(
+            patched, form, {"q1": "wrong", "q3": "hello"}
+        )
+        q1 = next(e for e in refreshed["breakdown"] if e["id"] == "q1")
+        assert q1[NEEDS_REVIEW_KEY] is False
+        assert q1[MANUAL_SCORE_KEY] == 5
 
     def test_refresh_prelim_preserves_manual(self, tmp_path: Path) -> None:
         """refresh_prelim keeps manual when recomputing prelim."""
@@ -320,6 +401,58 @@ class TestDatabasePostGrade:
         entry = resp["grade_json"]["breakdown"][0]
         assert entry[MANUAL_SCORE_KEY] == 8
         assert entry[COMMENT_KEY] == "second"
+        conn.close()
+
+    def test_re_review_clears_comment_and_reviewer(
+        self, tmp_path: Path
+    ) -> None:
+        """Blank comment and None reviewer clear stale metadata."""
+        form = _manual_form()
+        db = tmp_path / "db.db"
+        conn = init_db(db)
+
+        report = grade_report_to_json(grade_response(form, {"m1": "hi"}))
+        rid = save_response(conn, form.name, {"m1": "hi"}, grade=report)
+        set_post_grade(
+            conn, form, rid, "m1", 5, comment="old", reviewer="prof"
+        )
+        set_post_grade(conn, form, rid, "m1", 8)
+        resp = get_responses(conn)[0]
+        entry = resp["grade_json"]["breakdown"][0]
+        assert entry[MANUAL_SCORE_KEY] == 8
+        assert entry[COMMENT_KEY] is None
+        assert entry[REVIEWED_BY_KEY] is None
+        assert entry[NEEDS_REVIEW_KEY] is False
+        assert list_pending(conn, form.name) == []
+        conn.close()
+
+    def test_set_post_grade_rejects_cross_form_response(
+        self, tmp_path: Path
+    ) -> None:
+        """A response from another form cannot be post-graded."""
+        form = _manual_form()
+        other = FormDefinition(
+            name="OtherForm",
+            questions=[
+                ShortTextQuestion(
+                    id="m1",
+                    text="B?",
+                    type="short_text",
+                    points=10,
+                    review="required",
+                )
+            ],
+        )
+        db = tmp_path / "db.db"
+        conn = init_db(db)
+        report = grade_report_to_json(grade_response(other, {"m1": "hi"}))
+        rid = save_response(conn, other.name, {"m1": "hi"}, grade=report)
+        with pytest.raises(ValueError, match="belongs to form"):
+            set_post_grade(conn, form, rid, "m1", 5)
+        # the response's own form still accepts the grade
+        set_post_grade(conn, other, rid, "m1", 5)
+        resp = get_responses(conn)[0]
+        assert resp["grade_json"]["breakdown"][0][MANUAL_SCORE_KEY] == 5
         conn.close()
 
 
@@ -500,6 +633,205 @@ class TestCliReviewBatch:
             == getpass.getuser()
         )
         conn2.close()
+
+    def test_batch_rejects_cross_form_response(self, tmp_path: Path) -> None:
+        """Batch rows for another form's response are rejected."""
+        form = _manual_form()
+        other = FormDefinition(
+            name="OtherForm",
+            questions=[
+                ShortTextQuestion(
+                    id="m1",
+                    text="B?",
+                    type="short_text",
+                    points=10,
+                    review="required",
+                )
+            ],
+        )
+        form_path = tmp_path / "form.json"
+        form_path.write_text(form.model_dump_json(), encoding="utf-8")
+        db = tmp_path / "cross.db"
+        conn = init_db(db)
+        report = grade_report_to_json(grade_response(other, {"m1": "x"}))
+        rid = save_response(conn, other.name, {"m1": "x"}, grade=report)
+        conn.close()
+        batch = tmp_path / "overrides.csv"
+        with batch.open("w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "response_id",
+                    "question_id",
+                    "manual_score",
+                ],
+            )
+            w.writeheader()
+            w.writerow(
+                {
+                    "response_id": rid,
+                    "question_id": "m1",
+                    "manual_score": "8",
+                }
+            )
+        runner = CliRunner()
+        result = runner.invoke(
+            app,
+            [
+                "review",
+                str(form_path),
+                str(db),
+                "--batch",
+                str(batch),
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Applied 0" in result.output
+        assert "Rejected 1" in result.output
+        conn2 = init_db(db)
+        resp = get_responses(conn2)[0]
+        assert resp["grade_json"]["breakdown"][0][MANUAL_SCORE_KEY] is None
+        conn2.close()
+
+    def test_batch_respects_question_filter(self, tmp_path: Path) -> None:
+        """--question restricts which rows are applied."""
+        form = _form_with_review(tmp_path)
+        form_path = tmp_path / "form.json"
+        form_path.write_text(form.model_dump_json(), encoding="utf-8")
+        db = tmp_path / "filter.db"
+        conn = init_db(db)
+        report = grade_report_to_json(
+            grade_response(form, {"q1": "answer", "q3": "x"})
+        )
+        rid = save_response(
+            conn, form.name, {"q1": "answer", "q3": "x"}, grade=report
+        )
+        conn.close()
+        batch = tmp_path / "overrides.csv"
+        with batch.open("w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "response_id",
+                    "question_id",
+                    "manual_score",
+                ],
+            )
+            w.writeheader()
+            w.writerow(
+                {
+                    "response_id": rid,
+                    "question_id": "q1",
+                    "manual_score": "2",
+                }
+            )
+            w.writerow(
+                {
+                    "response_id": rid,
+                    "question_id": "q3",
+                    "manual_score": "9",
+                }
+            )
+        runner = CliRunner()
+        result = runner.invoke(
+            app,
+            [
+                "review",
+                str(form_path),
+                str(db),
+                "--batch",
+                str(batch),
+                "--question",
+                "q1",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Applied 1" in result.output
+        assert "Rejected 1" in result.output
+        conn2 = init_db(db)
+        resp = get_responses(conn2)[0]
+        entries = {e["id"]: e for e in resp["grade_json"]["breakdown"]}
+        assert entries["q1"][MANUAL_SCORE_KEY] == 2
+        assert entries["q3"][MANUAL_SCORE_KEY] is None
+        conn2.close()
+
+    def test_batch_respects_review_type(self, tmp_path: Path) -> None:
+        """--review-type required skips permitted-mode questions."""
+        form = _form_with_review(tmp_path)
+        form_path = tmp_path / "form.json"
+        form_path.write_text(form.model_dump_json(), encoding="utf-8")
+        db = tmp_path / "rtype.db"
+        conn = init_db(db)
+        report = grade_report_to_json(
+            grade_response(form, {"q1": "answer", "q2": "ok", "q3": "x"})
+        )
+        rid = save_response(
+            conn,
+            form.name,
+            {"q1": "answer", "q2": "ok", "q3": "x"},
+            grade=report,
+        )
+        conn.close()
+        batch = tmp_path / "overrides.csv"
+        with batch.open("w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "response_id",
+                    "question_id",
+                    "manual_score",
+                ],
+            )
+            w.writeheader()
+            w.writerow(
+                {
+                    "response_id": rid,
+                    "question_id": "q2",
+                    "manual_score": "5",
+                }
+            )
+            w.writerow(
+                {
+                    "response_id": rid,
+                    "question_id": "q3",
+                    "manual_score": "12",
+                }
+            )
+        runner = CliRunner()
+        result = runner.invoke(
+            app,
+            [
+                "review",
+                str(form_path),
+                str(db),
+                "--batch",
+                str(batch),
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Applied 1" in result.output
+        assert "Rejected 1" in result.output
+        conn2 = init_db(db)
+        resp = get_responses(conn2)[0]
+        entries = {e["id"]: e for e in resp["grade_json"]["breakdown"]}
+        assert entries["q2"][MANUAL_SCORE_KEY] is None
+        assert entries["q3"][MANUAL_SCORE_KEY] == 12
+        conn2.close()
+        # review-type all admits permitted-mode rows too
+        result = runner.invoke(
+            app,
+            [
+                "review",
+                str(form_path),
+                str(db),
+                "--batch",
+                str(batch),
+                "--review-type",
+                "all",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Applied 2" in result.output
 
     def test_review_interactive_exits_without_form(
         self, tmp_path: Path
@@ -729,6 +1061,187 @@ class TestTuiReview:
 
         app_inst = ReviewApp(form_path, db, review_type="required")
         assert app_inst.form.name == "ManualForm"
+
+    def test_review_app_uses_code_dir(self, tmp_path: Path) -> None:
+        """ReviewApp resolves code files from --code-dir."""
+        code_dir = tmp_path / "code"
+        code_dir.mkdir()
+        (code_dir / "helper.py").write_text(
+            "def helper(): pass\n", encoding="utf-8"
+        )
+        form_path = tmp_path / "cf.json"
+        form_path.write_text(
+            json.dumps(
+                {
+                    "name": "CodeForm",
+                    "questions": [
+                        {
+                            "id": "q1",
+                            "text": "Explain the helper?",
+                            "type": "short_text",
+                            "points": 10,
+                            "review": "required",
+                            "code": {
+                                "language": "python",
+                                "file": "helper.py",
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        db = tmp_path / "code.db"
+        init_db(db).close()
+        from formtuist.tui.app import ReviewApp  # noqa: PLC0415
+
+        app_inst = ReviewApp(
+            form_path, db, review_type="required", code_dir=code_dir
+        )
+        assert app_inst.form.name == "CodeForm"
+        code = app_inst.form.questions[0].code
+        assert code is not None
+        assert "def helper" in (code.content or "")
+
+    def test_review_app_without_code_dir_rejects_external_code(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A code file outside the form dir fails without --code-dir."""
+        code_dir = tmp_path / "code"
+        code_dir.mkdir()
+        (code_dir / "helper.py").write_text(
+            "def helper(): pass\n", encoding="utf-8"
+        )
+        form_path = tmp_path / "cf.json"
+        form_path.write_text(
+            json.dumps(
+                {
+                    "name": "CodeForm",
+                    "questions": [
+                        {
+                            "id": "q1",
+                            "text": "Explain the helper?",
+                            "type": "short_text",
+                            "points": 10,
+                            "review": "required",
+                            "code": {
+                                "language": "python",
+                                "file": "helper.py",
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        db = tmp_path / "code.db"
+        init_db(db).close()
+        from formtuist.tui.app import ReviewApp  # noqa: PLC0415
+
+        with pytest.raises(ValueError, match="cannot read code file"):
+            ReviewApp(form_path, db, review_type="required")
+        # parse_form writes its diagnostic report to stderr; capture it so
+        # the suite stays silent for expected failures
+        capsys.readouterr()
+
+    def test_review_uses_toggle_for_choice_question(
+        self, tmp_path: Path
+    ) -> None:
+        """Choice questions get a Switch that maps to points or zero."""
+        form = _choice_form()
+        db = tmp_path / "choice.db"
+        conn = init_db(db)
+        report = grade_report_to_json(grade_response(form, {"c1": "A"}))
+        save_response(conn, form.name, {"c1": "A"}, grade=report)
+        conn.close()
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                assert screen.bool_input is not None
+                assert screen.score_input is not None
+                assert "hidden" in screen.score_input.classes
+                assert "hidden" not in screen.bool_input.classes
+                label = screen.query_one("#review-score-label", Label)
+                assert "Correct?" in str(label.render())
+                assert screen.bool_input.value is True
+                # toggling on saves the full points
+                assert screen._save_current() is True
+                conn = init_db(db)
+                resp = get_responses(conn)[0]
+                conn.close()
+                entry = resp["grade_json"]["breakdown"][0]
+                assert entry[MANUAL_SCORE_KEY] == 10
+                # toggling off saves zero
+                assert screen.conn is not None
+                screen.responses = get_responses(
+                    screen.conn, form_name=form.name
+                )
+                screen._render_detail()
+                assert screen.bool_input.value is True
+                screen.bool_input.value = False
+                assert screen._save_current() is True
+                resp = get_responses(screen.conn)[0]
+                entry = resp["grade_json"]["breakdown"][0]
+                assert entry[MANUAL_SCORE_KEY] == 0
+
+        asyncio.run(run())
+
+    def test_review_keeps_input_for_text_question(
+        self, tmp_path: Path
+    ) -> None:
+        """Short-text questions keep the integer score input."""
+        form, db = self._review_db(tmp_path, "alice")
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                assert screen.bool_input is not None
+                assert screen.score_input is not None
+                assert "hidden" in screen.bool_input.classes
+                assert "hidden" not in screen.score_input.classes
+                label = screen.query_one("#review-score-label", Label)
+                assert "Manual score" in str(label.render())
+
+        asyncio.run(run())
+
+    def test_review_legacy_response_without_grade_is_visible(
+        self, tmp_path: Path
+    ) -> None:
+        """A response with no stored snapshot appears in the queue."""
+        form = _manual_form()
+        db = tmp_path / "legacy.db"
+        conn = init_db(db)
+        save_response(conn, form.name, {"m1": "legacy essay"})
+        conn.close()
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                assert len(screen._responses_for_question("m1")) == 1
+                assert screen._pending_for_question("m1") == 1
+                final = screen.query_one("#review-final", Static)
+                assert "(pending save)" in str(final.render())
+                assert screen.score_input is not None
+                screen.score_input.value = "7"
+                assert screen._save_current() is True
+                assert screen.conn is not None
+                resp = get_responses(screen.conn)[0]
+                assert resp["grade_json"] is not None
+                entry = resp["grade_json"]["breakdown"][0]
+                assert entry[MANUAL_SCORE_KEY] == 7
+                assert entry[NEEDS_REVIEW_KEY] is False
+
+        asyncio.run(run())
 
     def test_review_toggles_sidebar(self, tmp_path: Path) -> None:
         """action_toggle_sidebar hides and shows the review sidebar."""
