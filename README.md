@@ -433,6 +433,7 @@ questions with `Ctrl+N`/`Ctrl+P`.
 | Key | Action |
 |---|---|
 | `Ctrl+S` | Save the current manual score and comment |
+| `M-a` | Save All — bulk-confirm every pending item with its prelim score |
 | `Ctrl+J` | Next response (within the current question) |
 | `Ctrl+K` | Previous response |
 | `Ctrl+N` | Next question |
@@ -440,6 +441,7 @@ questions with `Ctrl+N`/`Ctrl+P`.
 | `e` | Focus the score input (validated to `0..points`) |
 | `f` | Toggle pending-only (only unsaved responses) |
 | `Ctrl+B` | Toggle the sidebar |
+| `esc` | Blur — return focus to the screen (frees the letter shortcuts) |
 | `Ctrl+O` | Open the command palette |
 | `Ctrl+C` | Quit |
 
@@ -600,6 +602,15 @@ The database is created in the platform-appropriate data directory
 (`~/.local/share/formtuist/` on Linux). Use `--db-dir` to override.
 Existing databases are migrated automatically when new columns are added.
 Older responses have `NULL` provenance values because their original form
+file did not record them.
+
+Because the database runs in WAL mode, recent writes (including saved
+manual reviews) may live in the `-wal` sidecar file rather than the main
+`.db` file until a checkpoint runs. To back up a database safely, either
+checkpoint it first (`sqlite3 responses.db "PRAGMA wal_checkpoint(TRUNCATE);"`)
+or export a portable copy with `formtuist export --format sqlite`;
+plainly copying only the `.db` file can silently drop the most recent
+reviews.
 source was not captured.
 
 The `form_hash` and `form_contents` fields identify and reproduce the exact
