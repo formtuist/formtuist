@@ -220,8 +220,10 @@ and stay native arrays in JSON.
 **`full` vs `graded`.** The command writes one of two views. `--type full`
 (the default) is the complete record of what people answered -- the response
 id, form name, submitted timestamp, GitHub identity (username and URL), the
-grade totals, and one column per question holding that question's *answer*.
-It is a faithful snapshot of history and never recomputes. `--type graded`
+grade totals, one column per question holding that question's *answer*, and
+a `qid_comment` column per gradeable question carrying any review comment
+the instructor wrote. It is a faithful snapshot of history and never
+recomputes. `--type graded`
 drops the answer content and timestamp and keeps only the gradebook line --
 the id, form name, attempt, a single `student` column (username or `-`), one
 column per question holding that question's *score*, and the total/max/
@@ -292,7 +294,7 @@ output file but does not update the database.
 ### `review` — Post-grade manual review
 
 The reviewer lets you step through every response that needs human
-judgement and persist a `manual_score` plus optional comment into the
+judgment and persist a `manual_score` plus optional comment into the
 database (`review <form.json> [responses.db]`). A required question is
 pending until a manual score is saved, even when its auto-graded prelim
 is already full credit -- the reviewer marks those items `(pending save)`
