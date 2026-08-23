@@ -1096,7 +1096,7 @@ manual questions:
 1. A required entry is PENDING until a `manual_score` is saved in its
    `grade_json` breakdown, even when the auto-graded prelim is full
    credit; the reviewer marks such items `(pending save)` and provides
-   `Ctrl+A` to bulk-confirm the remaining queue.
+   `M-a` (Save All, Alt+A) to bulk-confirm the remaining queue.
 
 ______________________________________________________________________
 
