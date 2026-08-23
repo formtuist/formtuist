@@ -130,6 +130,7 @@ class ReviewApp(App):
         question_filter: str | None = None,
         reviewer: str | None = None,
         show_student_name: bool = True,
+        code_dir: Path | None = None,
     ) -> None:
         """Store review filters and load the form definition."""
         self.form_path = form_path
@@ -138,7 +139,8 @@ class ReviewApp(App):
         self.question_filter = question_filter
         self.reviewer = reviewer
         self.show_student_name = show_student_name
-        self.form = parse_form(form_path)
+        self.code_dir = code_dir
+        self.form = parse_form(form_path, code_dir)
         super().__init__()
         self.theme = "ansi-dark"
 
