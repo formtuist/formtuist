@@ -261,6 +261,24 @@ class TestQuestionModels:
         )
         assert q.randomize is False
 
+    def test_randomize_choices_defaults_to_false(self) -> None:
+        """Choice-order randomization is opt-in."""
+        q = MultipleChoiceQuestion(
+            id="q", text="Pick?", type="multiple_choice", choices=["A", "B"]
+        )
+        assert q.randomize_choices is False
+
+    def test_randomize_choices_can_be_enabled(self) -> None:
+        """A question opts in by setting randomize_choices to true."""
+        q = MultipleChoiceQuestion(
+            id="q",
+            text="Pick?",
+            type="multiple_choice",
+            choices=["A", "B"],
+            randomize_choices=True,
+        )
+        assert q.randomize_choices is True
+
     def test_accepts_defaults_to_none(self) -> None:
         """The accepts pattern is optional."""
         q = ShortTextQuestion(id="q", text="Name?", type="short_text")

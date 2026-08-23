@@ -21,6 +21,7 @@ from textual.widgets import (
     Footer,
     Input,
     Label,
+    RadioButton,
     RadioSet,
     SelectionList,
     Static,
@@ -1640,6 +1641,98 @@ class TestRandomizedOrder:
         assert shuffled_ids != [q.id for q in form.questions]
         assert sorted(shuffled_ids) == sorted(q.id for q in form.questions)
 
+    def test_choice_order_unchanged_by_default(self) -> None:
+        """Choices keep file order unless the question opts in."""
+        form = FormDefinition(
+            name="Fixed",
+            questions=[
+                MultipleChoiceQuestion(
+                    id="mc",
+                    text="Pick?",
+                    type="multiple_choice",
+                    choices=["A", "B", "C"],
+                    correct_answer="B",
+                    points=1,
+                )
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
+        assert "mc" not in screen.choice_orders
+
+    def test_choice_order_shuffles_per_seed(self) -> None:
+        """Opt-in questions shuffle choices deterministically per seed."""
+        form = FormDefinition(
+            name="ShuffledChoices",
+            questions=[
+                MultipleChoiceQuestion(
+                    id="mc",
+                    text="Pick?",
+                    type="multiple_choice",
+                    choices=["A", "B", "C", "D"],
+                    correct_answer="B",
+                    points=1,
+                    randomize_choices=True,
+                )
+            ],
+        )
+        first = FormScreen(form, Path(":memory:"), seed=42)
+        assert first.choice_orders["mc"] == ["C", "B", "D", "A"]
+        again = FormScreen(form, Path(":memory:"), seed=42)
+        assert again.choice_orders["mc"] == ["C", "B", "D", "A"]
+        other = FormScreen(form, Path(":memory:"), seed=43)
+        assert other.choice_orders["mc"] != first.choice_orders["mc"]
+        assert set(first.choice_orders["mc"]) == {"A", "B", "C", "D"}
+
+    def test_checkbox_choice_order_shuffles_per_seed(self) -> None:
+        """Checkbox options shuffle when the question opts in."""
+        form = FormDefinition(
+            name="CheckboxShuffle",
+            questions=[
+                CheckboxQuestion(
+                    id="cb",
+                    text="Pick all",
+                    type="checkbox",
+                    choices=["A", "B", "C", "D"],
+                    correct_answer=["A"],
+                    points=1,
+                    randomize_choices=True,
+                )
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"), seed=42)
+        assert screen.choice_orders["cb"] == ["C", "B", "D", "A"]
+        assert set(screen.choice_orders["cb"]) == {"A", "B", "C", "D"}
+
+    def test_compose_renders_shuffled_choices(self) -> None:
+        """The composed RadioSet shows the per-session choice order."""
+        form = FormDefinition(
+            name="ComposedShuffle",
+            questions=[
+                MultipleChoiceQuestion(
+                    id="mc",
+                    text="Pick?",
+                    type="multiple_choice",
+                    choices=["A", "B", "C", "D"],
+                    correct_answer="B",
+                    points=1,
+                    randomize_choices=True,
+                )
+            ],
+        )
+
+        async def run() -> None:
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                screen = FormScreen(form, Path(":memory:"), seed=42)
+                await app.push_screen(screen)
+                radioset = screen.query_one(RadioSet)
+                labels = [
+                    str(button.label) for button in radioset.query(RadioButton)
+                ]
+                assert labels == screen.choice_orders["mc"]
+
+        asyncio.run(run())
+
     def test_inputs_follow_shuffled_order(self) -> None:
         """Compose renders the input widgets in the shuffled order."""
 
@@ -1790,6 +1883,14 @@ class TestWidgetFactory:
             id="t", text="T", type="multiple_choice", choices=["A", "B"]
         )
         widget = make_input_widget(q)
+        assert isinstance(widget, RadioSet)
+
+    def test_make_multiple_choice_with_choice_order(self) -> None:
+        """make_input_widget honors an explicit choice order."""
+        q = MultipleChoiceQuestion(
+            id="t", text="T", type="multiple_choice", choices=["A", "B"]
+        )
+        widget = make_input_widget(q, choices=["B", "A"])
         assert isinstance(widget, RadioSet)
 
     def test_make_checkbox_input(self) -> None:
