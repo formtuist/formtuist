@@ -311,9 +311,10 @@ uvx formtuist review examples/quiz_postgrade.json responses.db \
 `--review-mode interactive` (default) opens the question-first reviewer
 TUI; `--review-mode bulk-save` applies the current prelim score as the
 final score for every pending required entry and exits without touching
-already-reviewed items. Inside the TUI, `Ctrl+A` performs the same bulk
-confirm, and `Esc` returns focus to the screen. See the Keyboard
-shortcuts section for the full reviewer keymap.
+already-reviewed items. Inside the TUI, `M-a` (Save All, Alt+A)
+performs the same bulk confirm, and `Esc` returns focus to the
+screen. See the Keyboard shortcuts section for the full reviewer
+keymap.
 
 ### `analyze` — Analyze quiz statistics
 
@@ -388,8 +389,8 @@ The `table` view has three panels:
 
 - **Distribution** (binned `percentage` with a legend to explain the bar
 
-- **Per-question** (easiest → hardest, with `Avg`, `p%`, `Correct%`, `Pending`,
-  and `Sparkline` when requested).
+- **Per-question** (highest-score → lowest-score, with `Avg`, `p%`, `Correct%`,
+  `Pending`, and `Sparkline` when requested).
 
 ## Keyboard shortcuts
 
