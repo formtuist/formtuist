@@ -135,7 +135,13 @@ class ReviewScreen(Screen):
         list[Binding | tuple[str, str] | tuple[str, str, str]]
     ] = [
         Binding("ctrl+s", "save", "Save", priority=True),
-        Binding("ctrl+a", "bulk_save", "Save All", priority=True),
+        Binding(
+            "alt+a",
+            "bulk_save",
+            "Save All",
+            priority=True,
+            key_display="M-a",
+        ),
         Binding("ctrl+j", "next_response", "Next R", priority=True),
         Binding("ctrl+k", "prev_response", "Prev R", priority=True),
         Binding("ctrl+n", "next_question", "Next Q", priority=True),
