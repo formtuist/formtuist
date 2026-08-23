@@ -33,6 +33,7 @@ from formtuist.exporter import (
     FLAT_TOTAL,
     METADATA_COLUMNS,
     answer_columns,
+    comment_columns,
     export_grades_to_csv,
     export_grades_to_json,
     export_grades_to_jsonl,
@@ -111,6 +112,69 @@ def _read_all(db_path: Path) -> list[dict[str, Any]]:
         conn.close()
 
 
+def _graded_with_comment(tmp_path: Path) -> list[dict[str, Any]]:
+    """Two responses, the first with a reviewed comment on its breakdown."""
+    db_path = tmp_path / "comments.db"
+    conn = init_db(db_path)
+    grade = {
+        "total": 10,
+        "max": 20,
+        "percentage": 50.0,
+        "breakdown": [
+            {
+                "id": "q1",
+                "text": "Q1",
+                "answer": "a",
+                "correct_answer": "a",
+                "score": 10,
+                "prelim_score": 10,
+                "manual_score": None,
+                "final_score": 10,
+                "max": 10,
+                "correct": True,
+                "language": None,
+                "needs_review": False,
+                "reviewed_by": None,
+                "reviewed_at": None,
+                "comment": None,
+            },
+            {
+                "id": "q2",
+                "text": "Q2",
+                "answer": "x",
+                "correct_answer": "b",
+                "score": 0,
+                "prelim_score": 0,
+                "manual_score": 5,
+                "final_score": 5,
+                "max": 10,
+                "correct": False,
+                "language": None,
+                "needs_review": True,
+                "reviewed_by": "prof",
+                "reviewed_at": "2026-08-01T00:00:00+00:00",
+                "comment": "Nice try",
+            },
+        ],
+        "graded_at": "2026-08-01T00:00:00+00:00",
+    }
+    save_response(
+        conn,
+        FORM_NAME,
+        {"q1": "a", "q2": "x"},
+        github_username="alice",
+        grade=grade,
+    )
+    save_response(
+        conn,
+        FORM_NAME,
+        {"q1": "c", "q2": "z"},
+        github_username="bob",
+    )
+    conn.close()
+    return _read_all(db_path)
+
+
 class TestAnswerColumns:
     """Tests for deriving the flat answer columns."""
 
@@ -181,6 +245,35 @@ class TestFlattenResponse:
         assert row[FLAT_TOTAL] is None
         assert row[FLAT_MAX] is None
         assert row[FLAT_PERCENTAGE] is None
+
+
+class TestCommentColumns:
+    """Tests for review comment columns in the full export."""
+
+    def test_comment_columns_from_breakdown(self, tmp_path: Path) -> None:
+        """Every gradeable question gets a qid_comment column."""
+        responses = _graded_with_comment(tmp_path)
+        assert comment_columns(responses) == ["q1_comment", "q2_comment"]
+
+    def test_full_json_includes_comments(self, tmp_path: Path) -> None:
+        """The full JSON export carries the review comments."""
+        responses = _graded_with_comment(tmp_path)
+        out = tmp_path / "comments.json"
+        export_to_json(responses, out)
+        records = json.loads(out.read_text(encoding="utf-8"))
+        assert records[0]["q2_comment"] == "Nice try"
+        assert records[0]["q1_comment"] is None
+        assert records[1]["q2_comment"] is None
+
+    def test_full_csv_header_includes_comments(self, tmp_path: Path) -> None:
+        """The full CSV header lists the comment columns."""
+        responses = _graded_with_comment(tmp_path)
+        out = tmp_path / "comments.csv"
+        export_to_csv(responses, out)
+        with out.open("r", encoding="utf-8", newline="") as file:
+            header = next(csv.reader(file))
+        assert "q1_comment" in header
+        assert "q2_comment" in header
 
 
 class TestExportToCsv:
