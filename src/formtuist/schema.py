@@ -1,5 +1,6 @@
 """Pydantic models for validating JSON form definitions."""
 
+import math
 import re
 from enum import Enum
 from pathlib import Path
@@ -74,6 +75,15 @@ CODE_DIR_CONTEXT_KEY = "code_dir"
 
 # encoding used when loading code from referenced files
 CODE_ENCODING = "utf-8"
+
+# minimum score value allowed for a scored question
+MIN_POINTS = 0
+
+# validation messages for numeric answer ranges
+NUMERIC_RANGE_FINITE_ERROR = "numeric range bounds must be finite"
+NUMERIC_RANGE_ORDER_ERROR = (
+    "numeric range min must be less than or equal to max"
+)
 
 
 class CodeBlock(BaseModel):
@@ -190,7 +200,7 @@ class ShortTextQuestion(_QuestionBase):
     type: Literal["short_text"]
     correct_answer: CodeAnswer | None = None
     accepts: str | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: GRADING_LITERAL | None = None
 
     # ensure an accepts pattern is a usable regular expression
@@ -216,7 +226,7 @@ class ParagraphQuestion(_QuestionBase):
     type: Literal["paragraph"]
     correct_answer: CodeAnswer | None = None
     accepts: str | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: GRADING_LITERAL | None = None
 
     # ensure an accepts pattern is a usable regular expression
@@ -245,7 +255,7 @@ class MultipleChoiceQuestion(_QuestionBase):
     type: Literal["multiple_choice"]
     choices: list[str]
     correct_answer: str | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: Literal["exact"] | None = "exact"
 
     # ensure at least two choices exist for a meaningful selection
@@ -275,7 +285,7 @@ class CheckboxQuestion(_QuestionBase):
     type: Literal["checkbox"]
     choices: list[str]
     correct_answer: list[str] | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: Literal["exact"] | None = "exact"
 
     # ensure at least one checkbox option is defined
@@ -307,13 +317,22 @@ class NumericRange(BaseModel):
     min: float
     max: float
 
+    @model_validator(mode="after")
+    def _valid_bounds(self) -> "NumericRange":
+        """Validate finite, ordered numeric range bounds."""
+        if not math.isfinite(self.min) or not math.isfinite(self.max):
+            raise ValueError(NUMERIC_RANGE_FINITE_ERROR)
+        if self.min > self.max:
+            raise ValueError(NUMERIC_RANGE_ORDER_ERROR)
+        return self
+
 
 class NumericQuestion(_QuestionBase):
     """A numeric input question with optional range grading."""
 
     type: Literal["numeric"]
     correct_answer: float | NumericRange | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: Literal["exact"] | None = "exact"
 
 
@@ -345,7 +364,7 @@ class YesNoQuestion(_QuestionBase):
 
     type: Literal["yes_no"]
     correct_answer: bool | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: Literal["exact"] | None = "exact"
 
 
