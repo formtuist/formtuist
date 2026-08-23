@@ -1100,6 +1100,20 @@ manual questions:
    credit; the reviewer marks such items `(pending save)` and provides
    `M-a` (Save All, Alt+A) to bulk-confirm the remaining queue.
 
+Recorded architecture decisions for post-grade review:
+
+1. Reviewed content (manual_score, comment, reviewer, reviewed_at)
+   persists INTO the response's `grade_json` snapshot — a single source
+   of truth, with no separate post-grades table. Exports (`export --type
+   graded`, `--type full`) and `analyze` read it directly.
+1. Recompute (`grade --recompute`, `export --type graded --form`)
+   refreshes PRELIM scores only and never overwrites a saved
+   `manual_score` or comment; `refresh_prelim` preserves human
+   decisions.
+1. `grade` is legacy: hidden from `--help` and superseded by `review`
+   plus `export --type graded`, which both read the same stored
+   snapshots.
+
 ______________________________________________________________________
 
 ## 6. Web Serving Architecture
