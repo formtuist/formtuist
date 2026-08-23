@@ -260,7 +260,7 @@ promising an enforcement they cannot deliver. Anonymous forms keep
 | `numeric` | `Input` + `Integer` validator | `REAL` |
 | `rating` | `RadioSet` (horizontal) or `Select` | `INTEGER` |
 | `date` | `Input` + date validator | `TEXT` (ISO 8601) |
-| `yes_no` | `Switch` or `Checkbox` | `INTEGER` (0/1) |
+| `yes_no` | `RadioSet` with Yes/No options | `INTEGER` (0/1) |
 
 Each question accepts a `randomize` field that defaults to `true`. When
 `config.randomize_questions` is enabled, a question with `randomize` set
@@ -674,7 +674,7 @@ viewport testing is required for v1.
 | `numeric` | `Input` + validator | `Label` |
 | `rating` | `RadioSet` (or `Select`) | `Label` |
 | `date` | `Input` + validator | `Label` |
-| `yes_no` | `Switch` | `Label` |
+| `yes_no` | `RadioSet` with Yes/No options | `Label` |
 
 ### 4.2 Custom Widget: `QuestionContainer`
 
@@ -813,7 +813,8 @@ def make_input_widget(question: Question) -> Widget:
     elif question.type == "date":
         return Input(placeholder="YYYY-MM-DD")
     elif question.type == "yes_no":
-        return Switch()
+        # no option is selected until the respondent chooses Yes or No
+        return RadioSet("Yes", "No")
     else:
         raise ValueError(f"unknown question type: {question.type}")
 ```
