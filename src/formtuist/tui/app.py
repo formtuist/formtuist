@@ -21,7 +21,7 @@ class FormtuistApp(App):
     # the command palette lives on ctrl+o so ctrl+n/ctrl+p can stay
     # reserved for next/previous question consistently across screens
     COMMAND_PALETTE_BINDING = "ctrl+o"
-    COMMAND_PALETTE_DISPLAY = "Ctrl+O"
+    COMMAND_PALETTE_DISPLAY = "^O"
 
     BINDINGS: ClassVar[
         list[Binding | tuple[str, str] | tuple[str, str, str]]
@@ -71,7 +71,7 @@ class ProvenanceApp(App):
     TITLE = "formtuist provenance"
     CSS_PATH = "styles.tcss"
     COMMAND_PALETTE_BINDING = "ctrl+o"
-    COMMAND_PALETTE_DISPLAY = "Ctrl+O"
+    COMMAND_PALETTE_DISPLAY = "^O"
 
     BINDINGS: ClassVar[
         list[Binding | tuple[str, str] | tuple[str, str, str]]
@@ -114,7 +114,7 @@ class ReviewApp(App):
     # keep the command palette on ctrl+o so ctrl+n/ctrl+p are next/previous
     # question and ctrl+b is the sidebar, matching the form screens
     COMMAND_PALETTE_BINDING = "ctrl+o"
-    COMMAND_PALETTE_DISPLAY = "Ctrl+O"
+    COMMAND_PALETTE_DISPLAY = "^O"
 
     BINDINGS: ClassVar[
         list[Binding | tuple[str, str] | tuple[str, str, str]]
