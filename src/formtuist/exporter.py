@@ -116,9 +116,11 @@ def answer_columns(responses: list[dict[str, Any]]) -> list[str]:
 
 
 def flatten_response(
-    response: dict[str, Any], columns: list[str]
+    response: dict[str, Any],
+    columns: list[str],
+    comment_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Flatten one response into a single row with metadata and answers."""
+    """Flatten one response into a row with metadata and answers."""
     grade = response[GRADE_JSON_COLUMN]
     if grade is not None:
         final_total = grade.get(TOTAL_FINAL_KEY, grade.get(TOTAL_KEY))
@@ -131,6 +133,12 @@ def flatten_response(
         )
     else:
         final_total, final_perc, pending = None, None, None
+    comments: dict[str, Any] = {}
+    if grade is not None:
+        comments = {
+            entry[BREAKDOWN_ID_KEY]: entry.get(COMMENT_KEY)
+            for entry in grade.get(BREAKDOWN_KEY, [])
+        }
     flat = {
         FLAT_ID: response[ID_COLUMN],
         FLAT_FORM_NAME: response[FORM_NAME_COLUMN],
@@ -154,6 +162,8 @@ def flatten_response(
     answers = response[ANSWERS_JSON_COLUMN]
     for column in columns:
         flat[column] = answers.get(column)
+    for qid in comment_ids or []:
+        flat[f"{qid}_comment"] = comments.get(qid)
     return flat
 
 
@@ -185,12 +195,33 @@ def pending_columns(responses: list[dict[str, Any]]) -> list[str]:
     return sorted(pending)
 
 
+def _gradeable_ids(responses: list[dict[str, Any]]) -> list[str]:
+    """Return sorted question ids found in any grade breakdown."""
+    ids: set[str] = set()
+    for response in responses:
+        grade = response[GRADE_JSON_COLUMN]
+        if grade is None:
+            continue
+        for entry in grade.get(BREAKDOWN_KEY, []):
+            ids.add(entry[BREAKDOWN_ID_KEY])
+    return sorted(ids)
+
+
+def comment_columns(responses: list[dict[str, Any]]) -> list[str]:
+    """Return a qid_comment column for every gradeable question."""
+    return [f"{qid}_comment" for qid in _gradeable_ids(responses)]
+
+
 def _flatten_all(
     responses: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Return flat rows plus the answer columns they use."""
+    """Return flat rows plus the answer and comment columns they use."""
     columns = answer_columns(responses)
-    return [flatten_response(r, columns) for r in responses], columns
+    gradeable = _gradeable_ids(responses)
+    return (
+        [flatten_response(r, columns, gradeable) for r in responses],
+        columns + [f"{qid}_comment" for qid in gradeable],
+    )
 
 
 def _write_csv(
