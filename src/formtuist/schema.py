@@ -166,6 +166,8 @@ class _QuestionBase(BaseModel):
     required: bool = False
     # when false, the question keeps its file position during randomization
     randomize: bool = True
+    # when true, a choice question's options render in shuffled order
+    randomize_choices: bool = False
     code: CodeBlock | None = None
     image_path: str | None = None
     url: str | None = None
