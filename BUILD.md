@@ -1077,6 +1077,27 @@ the fresh snapshots back to the database. This is the tool to use after
 correcting a question or point value: run it once to refresh all stored
 grades, otherwise editing the form never changes recorded scores.
 
+### 5.9 `review <form.json> [responses.db]`
+
+Human post-grading for `multiple_choice`, `checkbox`, free-text, and
+manual questions:
+
+1. `--review-type required|all` — which queue to open (default
+   `required`; `all` also includes `permitted` questions).
+1. `--review-mode interactive|bulk-save` — `interactive` (default)
+   opens the question-first reviewer TUI; `bulk-save` accepts the
+   current preliminary score as the final score for every pending
+   required entry and exits (no manual scores are overwritten).
+1. `--question <id>` restricts the queue to one question;
+   `--reviewer <name>` records identity (defaults to the local OS
+   username); `--batch overrides.csv` applies CSV overrides;
+   `--show-student-name/--no-show-student-name` toggles the student
+   name in the detail pane.
+1. A required entry is PENDING until a `manual_score` is saved in its
+   `grade_json` breakdown, even when the auto-graded prelim is full
+   credit; the reviewer marks such items `(pending save)` and provides
+   `Ctrl+A` to bulk-confirm the remaining queue.
+
 ______________________________________________________________________
 
 ## 6. Web Serving Architecture

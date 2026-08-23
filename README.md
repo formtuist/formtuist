@@ -289,6 +289,32 @@ score, re-grades each stored answer with the form's current `correct_answer`
 and `points`, and is read-only -- `export --form` writes fresh numbers to the
 output file but does not update the database.
 
+### `review` — Post-grade manual review
+
+The reviewer lets you step through every response that needs human
+judgement and persist a `manual_score` plus optional comment into the
+database (`review <form.json> [responses.db]`). A required question is
+pending until a manual score is saved, even when its auto-graded prelim
+is already full credit -- the reviewer marks those items `(pending save)`
+so it is clear a save is still required.
+
+```bash
+uvx formtuist review examples/quiz_postgrade.json responses.db
+uvx formtuist review examples/quiz_postgrade.json responses.db \
+  --review-mode bulk-save   # accept prelim scores as final for pending items
+uvx formtuist review examples/quiz_postgrade.json responses.db \
+  --reviewer prof --show-student-name
+uvx formtuist review examples/quiz_postgrade.json responses.db \
+  --batch overrides.csv     # non-interactive CSV overrides
+```
+
+`--review-mode interactive` (default) opens the question-first reviewer
+TUI; `--review-mode bulk-save` applies the current prelim score as the
+final score for every pending required entry and exits without touching
+already-reviewed items. Inside the TUI, `Ctrl+A` performs the same bulk
+confirm, and `Esc` returns focus to the screen. See the Keyboard
+shortcuts section for the full reviewer keymap.
+
 ### `analyze` — Analyze quiz statistics
 
 ```bash
