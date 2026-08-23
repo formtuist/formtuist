@@ -382,12 +382,13 @@ class TestExporterPostGrade:
 class TestCliReviewBatch:
     """Tests for the review CLI batch mode."""
 
-    def test_review_help_lists_student_flag(self) -> None:
-        """Review help documents the show-student-name toggle."""
+    def test_review_help_documents_modes_and_flags(self) -> None:
+        """Review help documents the mode toggle and student flag."""
         runner = CliRunner()
         result = runner.invoke(app, ["review", "--help"])
         assert result.exit_code == 0
-        assert "show-student-name" in result.output
+        assert "review-mode" in result.output
+        assert "student's name" in result.output
 
     def test_batch_applies_scores(self, tmp_path: Path) -> None:
         """Batch CSV applies manual scores via set_post_grade."""
@@ -875,5 +876,161 @@ class TestTuiReview:
                 assert app.focused is screen.score_input
                 await pilot.press("escape")
                 assert app.focused is None
+
+        asyncio.run(run())
+
+    def test_bulk_save_applies_prelim_scores(self, tmp_path: Path) -> None:
+        """--review-mode bulk-save persists prelim as final for pending."""
+        form = _form_with_review(tmp_path)
+        form_path = tmp_path / "bulk_form.json"
+        form_path.write_text(form.model_dump_json(), encoding="utf-8")
+        db = tmp_path / "bulk.db"
+        conn = init_db(db)
+        report = grade_report_to_json(
+            grade_response(form, {"q1": "answer", "q3": "x"})
+        )
+        save_response(
+            conn,
+            form.name,
+            {"q1": "answer", "q3": "x"},
+            github_username="a",
+            grade=report,
+        )
+        save_response(
+            conn,
+            form.name,
+            {"q1": "answer", "q3": "y"},
+            github_username="b",
+            grade=report,
+        )
+        conn.close()
+        # pre-review response 1's essay so it must not be overwritten
+        conn = init_db(db)
+        set_post_grade(conn, form, 1, "q3", 6, reviewer="prof")
+        conn.close()
+        runner = CliRunner()
+        result = runner.invoke(
+            app,
+            [
+                "review",
+                str(form_path),
+                str(db),
+                "--review-mode",
+                "bulk-save",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Applied 3 bulk score(s)." in result.output
+        conn = init_db(db)
+        responses = {r["id"]: r for r in get_responses(conn)}
+        conn.close()
+        q1_first = next(
+            e
+            for e in responses[1]["grade_json"]["breakdown"]
+            if e["id"] == "q1"
+        )
+        q3_first = next(
+            e
+            for e in responses[1]["grade_json"]["breakdown"]
+            if e["id"] == "q3"
+        )
+        q3_second = next(
+            e
+            for e in responses[2]["grade_json"]["breakdown"]
+            if e["id"] == "q3"
+        )
+        assert q1_first["manual_score"] == 10
+        assert q3_first["manual_score"] == 6
+        assert q3_second["manual_score"] == 0
+
+    def test_bulk_save_conflicts_with_batch(self, tmp_path: Path) -> None:
+        """--review-mode bulk-save and --batch are mutually exclusive."""
+        form = _manual_form()
+        form_path = tmp_path / "form.json"
+        form_path.write_text(form.model_dump_json(), encoding="utf-8")
+        db = tmp_path / "c.db"
+        init_db(db).close()
+        batch = tmp_path / "overrides.csv"
+        batch.write_text(
+            "response_id,question_id,manual_score\n", encoding="utf-8"
+        )
+        runner = CliRunner()
+        result = runner.invoke(
+            app,
+            [
+                "review",
+                str(form_path),
+                str(db),
+                "--batch",
+                str(batch),
+                "--review-mode",
+                "bulk-save",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "cannot be combined with --batch" in result.output
+
+    def test_review_pending_marker_on_final_line(self, tmp_path: Path) -> None:
+        """The Final line marks pending items even at full prelim."""
+        form = _manual_form()
+        db = tmp_path / "pend.db"
+        conn = init_db(db)
+        report = grade_report_to_json(grade_response(form, {"m1": "x"}))
+        save_response(conn, form.name, {"m1": "x"}, grade=report)
+        conn.close()
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                final = screen.query_one("#review-final", Static)
+                assert "(pending save)" in str(final.render())
+                assert screen.conn is not None
+                set_post_grade(screen.conn, form, 1, "m1", 0, reviewer="t")
+                screen.responses = get_responses(
+                    screen.conn, form_name=form.name
+                )
+                screen._render_detail()
+                assert "(pending save)" not in str(final.render())
+
+        asyncio.run(run())
+
+    def test_review_bulk_save_action(self, tmp_path: Path) -> None:
+        """action_bulk_save confirms every pending item with its prelim."""
+        form = _form_with_review(tmp_path)
+        db = tmp_path / "bulktui.db"
+        conn = init_db(db)
+        for username in ("a", "b"):
+            report = grade_report_to_json(
+                grade_response(form, {"q1": "answer", "q3": "x"})
+            )
+            save_response(
+                conn,
+                form.name,
+                {"q1": "answer", "q3": "x"},
+                github_username=username,
+                grade=report,
+            )
+        conn.close()
+        from formtuist.tui.review import ReviewScreen  # noqa: PLC0415
+
+        async def run() -> None:
+            app: App = App()
+            async with app.run_test():
+                screen = ReviewScreen(form, db, review_type="required")
+                await app.push_screen(screen)
+                screen.action_bulk_save()
+                conn = init_db(db)
+                responses = {r["id"]: r for r in get_responses(conn)}
+                conn.close()
+                for rid in (1, 2):
+                    entries = {
+                        e["id"]: e
+                        for e in responses[rid]["grade_json"]["breakdown"]
+                    }
+                    assert entries["q1"]["manual_score"] == 10
+                    assert entries["q3"]["manual_score"] == 0
 
         asyncio.run(run())
