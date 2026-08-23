@@ -47,7 +47,9 @@ from formtuist.grader import (
     BREAKDOWN_KEY,
     BREAKDOWN_SCORE_KEY,
     FINAL_SCORE_KEY,
+    MANUAL_SCORE_KEY,
     MAX_KEY,
+    NEEDS_REVIEW_KEY,
     PERCENTAGE_FINAL_KEY,
     PERCENTAGE_KEY,
     TOTAL_FINAL_KEY,
@@ -943,6 +945,14 @@ REVIEWER_HELP = (
 )
 REVIEW_BATCH_HELP = "Batch-apply manual scores from a CSV file."
 REVIEW_STUDENT_HELP = "Show the student's name during review."
+REVIEW_MODE_HELP = (
+    "How to accept review scores: interactive (the TUI reviewer) or"
+    " bulk-save (accept the current prelim score as final for every"
+    " pending item)."
+)
+REVIEW_MODE_BATCH_CONFLICT = (
+    "--review-mode bulk-save cannot be combined with --batch."
+)
 
 
 def _resolve_reviewer(reviewer: str | None) -> str:
@@ -953,7 +963,7 @@ def _resolve_reviewer(reviewer: str | None) -> str:
 
 
 @app.command()
-def review(  # noqa: PLR0913, PLR0917
+def review(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
     form_path: Path = typer.Argument(
         ...,
         help=FORM_PATH_HELP,
@@ -971,6 +981,11 @@ def review(  # noqa: PLR0913, PLR0917
         "required",
         "--review-type",
         help=REVIEW_TYPE_HELP,
+    ),
+    review_mode: Literal["interactive", "bulk-save"] = typer.Option(
+        "interactive",
+        "--review-mode",
+        help=REVIEW_MODE_HELP,
     ),
     question: str | None = typer.Option(
         None,
@@ -1022,6 +1037,45 @@ def review(  # noqa: PLR0913, PLR0917
         raise typer.Exit(code=1)
     db_path = _resolve_responses_path(responses_path, db_dir, database_name)
     _require_responses_db(db_path)
+    if batch is not None and review_mode == "bulk-save":
+        typer.echo(REVIEW_MODE_BATCH_CONFLICT)
+        raise typer.Exit(code=2)
+    # bulk-save: accept the current prelim score as final for pending items
+    if review_mode == "bulk-save":
+        from formtuist.database import set_post_grade  # noqa: PLC0415
+
+        conn = init_db(db_path)
+        try:
+            responses = get_responses(conn, form_name=form.name)
+            reviewer_name = _resolve_reviewer(reviewer)
+            count = 0
+            for response in responses:
+                grade = response.get(GRADE_JSON_COLUMN)
+                if grade is None:
+                    continue
+                for entry in grade.get("breakdown", []):
+                    if not entry.get(NEEDS_REVIEW_KEY):
+                        continue
+                    if entry.get(MANUAL_SCORE_KEY) is not None:
+                        continue
+                    if (
+                        question is not None
+                        and entry.get(BREAKDOWN_ID_KEY) != question
+                    ):
+                        continue
+                    set_post_grade(
+                        conn,
+                        form,
+                        response[ID_COLUMN],
+                        entry[BREAKDOWN_ID_KEY],
+                        int(entry[BREAKDOWN_SCORE_KEY]),
+                        reviewer=reviewer_name,
+                    )
+                    count += 1
+            typer.echo(f"Applied {count} bulk score(s).")
+        finally:
+            conn.close()
+        raise typer.Exit(code=0)
     # batch mode: apply CSV overrides without launching the TUI
     if batch is not None:
         import csv  # noqa: PLC0415
