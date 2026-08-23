@@ -47,8 +47,10 @@ from formtuist.grader import (
 from formtuist.schema import (
     REVIEW_NONE,
     AuthProvider,
+    CheckboxQuestion,
     CodeBlock,
     FormDefinition,
+    MultipleChoiceQuestion,
     NumericRange,
     Question,
 )
@@ -211,6 +213,20 @@ class FormScreen(Screen):
         self.sidebar_items: list[Static] = []
         self.current_index = 0
         self.auth_input: Input | None = None
+        # one shuffle of choice options per session, deterministic per seed
+        self.seed = seed
+        self.choice_orders: dict[str, list[str]] = {}
+        rng = random.Random(seed)
+        for question in form.questions:
+            if (
+                isinstance(
+                    question, (MultipleChoiceQuestion, CheckboxQuestion)
+                )
+                and question.randomize_choices
+            ):
+                options = list(question.choices)
+                rng.shuffle(options)
+                self.choice_orders[question.id] = options
         if form.config.randomize_questions:
             self.ordered_questions = shuffle_questions(form.questions, seed)
         else:
@@ -266,7 +282,10 @@ class FormScreen(Screen):
                     if question.url is not None:
                         yield Static(f"URL: {question.url}")
                     # input widget appropriate for the question type
-                    input_widget = make_input_widget(question)
+                    input_widget = make_input_widget(
+                        question,
+                        choices=self.choice_orders.get(question.id),
+                    )
                     input_widget.id = f"input-{question.id}"
                     self.inputs[question.id] = input_widget
                     yield input_widget
