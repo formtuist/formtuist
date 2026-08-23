@@ -37,6 +37,11 @@ ScrollableContainer {
     display: none;
 }
 
+#review-score.hidden,
+#review-bool.hidden {
+    display: none;
+}
+
 #form-header {
     margin-bottom: 2;
     width: 100%;
