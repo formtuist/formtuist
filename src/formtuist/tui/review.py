@@ -58,6 +58,7 @@ REVIEW_CORRECT_LABEL = "Expected: "
 REVIEW_PATTERN_LABEL = "Pattern: "
 REVIEW_PRELIM_LABEL = "Prelim: "
 REVIEW_FINAL_LABEL = "Final: "
+REVIEW_PENDING_MARKER = " [dim](pending save)[/dim]"
 REVIEW_REVIEWED_LABEL = "Reviewed: "
 REVIEW_QUESTION_COUNTER = "Q {cur} / {total} • R {rcur} / {rtotal}"
 REVIEW_DIALOG_TITLE = "[bold]Unsaved changes[/bold]"
@@ -134,12 +135,13 @@ class ReviewScreen(Screen):
         list[Binding | tuple[str, str] | tuple[str, str, str]]
     ] = [
         Binding("ctrl+s", "save", "Save", priority=True),
+        Binding("ctrl+a", "bulk_save", "Save All", priority=True),
         Binding("ctrl+j", "next_response", "Next R", priority=True),
         Binding("ctrl+k", "prev_response", "Prev R", priority=True),
         Binding("ctrl+n", "next_question", "Next Q", priority=True),
         Binding("ctrl+p", "prev_question", "Prev Q", priority=True),
         Binding("f", "toggle_pending", "Pending"),
-        Binding("e", "focus_score", "Edit Score"),
+        Binding("e", "focus_score", "Edit"),
         Binding("ctrl+b", "toggle_sidebar", "Sidebar", priority=True),
         Binding("ctrl+c", "quit", "Quit", priority=True),
         Binding("escape", "unfocus", "Leave"),
@@ -480,8 +482,13 @@ class ReviewScreen(Screen):
                 self.query_one("#review-prelim", Static).update(
                     f"{REVIEW_PRELIM_LABEL}{prelim} / {max_pts}"
                 )
+                pending = bool(
+                    entry.get(NEEDS_REVIEW_KEY)
+                    and entry.get(MANUAL_SCORE_KEY) is None
+                )
+                marker = REVIEW_PENDING_MARKER if pending else ""
                 self.query_one("#review-final", Static).update(
-                    f"{REVIEW_FINAL_LABEL}{final} / {max_pts}"
+                    f"{REVIEW_FINAL_LABEL}{final} / {max_pts}{marker}"
                 )
                 reviewed = entry.get(REVIEWED_BY_KEY)
                 at = entry.get(REVIEWED_AT_KEY)
@@ -728,6 +735,48 @@ class ReviewScreen(Screen):
             return
         self.responses = get_responses(self.conn, form_name=self.form.name)
         self.notify(f"Saved {question.id} for #{resp['id']}")
+        self._render_detail()
+
+    def action_bulk_save(self) -> None:
+        """Confirm every pending item with its prelim score."""
+        if self.conn is None:
+            self.notify("DB not open", severity="error")
+            return
+        allowed_ids = {q.id for q in self.reviewable_questions}
+        pending = []
+        for resp in self.responses:
+            grade = resp.get("grade_json")
+            if grade is None:
+                continue
+            for entry in grade.get("breakdown", []):
+                if entry.get(BREAKDOWN_ID_KEY) not in allowed_ids:
+                    continue
+                if not entry.get(NEEDS_REVIEW_KEY):
+                    continue
+                if entry.get(MANUAL_SCORE_KEY) is not None:
+                    continue
+                pending.append(
+                    (
+                        resp["id"],
+                        entry[BREAKDOWN_ID_KEY],
+                        int(entry[BREAKDOWN_SCORE_KEY]),
+                    )
+                )
+        if not pending:
+            self.notify("Nothing pending to bulk save")
+            return
+        for rid, qid, score in pending:
+            set_post_grade(
+                self.conn,
+                self.form,
+                rid,
+                qid,
+                score,
+                reviewer=self.reviewer,
+            )
+        self.responses = get_responses(self.conn, form_name=self.form.name)
+        self.notify(f"Bulk saved {len(pending)} score(s)")
+        self._refresh_sidebar()
         self._render_detail()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
