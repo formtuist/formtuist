@@ -382,12 +382,20 @@ class TestExporterPostGrade:
 class TestCliReviewBatch:
     """Tests for the review CLI batch mode."""
 
-    def test_review_help_documents_modes_and_flags(self) -> None:
+    def test_review_help_documents_modes_and_flags(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Review help documents the mode toggle and student flag."""
+        # pin the help rendering so CI and laptops agree: rich folds
+        # option names at narrow terminal widths and may add ANSI codes
+        monkeypatch.setenv("COLUMNS", "120")
+        monkeypatch.setenv("NO_COLOR", "1")
+        monkeypatch.setenv("TERM", "dumb")
         runner = CliRunner()
         result = runner.invoke(app, ["review", "--help"])
         assert result.exit_code == 0
-        assert "review-mode" in result.output
+        assert "--review-mode" in result.output
+        assert "--show-student-name" in result.output
         assert "student's name" in result.output
 
     def test_batch_applies_scores(self, tmp_path: Path) -> None:
