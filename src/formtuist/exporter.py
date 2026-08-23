@@ -179,22 +179,6 @@ def pending_count(response: dict[str, Any]) -> int | None:
     )
 
 
-def pending_columns(responses: list[dict[str, Any]]) -> list[str]:
-    """Return question ids that have at least one pending review."""
-    pending: set[str] = set()
-    for response in responses:
-        grade = response[GRADE_JSON_COLUMN]
-        if grade is None:
-            continue
-        for entry in grade.get(BREAKDOWN_KEY, []):
-            if (
-                entry.get(NEEDS_REVIEW_KEY)
-                and entry.get(MANUAL_SCORE_KEY) is None
-            ):
-                pending.add(entry[BREAKDOWN_ID_KEY])
-    return sorted(pending)
-
-
 def _gradeable_ids(responses: list[dict[str, Any]]) -> list[str]:
     """Return sorted question ids found in any grade breakdown."""
     ids: set[str] = set()
