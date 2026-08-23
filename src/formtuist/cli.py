@@ -1455,7 +1455,7 @@ def analyze(  # noqa: PLR0912, PLR0913, PLR0915, PLR0917
     console.print("")
     # panel 3: per-question ranking
     ptable = Table(
-        title="Per-question (easiest → hardest, final)",
+        title="Per-question (highest-score → lowest-score, final)",
         header_style="bold",
     )
     ptable.add_column("Rank", justify="right")
