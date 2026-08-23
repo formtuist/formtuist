@@ -546,12 +546,15 @@ with each submitted response; those stored provenance fields, rather than
 | `numeric` | `Input` with integer validator | REAL |
 | `rating` | `RadioSet` (horizontal) | INTEGER |
 | `date` | `DatePicker` with a visual calendar | TEXT |
-| `yes_no` | `Switch` | INTEGER (0/1) |
+| `yes_no` | `RadioSet` with Yes/No options | INTEGER (0/1) |
 
 `numeric` inputs are validated on submit — invalid values block
 submission with an error message. `date` answers are chosen from a
-visual calendar picker, so a malformed date cannot be typed. In an
-auto-graded form, a `yes_no` question
+visual calendar picker, so a malformed date cannot be typed. A `yes_no`
+question starts with neither option selected. Leaving it untouched saves
+`null` for optional questions and blocks submission for required questions.
+Selecting No once records an explicit `false`. In an auto-graded form, a
+`yes_no` question
 can carry a boolean `correct_answer` (`true` or `false`) and a `points` value,
 so true/false quiz questions are scored automatically. Questions may also
 include optional `code` blocks (rendered with syntax highlighting), `url`
