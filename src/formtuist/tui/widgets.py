@@ -115,7 +115,9 @@ def resolve_code_theme(app: App) -> str:
     )
 
 
-def make_input_widget(question: Question) -> Widget:
+def make_input_widget(
+    question: Question, choices: list[str] | None = None
+) -> Widget:
     """Return the appropriate input widget for a question type."""
     if question.type not in KNOWN_QUESTION_TYPES:
         raise ValueError(f"Unknown question type: {question.type}")
@@ -124,9 +126,11 @@ def make_input_widget(question: Question) -> Widget:
     if isinstance(question, ParagraphQuestion):
         return TextArea()
     if isinstance(question, MultipleChoiceQuestion):
-        return RadioSet(*question.choices)
+        option_list = choices if choices is not None else question.choices
+        return RadioSet(*option_list)
     if isinstance(question, CheckboxQuestion):
-        return SelectionList(*[(c, c, False) for c in question.choices])
+        option_list = choices if choices is not None else question.choices
+        return SelectionList(*[(c, c, False) for c in option_list])
     if isinstance(question, NumericQuestion):
         return Input(
             placeholder="Type a number...",
