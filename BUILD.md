@@ -523,7 +523,9 @@ form_version, form_hash, form_path, form_contents), the stored grade
 totals (total, max, percentage), and one column per question id (the sorted
 union of answer keys across responses). Missing answers become empty cells,
 `null`s, or NULLs. List answers are JSON-encoded in csv and sqlite cells
-and stay native arrays in json. The sqlite export writes a fresh
+and stay native arrays in json. Every gradeable question also contributes
+a `qid_comment` column carrying that question's review comment (empty
+when none was written). The sqlite export writes a fresh
 `responses_flat` table so datasette shows real columns.
 
 The graded view (`--type graded`) writes only the grades plus provenance:
