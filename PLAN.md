@@ -88,5 +88,8 @@ The tool could have the following sub-commands:
 - `export`: Export the responses in a JSON file to CSV or sqlite database format.
 - `view`: Use datasette to serve the responses as a web application
   and allow the user to view them in a web browser.
-- `grade`: If answers were provided, grade the responses
-  and display the grades in a TUI or CLI output.
+- `review`: Interactive (or `--review-mode bulk-save`) manual
+  post-grading; reviewed scores and comments persist into each
+  response's `grade_json` snapshot. Supersedes the legacy hidden
+  `grade` command, which reported stored or freshly computed grades
+  with an optional `--recompute`.
