@@ -2,13 +2,13 @@
 
 import sqlite3
 from pathlib import Path
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, cast
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Button, Header, Input, Label, Static
+from textual.widgets import Button, Header, Input, Label, Static, Switch
 
 from formtuist.database import get_responses, init_db, set_post_grade
 from formtuist.grader import (
@@ -24,8 +24,13 @@ from formtuist.grader import (
     REVIEWED_BY_KEY,
     TOTAL_FINAL_KEY,
     TOTAL_KEY,
+    grade_response,
 )
 from formtuist.schema import (
+    QUESTION_TYPE_CHECKBOX,
+    QUESTION_TYPE_MULTIPLE_CHOICE,
+    QUESTION_TYPE_RATING,
+    QUESTION_TYPE_YES_NO,
     REVIEW_PERMITTED,
     REVIEW_REQUIRED,
     CodeBlock,
@@ -45,6 +50,7 @@ REVIEW_PENDING_SUFFIX = " pending"
 REVIEW_NO_QUESTIONS = "No reviewable questions."
 REVIEW_NO_RESPONSES = "No responses for this question."
 REVIEW_SCORE_LABEL = "Manual score"
+REVIEW_BOOL_SCORE_LABEL = "Correct?"
 REVIEW_COMMENT_LABEL = "Comment"
 REVIEW_SAVE_LABEL = "Save"
 REVIEW_QUIT_LABEL = "Quit"
@@ -186,6 +192,7 @@ class ReviewScreen(Screen):
         self.conn: sqlite3.Connection | None = None
         self.sidebar_items: list[Static] = []
         self.score_input: Input | None = None
+        self.bool_input: Switch | None = None
         self.comment_input: Any = None
         super().__init__()
 
@@ -222,6 +229,10 @@ class ReviewScreen(Screen):
                 score.id = "review-score"
                 self.score_input = score
                 yield score
+                correct = Switch()
+                correct.id = "review-bool"
+                self.bool_input = correct
+                yield correct
                 yield Label(REVIEW_COMMENT_LABEL, id="review-comment-label")
                 from textual.widgets import TextArea  # noqa: PLC0415
 
@@ -258,13 +269,42 @@ class ReviewScreen(Screen):
             text = text[: SIDEBAR_TITLE_MAX - 3] + "..."
         return f"{text} ({question.review}, {pending}{REVIEW_PENDING_SUFFIX})"
 
+    def _uses_boolean_control(self, question: Question) -> bool:
+        """Return whether the question is graded with a full/zero toggle."""
+        return question.type in {
+            QUESTION_TYPE_CHECKBOX,
+            QUESTION_TYPE_MULTIPLE_CHOICE,
+            QUESTION_TYPE_RATING,
+            QUESTION_TYPE_YES_NO,
+        }
+
+    def _grade_for(self, resp: dict[str, Any]) -> dict[str, Any]:
+        """Return the stored snapshot or a synthesized prelim report."""
+        grade = cast(dict[str, Any] | None, resp.get("grade_json"))
+        if grade is not None:
+            return grade
+        return grade_response(self.form, resp.get("answers_json") or {})
+
+    def _sync_review_control(self, question: Question) -> None:
+        """Show the score control matching the current question type."""
+        boolean = self._uses_boolean_control(question)
+        try:
+            label = self.query_one("#review-score-label", Label)
+            label.update(
+                REVIEW_BOOL_SCORE_LABEL if boolean else REVIEW_SCORE_LABEL
+            )
+            if self.score_input is not None:
+                self.score_input.set_class(boolean, "hidden")
+            if self.bool_input is not None:
+                self.bool_input.set_class(not boolean, "hidden")
+        except Exception:
+            pass
+
     def _pending_for_question(self, qid: str) -> int:
         """Count pending reviews for a question."""
         count = 0
         for resp in self.responses:
-            grade = resp.get("grade_json")
-            if grade is None:
-                continue
+            grade = self._grade_for(resp)
             for entry in grade.get("breakdown", []):
                 if entry.get(BREAKDOWN_ID_KEY) != qid:
                     continue
@@ -279,9 +319,7 @@ class ReviewScreen(Screen):
         """Return responses that contain the given question."""
         result = []
         for resp in self.responses:
-            grade = resp.get("grade_json")
-            if grade is None:
-                continue
+            grade = self._grade_for(resp)
             for entry in grade.get("breakdown", []):
                 if entry.get(BREAKDOWN_ID_KEY) == qid:
                     result.append(resp)
@@ -289,9 +327,7 @@ class ReviewScreen(Screen):
         if self.pending_only:
             filtered = []
             for resp in result:
-                grade = resp.get("grade_json")
-                if grade is None:
-                    continue
+                grade = self._grade_for(resp)
                 for entry in grade.get("breakdown", []):
                     if entry.get(BREAKDOWN_ID_KEY) != qid:
                         continue
@@ -339,6 +375,7 @@ class ReviewScreen(Screen):
             return
         question = self.reviewable_questions[self.current_q]
         rlist = self._responses_for_question(question.id)
+        self._sync_review_control(question)
         if self.current_r >= len(rlist):
             self.current_r = max(0, len(rlist) - 1)
         self._refresh_sidebar()
@@ -422,9 +459,11 @@ class ReviewScreen(Screen):
                 pass
             if self.score_input is not None:
                 self.score_input.value = ""
+            if self.bool_input is not None:
+                self.bool_input.value = False
             return
         resp = rlist[self.current_r]
-        grade = resp.get("grade_json")
+        grade = self._grade_for(resp)
         self._render_overview(grade)
         entry = None
         if grade is not None:
@@ -512,9 +551,16 @@ class ReviewScreen(Screen):
                         rtotal=len(rlist),
                     )
                 )
-                if self.score_input is not None:
-                    manual = entry.get(MANUAL_SCORE_KEY)
-                    val = manual if manual is not None else final
+                if self._uses_boolean_control(question):
+                    if self.bool_input is not None:
+                        manual_val = entry.get(MANUAL_SCORE_KEY)
+                        val = manual_val if manual_val is not None else final
+                        self.bool_input.value = bool(
+                            val is not None and val == max_pts
+                        )
+                elif self.score_input is not None:
+                    manual_val = entry.get(MANUAL_SCORE_KEY)
+                    val = manual_val if manual_val is not None else final
                     self.score_input.value = (
                         str(val) if val is not None else ""
                     )
@@ -546,13 +592,12 @@ class ReviewScreen(Screen):
         if not rlist:
             return False
         resp = rlist[self.current_r]
-        grade = resp.get("grade_json")
+        grade = self._grade_for(resp)
         entry = None
-        if grade is not None:
-            for e in grade.get("breakdown", []):
-                if e.get(BREAKDOWN_ID_KEY) == question.id:
-                    entry = e
-                    break
+        for e in grade.get("breakdown", []):
+            if e.get(BREAKDOWN_ID_KEY) == question.id:
+                entry = e
+                break
         stored_score = ""
         if entry is not None:
             manual = entry.get(MANUAL_SCORE_KEY)
@@ -561,6 +606,15 @@ class ReviewScreen(Screen):
             val = manual if manual is not None else final
             stored_score = str(val) if val is not None else ""
         stored_comment = (entry or {}).get(COMMENT_KEY) or ""
+        if self._uses_boolean_control(question):
+            if self.bool_input is None:
+                current_toggle = False
+            else:
+                current_toggle = self.bool_input.value
+            expected = False
+            if stored_score:
+                expected = int(stored_score) == getattr(question, "points", 0)
+            return current_toggle != expected
         current_score = (
             self.score_input.value.strip()
             if self.score_input is not None
@@ -663,15 +717,21 @@ class ReviewScreen(Screen):
         sidebar.toggle_class("hidden")
 
     def action_focus_score(self) -> None:
-        """Focus the score input."""
-        if self.score_input is not None:
+        """Focus the active score control."""
+        if not self.reviewable_questions:
+            return
+        question = self.reviewable_questions[self.current_q]
+        if self._uses_boolean_control(question):
+            if self.bool_input is not None:
+                self.set_focus(self.bool_input)
+        elif self.score_input is not None:
             self.set_focus(self.score_input)
 
     def action_unfocus(self) -> None:
         """Return focus to the screen so letter shortcuts work again."""
         self.set_focus(None)
 
-    def _save_current(self) -> bool:  # noqa: PLR0911
+    def _save_current(self) -> bool:  # noqa: PLR0911, PLR0912
         """Persist the current score and comment; return success."""
         if not self.reviewable_questions:
             return False
@@ -683,7 +743,13 @@ class ReviewScreen(Screen):
         resp = rlist[self.current_r]
         response_id = resp["id"]
         manual: int | None = None
-        if self.score_input is not None:
+        points = getattr(question, "points", 0)
+        if self._uses_boolean_control(question):
+            if self.bool_input is None:
+                self.notify("No score control available", severity="error")
+                return False
+            manual = points if self.bool_input.value else 0
+        elif self.score_input is not None:
             text = self.score_input.value.strip()
             if not text:
                 self.notify("Enter a score 0..points", severity="error")
@@ -693,7 +759,6 @@ class ReviewScreen(Screen):
             except ValueError:
                 self.notify("Score must be an integer", severity="error")
                 return False
-            points = getattr(question, "points", 0)
             if not 0 <= manual <= points:
                 self.notify(f"Score must be 0..{points}", severity="error")
                 return False
@@ -751,9 +816,7 @@ class ReviewScreen(Screen):
         allowed_ids = {q.id for q in self.reviewable_questions}
         pending = []
         for resp in self.responses:
-            grade = resp.get("grade_json")
-            if grade is None:
-                continue
+            grade = self._grade_for(resp)
             for entry in grade.get("breakdown", []):
                 if entry.get(BREAKDOWN_ID_KEY) not in allowed_ids:
                     continue
