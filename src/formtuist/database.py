@@ -212,7 +212,8 @@ def set_post_grade(  # noqa: PLR0913, PLR0917
     Validates ``0 <= manual_score <= points`` and merges the
     human decision into ``grade_json`` via the grader helpers.
     The write overwrites any prior manual score so re-review is
-    supported. Commits the updated snapshot.
+    supported, and the response must belong to *form* so a batch
+    cannot edit another form's rows. Commits the updated snapshot.
     """
     from formtuist.grader import (  # noqa: PLC0415
         apply_post_grade,
@@ -229,14 +230,21 @@ def set_post_grade(  # noqa: PLR0913, PLR0917
             f"manual_score {manual_score} out of range 0..{points}"
             f" for question {question_id}"
         )
-    # load the existing response row
+    # load the existing response row and confirm its form matches
     row = conn.execute(
-        f"SELECT {ANSWERS_JSON_COLUMN}, {GRADE_JSON_COLUMN} "
+        f"SELECT {ANSWERS_JSON_COLUMN}, {GRADE_JSON_COLUMN}, "
+        f"{FORM_NAME_COLUMN} "
         f"FROM {RESPONSES_TABLE} WHERE {ID_COLUMN} = ?",
         (response_id,),
     ).fetchone()
     if row is None:
         raise ValueError(f"unknown response id: {response_id}")
+    response_form = row[2]
+    if response_form != form.name:
+        raise ValueError(
+            f"response id {response_id} belongs to form "
+            f"{response_form!r}, not {form.name!r}"
+        )
     answers = json.loads(row[0])
     grade = json.loads(row[1]) if row[1] is not None else None
     if grade is None:
