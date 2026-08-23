@@ -28,7 +28,6 @@ from formtuist.exporter import (
     flatten_grades,
     flatten_response,
     grade_columns,
-    pending_columns,
 )
 from formtuist.grader import (
     BREAKDOWN_ID_KEY,
@@ -361,17 +360,11 @@ class TestExporterPostGrade:
         assert rows[0][FLAT_PENDING_COUNT] == 0
         conn.close()
 
-    def test_pending_columns(self, tmp_path: Path) -> None:
-        """pending_columns returns ids with pending reviews."""
-        form = _manual_form()
-        db = tmp_path / "db.db"
-        conn = init_db(db)
+    def test_pending_columns_removed(self) -> None:
+        """The unused pending_columns helper no longer ships."""
+        from formtuist import exporter  # noqa: PLC0415
 
-        report = grade_report_to_json(grade_response(form, {"m1": "hi"}))
-        save_response(conn, form.name, {"m1": "hi"}, grade=report)
-        responses = get_responses(conn)
-        assert pending_columns(responses) == ["m1"]
-        conn.close()
+        assert not hasattr(exporter, "pending_columns")
 
     def test_metadata_columns_include_final(self) -> None:
         """METADATA_COLUMNS contains final and pending fields."""
