@@ -235,6 +235,7 @@ percentage. In short, `full` answers "what did people answer?", while
 | Flag | Description | Default |
 |---|---|---|
 | `--output` / `-o` | Output file path (required) | — |
+| `--force` | Replace an existing non-database output | off |
 | `--format` | `csv`, `json`, `jsonl`, or `sqlite` | `csv` |
 | `--form-name` | Only export responses for this form | all forms |
 | `--type` | `full` or `graded`; what to write | `full` |
@@ -245,6 +246,9 @@ percentage. In short, `full` answers "what did people answer?", while
 ```bash
 # CSV for a spreadsheet (the default format)
 uvx formtuist export responses.db --output responses.csv
+
+# Explicitly replace an existing export
+uvx formtuist export responses.db --output responses.csv --force
 
 # A JSON array for other tools
 uvx formtuist export responses.db --format json --output responses.json
@@ -283,7 +287,8 @@ uvx formtuist export responses.db --type graded --form quiz.json \
 A graded export reads stored snapshots by default; pass `--form` to
 recompute against the current answer key instead (useful when the key or
 points have changed). The `sqlite` format is not available for a graded
-export.
+export. Existing output files are never replaced unless `--force` is given;
+the source responses database can never be used as the output path.
 
 A stored snapshot is the grade as computed when the student submitted,
 using whatever answer key was in force then. Recomputing ignores that cached
