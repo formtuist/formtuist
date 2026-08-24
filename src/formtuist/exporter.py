@@ -264,7 +264,7 @@ def grade_columns(
     """Return the ordered question ids for the graded export columns.
 
     With a form the ids follow the form's question order; otherwise they
-    follow the first stored grade snapshot's breakdown order.
+    follow the first-seen order across all stored grade snapshots.
     """
     if form is not None:
         return [
@@ -273,14 +273,20 @@ def grade_columns(
             if getattr(question, "correct_answer", None) is not None
             or getattr(question, "review", "none") == "required"
         ]
+    question_ids: list[str] = []
+    seen_ids: set[str] = set()
     for response in responses:
         grade = response[GRADE_JSON_COLUMN]
         breakdown: list[Any] = (
             grade[BREAKDOWN_KEY] if grade is not None else []
         )
-        if breakdown:
-            return [entry[BREAKDOWN_ID_KEY] for entry in breakdown]
-    return []
+        for entry in breakdown:
+            question_id = entry[BREAKDOWN_ID_KEY]
+            if question_id in seen_ids:
+                continue
+            seen_ids.add(question_id)
+            question_ids.append(question_id)
+    return question_ids
 
 
 def flatten_grades(
