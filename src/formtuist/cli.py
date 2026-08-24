@@ -266,6 +266,18 @@ def _require_responses_db(db_path: Path) -> None:
         raise typer.Exit(code=1)
 
 
+def _same_file_path(first: Path, second: Path) -> bool:
+    """Return whether two paths identify the same existing or future file."""
+    first_resolved = first.resolve()
+    second_resolved = second.resolve()
+    if first_resolved == second_resolved:
+        return True
+    try:
+        return first_resolved.samefile(second_resolved)
+    except OSError:
+        return False
+
+
 HOST_HELP = "Host address for the web server."
 PORT_HELP = "Port for the web server."
 
@@ -495,6 +507,12 @@ EXPORT_STORED_GRADES_NOTE = (
     "Graded export uses stored snapshots; pass --form to recompute "
     "against the current answer key."
 )
+EXPORT_SOURCE_OUTPUT_CONFLICT = (
+    "Export output must not overwrite the source responses database: "
+)
+EXPORT_OUTPUT_EXISTS = "Export output already exists: "
+EXPORT_OUTPUT_FORCE_SUFFIX = " Use --force to overwrite it."
+EXPORT_FORCE_HELP = "Allow overwriting an existing non-database output file."
 
 
 def _export_full(
@@ -544,6 +562,11 @@ def export(  # noqa: PLR0913, PLR0917
         help=EXPORT_OUTPUT_HELP,
         dir_okay=False,
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help=EXPORT_FORCE_HELP,
+    ),
     format: Literal["csv", "json", "jsonl", "sqlite"] = typer.Option(
         EXPORT_FORMAT_DEFAULT,
         "--format",
@@ -590,6 +613,14 @@ def export(  # noqa: PLR0913, PLR0917
     """Export responses to CSV, JSON, JSONL, or SQLite format."""
     db_path = _resolve_responses_path(responses_path, db_dir, database_name)
     _require_responses_db(db_path)
+    if _same_file_path(db_path, output):
+        typer.echo(f"{EXPORT_SOURCE_OUTPUT_CONFLICT}{db_path}")
+        raise typer.Exit(code=1)
+    if output.exists() and not force:
+        typer.echo(
+            f"{EXPORT_OUTPUT_EXISTS}{output}{EXPORT_OUTPUT_FORCE_SUFFIX}"
+        )
+        raise typer.Exit(code=1)
     conn = init_db(db_path)
     try:
         responses = get_responses(conn, form_name=form_name)
