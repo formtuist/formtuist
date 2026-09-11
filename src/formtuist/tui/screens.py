@@ -2,9 +2,10 @@
 
 import asyncio
 import random
+import sqlite3
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from rich.syntax import Syntax
 from textual._context import NoActiveAppError
@@ -16,27 +17,46 @@ from textual.widget import Widget
 from textual.widgets import Button, Header, Input, Label, Static
 
 from formtuist.auth import GitHubIdentity, fetch_github_identity
-from formtuist.database import init_db, save_response
+from formtuist.database import (
+    FORM_CONTENTS_COLUMN,
+    FORM_HASH_COLUMN,
+    FORM_PATH_COLUMN,
+    FORM_VERSION_COLUMN,
+    ensure_single_submission_index,
+    has_submission,
+    init_db,
+    save_response,
+)
 from formtuist.grader import (
     BREAKDOWN_ANSWER_KEY,
     BREAKDOWN_CORRECT_ANSWER_KEY,
     BREAKDOWN_CORRECT_KEY,
+    BREAKDOWN_ID_KEY,
     BREAKDOWN_KEY,
     BREAKDOWN_LANGUAGE_KEY,
+    BREAKDOWN_MAX_KEY,
     BREAKDOWN_TEXT_KEY,
     MAX_KEY,
+    NEEDS_REVIEW_KEY,
     PERCENTAGE_KEY,
     TOTAL_KEY,
     grade_report_to_json,
     grade_response,
+    has_gradeable_questions,
 )
 from formtuist.schema import (
+    REVIEW_NONE,
     AuthProvider,
+    CheckboxQuestion,
     CodeBlock,
     FormDefinition,
+    MultipleChoiceQuestion,
     NumericRange,
     Question,
 )
+
+if TYPE_CHECKING:
+    from formtuist.tui.app import FormtuistApp
 from formtuist.tui.widgets import (
     CODE_THEME_AUTO,
     CODE_THEME_FALLBACK_DARK,
@@ -56,10 +76,19 @@ NEWLINE = "\n"
 
 # labels for the post-submission grade review
 GRADE_SCORE_PREFIX = "Score: "
+GRADE_PRELIMINARY_SCORE_PREFIX = "Preliminary score: "
 GRADE_PERCENT_SUFFIX = "%"
 GRADE_REVIEW_TITLE = "Incorrect answers"
+GRADE_PENDING_TITLE = "Pending manual review"
+GRADE_PENDING_PREFIX = "Pending manual review: "
+GRADE_PENDING_POINT_SUFFIX = " (up to {points} {label})"
+GRADE_QUESTION_SINGULAR = "question"
+GRADE_QUESTION_PLURAL = "questions"
+GRADE_POINT_SINGULAR = "point"
+GRADE_POINT_PLURAL = "points"
 GRADE_ALL_CORRECT = "All answers correct!"
 GRADE_NO_GRADED = "This form has no auto-graded questions."
+GRADE_REVIEW_MODE_PREFIX = "Review mode: "
 GRADE_YOUR_ANSWER = "Your answer: "
 GRADE_CORRECT_ANSWER = "Correct answer: "
 GRADE_CORRECT_ANSWERS = "Correct answers: "
@@ -70,6 +99,12 @@ GRADE_RANGE_AND = " and "
 
 # css class used to style the submit screen's own scrollbars
 SUBMIT_SCREEN_CLASS = "submit-screen"
+
+# messages for the enforced single-submission flow
+ALREADY_SUBMITTED_MESSAGE = (
+    "You have already submitted this form. Each person may submit once."
+)
+SINGLE_SUBMISSION_NOTE = "This form accepts a single submission."
 
 
 # default seed for the pseudo-random number generator used when shuffling
@@ -150,31 +185,64 @@ class FormScreen(Screen):
         ("ctrl+s", "submit", "Submit"),
         ("ctrl+f", "focus_first_input", "Focus Input"),
         ("ctrl+b", "toggle_sidebar", "Sidebar"),
-        Binding("ctrl+j", "focus_next", "Next Q", priority=True),
-        Binding("ctrl+k", "focus_previous", "Prev Q", priority=True),
+        Binding("ctrl+n", "focus_next", "Next Q", priority=True),
+        Binding("ctrl+p", "focus_previous", "Prev Q", priority=True),
     ]
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         form: FormDefinition,
         db_path: Path,
         code_theme: str = CODE_THEME_AUTO,
         seed: int | None = DEFAULT_SEED,
+        form_version: str | None = None,
+        form_hash: str | None = None,
+        form_source_path: Path | None = None,
+        form_contents: str | None = None,
     ) -> None:
         """Store the form definition, database path, and initialise input map."""
         self.form = form
         self.db_path = db_path
         self.code_theme = code_theme
+        self.form_version = form_version
+        self.form_hash = form_hash
+        self.form_source_path = form_source_path
+        self.form_contents = form_contents
         self.inputs: dict[str, Widget] = {}
         self.code_widgets: dict[str, Static] = {}
         self.sidebar_items: list[Static] = []
         self.current_index = 0
         self.auth_input: Input | None = None
+        # one shuffle of choice options per session, deterministic per seed
+        self.seed = seed
+        self.choice_orders: dict[str, list[str]] = {}
+        rng = random.Random(seed)
+        for question in form.questions:
+            if (
+                isinstance(
+                    question, (MultipleChoiceQuestion, CheckboxQuestion)
+                )
+                and question.randomize_choices
+            ):
+                options = list(question.choices)
+                rng.shuffle(options)
+                self.choice_orders[question.id] = options
         if form.config.randomize_questions:
             self.ordered_questions = shuffle_questions(form.questions, seed)
         else:
             self.ordered_questions = list(form.questions)
         super().__init__()
+
+    def _form_provenance(self) -> dict[str, str | None]:
+        """Return provenance fields when the source form is available."""
+        if self.form_source_path is None:
+            return {}
+        return {
+            FORM_VERSION_COLUMN: self.form_version,
+            FORM_HASH_COLUMN: self.form_hash,
+            FORM_PATH_COLUMN: str(self.form_source_path),
+            FORM_CONTENTS_COLUMN: self.form_contents,
+        }
 
     def compose(self) -> ComposeResult:
         """Render the sidebar, scrolling form, and footer."""
@@ -214,7 +282,10 @@ class FormScreen(Screen):
                     if question.url is not None:
                         yield Static(f"URL: {question.url}")
                     # input widget appropriate for the question type
-                    input_widget = make_input_widget(question)
+                    input_widget = make_input_widget(
+                        question,
+                        choices=self.choice_orders.get(question.id),
+                    )
                     input_widget.id = f"input-{question.id}"
                     self.inputs[question.id] = input_widget
                     yield input_widget
@@ -364,21 +435,38 @@ class FormScreen(Screen):
             return
         grade_report = None
         grade_json = None
-        if self.form.config.auto_grade:
+        if has_gradeable_questions(self.form):
             grade_report = grade_response(self.form, answers)
             grade_json = grade_report_to_json(grade_report)
         conn = init_db(self.db_path)
-        save_response(
-            conn,
-            self.form.name,
-            answers,
-            identity.username if identity is not None else None,
-            identity.profile_url if identity is not None else None,
-            grade=grade_json,
-        )
+        attempt_id = cast("FormtuistApp", self.app).attempt_id
+        if not self.form.config.allow_multiple_submissions:
+            ensure_single_submission_index(conn, self.form.name, attempt_id)
+            if identity is not None and has_submission(
+                conn, self.form.name, attempt_id, identity.username
+            ):
+                conn.close()
+                self.notify(ALREADY_SUBMITTED_MESSAGE, severity="error")
+                return
+        try:
+            save_response(
+                conn,
+                self.form.name,
+                answers,
+                identity.username if identity is not None else None,
+                identity.profile_url if identity is not None else None,
+                grade=grade_json,
+                attempt_id=attempt_id,
+                **self._form_provenance(),
+            )
+        except sqlite3.IntegrityError:
+            conn.close()
+            self.notify(ALREADY_SUBMITTED_MESSAGE, severity="error")
+            return
         conn.close()
+        submit_report = grade_report if self.form.config.auto_grade else None
         self.app.push_screen(
-            SubmitScreen(self.form, self.db_path, identity, grade_report)
+            SubmitScreen(self.form, self.db_path, identity, submit_report)
         )
 
     def action_focus_first_input(self) -> None:
@@ -455,70 +543,126 @@ class SubmitScreen(Screen):
         if self.grade_report is not None:
             yield from self._compose_grade_review()
         yield Static(
-            "[dim]Tip: Press Ctrl+P for the command palette.[/dim]",
+            "[dim]Tip: Press Ctrl+O for the command palette.[/dim]",
             id="confirm-tip",
         )
-        yield Button("Restart", id="restart", variant="primary")
+        if self.form.config.allow_multiple_submissions:
+            yield Button("Restart", id="restart", variant="primary")
+        else:
+            yield Static(SINGLE_SUBMISSION_NOTE, id="confirm-single")
         yield Button("Quit", id="quit", variant="default")
         yield FormtuistFooter()
 
+    def _review_mode(self, entry: dict[str, Any]) -> str:
+        """Return the configured review mode for a grade entry."""
+        question_id = entry.get(BREAKDOWN_ID_KEY)
+        for question in self.form.questions:
+            if question.id == question_id:
+                return question.review
+        return REVIEW_NONE
+
+    def _compose_given_answer(
+        self, entry: dict[str, Any], theme: str
+    ) -> ComposeResult:
+        """Yield the student's answer for a grade-review entry."""
+        review_mode = self._review_mode(entry)
+        if review_mode != REVIEW_NONE:
+            yield Static(f"{GRADE_REVIEW_MODE_PREFIX}{review_mode}")
+        language = entry.get(BREAKDOWN_LANGUAGE_KEY)
+        given = entry[BREAKDOWN_ANSWER_KEY]
+        if language is not None and isinstance(given, str):
+            yield Static(GRADE_YOUR_ANSWER)
+            yield _code_static(
+                CodeBlock(language=language, content=given),
+                theme,
+            )
+        else:
+            yield Static(f"{GRADE_YOUR_ANSWER}{_format_answer(given)}")
+
+    def _compose_correct_answer(
+        self, entry: dict[str, Any], theme: str
+    ) -> ComposeResult:
+        """Yield the expected answer for an automatically graded entry."""
+        language = entry.get(BREAKDOWN_LANGUAGE_KEY)
+        answer = entry[BREAKDOWN_CORRECT_ANSWER_KEY]
+        if isinstance(answer, CodeBlock):
+            yield Static(GRADE_CORRECT_ANSWER)
+            yield _code_static(answer, theme)
+        elif isinstance(answer, list) and all(
+            isinstance(item, CodeBlock) for item in answer
+        ):
+            yield Static(GRADE_CORRECT_ANSWERS)
+            for block in answer:
+                yield _code_static(block, theme)
+        elif language is not None and isinstance(answer, str):
+            yield Static(GRADE_CORRECT_ANSWER)
+            yield _code_static(
+                CodeBlock(language=language, content=answer),
+                theme,
+            )
+        else:
+            yield Static(f"{GRADE_CORRECT_ANSWER}{_format_answer(answer)}")
+
     def _compose_grade_review(self) -> ComposeResult:
-        """Yield the score summary and the incorrect-answer review."""
+        """Yield preliminary scores and separated manual-review feedback."""
         assert self.grade_report is not None
         total = self.grade_report[TOTAL_KEY]
         max_total = self.grade_report[MAX_KEY]
         percentage = self.grade_report[PERCENTAGE_KEY]
         breakdown = self.grade_report[BREAKDOWN_KEY]
+        pending = [entry for entry in breakdown if entry.get(NEEDS_REVIEW_KEY)]
+        incorrect = [
+            entry
+            for entry in breakdown
+            if not entry.get(NEEDS_REVIEW_KEY)
+            and not entry[BREAKDOWN_CORRECT_KEY]
+        ]
+        score_prefix = (
+            GRADE_PRELIMINARY_SCORE_PREFIX if pending else GRADE_SCORE_PREFIX
+        )
         yield Static(
-            f"{GRADE_SCORE_PREFIX}{total} / {max_total}"
+            f"{score_prefix}{total} / {max_total}"
             f" ({percentage:g}{GRADE_PERCENT_SUFFIX})",
             id="grade-score",
         )
-        incorrect = [
-            entry for entry in breakdown if not entry[BREAKDOWN_CORRECT_KEY]
-        ]
+        pending_points = sum(
+            entry.get(BREAKDOWN_MAX_KEY, 0) for entry in pending
+        )
+        question_label = (
+            GRADE_QUESTION_SINGULAR
+            if len(pending) == 1
+            else GRADE_QUESTION_PLURAL
+        )
+        point_label = (
+            GRADE_POINT_SINGULAR if pending_points == 1 else GRADE_POINT_PLURAL
+        )
         theme = self._code_theme()
         with VerticalScroll(id="grade-review"):
             if not breakdown:
                 yield Static(GRADE_NO_GRADED)
-            elif not incorrect:
+            elif not incorrect and not pending:
                 yield Static(GRADE_ALL_CORRECT)
             else:
-                yield Static(f"[bold]{GRADE_REVIEW_TITLE}[/bold]")
-                for entry in incorrect:
-                    yield Static(f"[bold]{entry[BREAKDOWN_TEXT_KEY]}[/bold]")
-                    language = entry.get(BREAKDOWN_LANGUAGE_KEY)
-                    given = entry[BREAKDOWN_ANSWER_KEY]
-                    if language is not None and isinstance(given, str):
-                        yield Static(GRADE_YOUR_ANSWER)
-                        yield _code_static(
-                            CodeBlock(language=language, content=given),
-                            theme,
-                        )
-                    else:
+                if incorrect:
+                    yield Static(f"[bold]{GRADE_REVIEW_TITLE}[/bold]")
+                    for entry in incorrect:
                         yield Static(
-                            f"{GRADE_YOUR_ANSWER}{_format_answer(given)}"
+                            f"[bold]{entry[BREAKDOWN_TEXT_KEY]}[/bold]"
                         )
-                    answer = entry[BREAKDOWN_CORRECT_ANSWER_KEY]
-                    if isinstance(answer, CodeBlock):
-                        yield Static(GRADE_CORRECT_ANSWER)
-                        yield _code_static(answer, theme)
-                    elif isinstance(answer, list) and all(
-                        isinstance(item, CodeBlock) for item in answer
-                    ):
-                        yield Static(GRADE_CORRECT_ANSWERS)
-                        for block in answer:
-                            yield _code_static(block, theme)
-                    elif language is not None and isinstance(answer, str):
-                        yield Static(GRADE_CORRECT_ANSWER)
-                        yield _code_static(
-                            CodeBlock(language=language, content=answer),
-                            theme,
-                        )
-                    else:
+                        yield from self._compose_given_answer(entry, theme)
+                        yield from self._compose_correct_answer(entry, theme)
+                if pending:
+                    yield Static(f"[bold]{GRADE_PENDING_TITLE}[/bold]")
+                    yield Static(
+                        f"{GRADE_PENDING_PREFIX}{len(pending)} "
+                        f"{question_label}"
+                        f"{GRADE_PENDING_POINT_SUFFIX.format(points=pending_points, label=point_label)}"
+                    )
+                    for entry in pending:
                         yield Static(
-                            f"{GRADE_CORRECT_ANSWER}{_format_answer(answer)}"
+                            f"[bold]{entry[BREAKDOWN_TEXT_KEY]}[/bold]"
                         )
+                        yield from self._compose_given_answer(entry, theme)
 
     def _code_theme(self) -> str:
         """Return a Pygments theme matching the app when one is active."""
@@ -534,6 +678,20 @@ class SubmitScreen(Screen):
         elif event.button.id == "quit":
             self.app.exit()
 
+    def check_action(
+        self, action: str, parameters: tuple[object, ...]
+    ) -> bool | None:
+        """Hide the restart action when resubmission is not allowed."""
+        if (
+            action == "restart"
+            and not self.form.config.allow_multiple_submissions
+        ):
+            return False
+        return super().check_action(action, parameters)
+
     def action_restart(self) -> None:
-        """Push a new form screen to fill out the form again."""
+        """Push a new form screen, or refuse when resubmission is forbidden."""
+        if not self.form.config.allow_multiple_submissions:
+            self.notify(SINGLE_SUBMISSION_NOTE, severity="warning")
+            return
         self.app.push_screen(FormScreen(self.form, self.db_path))

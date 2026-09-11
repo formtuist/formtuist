@@ -1,7 +1,8 @@
 {
   "name": "CS 101 — Daily Attendance",
-  "description": "Quick check-in for today's class session.",
+  "description": "Quick check-in for today's class session. Sign in with your GitHub account so each student is recorded once.",
   "config": {
+    "auth": "github",
     "randomize_questions": false,
     "auto_grade": false,
     "allow_multiple_submissions": false

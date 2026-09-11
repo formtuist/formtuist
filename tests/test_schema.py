@@ -96,6 +96,27 @@ class TestFormConfig:
         with pytest.raises(ValidationError):
             FormConfig.model_validate({"auth": "gitlab"})
 
+    def test_single_submission_requires_auth(self) -> None:
+        """Single-submission forms must declare an auth provider."""
+        with pytest.raises(ValidationError):
+            FormConfig.model_validate({"allow_multiple_submissions": False})
+
+    def test_single_submission_with_auth_valid(self) -> None:
+        """Single-submission forms are valid with github auth."""
+        config = FormConfig(
+            allow_multiple_submissions=False, auth=AuthProvider.GITHUB
+        )
+        assert config.allow_multiple_submissions is False
+        assert config.auth == AuthProvider.GITHUB
+
+    def test_single_submission_error_message(self) -> None:
+        """The error names the conflicting settings."""
+        with pytest.raises(ValidationError) as excinfo:
+            FormConfig.model_validate({"allow_multiple_submissions": False})
+        message = str(excinfo.value)
+        assert "allow_multiple_submissions" in message
+        assert "auth" in message
+
 
 class TestQuestionModels:
     """Tests for individual question type models."""
@@ -240,6 +261,24 @@ class TestQuestionModels:
         )
         assert q.randomize is False
 
+    def test_randomize_choices_defaults_to_false(self) -> None:
+        """Choice-order randomization is opt-in."""
+        q = MultipleChoiceQuestion(
+            id="q", text="Pick?", type="multiple_choice", choices=["A", "B"]
+        )
+        assert q.randomize_choices is False
+
+    def test_randomize_choices_can_be_enabled(self) -> None:
+        """A question opts in by setting randomize_choices to true."""
+        q = MultipleChoiceQuestion(
+            id="q",
+            text="Pick?",
+            type="multiple_choice",
+            choices=["A", "B"],
+            randomize_choices=True,
+        )
+        assert q.randomize_choices is True
+
     def test_accepts_defaults_to_none(self) -> None:
         """The accepts pattern is optional."""
         q = ShortTextQuestion(id="q", text="Name?", type="short_text")
@@ -382,6 +421,14 @@ class TestFormDefinition:
         assert form.description == ""
         assert len(form.questions) == 1
 
+    def test_version_is_optional_and_round_trips(self) -> None:
+        """A form version is optional descriptive metadata."""
+        data = {**VALID_MINIMAL, "version": "2026.08"}
+        form = FormDefinition.model_validate(data)
+        assert form.version == "2026.08"
+        restored = FormDefinition.model_validate_json(form.model_dump_json())
+        assert restored.version == "2026.08"
+
     def test_valid_all_types(self) -> None:
         """Form with all 8 question types parses correctly."""
         form = FormDefinition.model_validate(VALID_ALL_TYPES)
@@ -504,6 +551,7 @@ class TestFormConfigInForm:
                 "randomize_questions": True,
                 "auto_grade": True,
                 "allow_multiple_submissions": False,
+                "auth": "github",
             },
             "questions": [
                 {
@@ -573,6 +621,7 @@ class TestInvalidExampleForms:
             "invalid_rating_max_less_than_min.json",
             "invalid_regex_bad_pattern.json",
             "invalid_regex_no_pattern.json",
+            "invalid_single_submission_no_auth.json",
             "invalid_unknown_question_type.json",
         ],
     )

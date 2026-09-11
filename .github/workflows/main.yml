@@ -24,6 +24,12 @@ env:
   # loadable by its TLS stack. The bundled webpki roots make downloads
   # deterministic on every runner.
   TREE_SITTER_LANGUAGE_PACK_TLS_ROOTS: webpki
+  # Hosted runners report a narrow terminal (as low as 60 columns), which
+  # makes rich wrap prose and ellipsize option names in CLI help and
+  # tables, breaking tests that pass on wider laptops. Pinning the width
+  # here keeps CI rendering identical to a normal terminal without
+  # affecting local runs.
+  COLUMNS: "160"
 
 jobs:
   lint:

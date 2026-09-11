@@ -2,6 +2,7 @@
 
 import csv
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -14,7 +15,12 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from formtuist.cli import _display_db_dir, _package_version, app, main
-from formtuist.database import get_responses, init_db, save_response
+from formtuist.database import (
+    ATTEMPT_ID_ENV_NAME,
+    get_responses,
+    init_db,
+    save_response,
+)
 from formtuist.version import FORMTUIST_VERSION
 
 # regex to strip ANSI SGR escape sequences that Rich embeds in captured output
@@ -268,6 +274,41 @@ class TestStubCommands:
         assert result.exit_code == 1
         assert "uv add datasette" in _plain(result)
         mock_find.assert_called_once_with("datasette")
+
+    def test_view_resolves_db_dir(self, tmp_path: Path) -> None:
+        """View finds the database via --db-dir when no path is given."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        init_db(db_dir / "responses.db").close()
+        with patch("subprocess.run") as mock_run:
+            result = runner.invoke(app, ["view", "--db-dir", str(db_dir)])
+        assert result.exit_code == 0
+        args = mock_run.call_args[0][0]
+        assert str(db_dir / "responses.db") in args
+
+    def test_view_missing_database_error(self, tmp_path: Path) -> None:
+        """View reports a friendly error when the resolved DB is absent."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        result = runner.invoke(app, ["view", "--db-dir", str(db_dir)])
+        assert result.exit_code == 1
+        assert "Responses database not found" in _plain(result)
+
+    def test_view_resolves_bare_name_via_platformdir(
+        self, tmp_path: Path
+    ) -> None:
+        """View resolves a bare filename found only in the platformdir."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        init_db(db_dir / "bare_only.db").close()
+        with (
+            patch("formtuist.cli.get_default_db_dir", return_value=db_dir),
+            patch("subprocess.run") as mock_run,
+        ):
+            result = runner.invoke(app, ["view", "bare_only.db"])
+        assert result.exit_code == 0
+        args = mock_run.call_args[0][0]
+        assert str(db_dir / "bare_only.db") in args
 
 
 class TestGradeCommand:
@@ -563,6 +604,51 @@ class TestExportCommand:
         assert rows[0]["q1"] == "a"
         assert rows[0]["total"] == str(EXPECTED_GRADE_TOTAL_FULL)
 
+    def test_export_resolves_db_dir(self, tmp_path: Path) -> None:
+        """Export finds the database via --db-dir when no path is given."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        self._responses_db(db_dir)
+        out = tmp_path / "out.csv"
+        result = runner.invoke(
+            app, ["export", "--db-dir", str(db_dir), "--output", str(out)]
+        )
+        assert result.exit_code == 0
+        assert "Exported 1 response(s) to" in _plain(result)
+        with out.open("r", encoding="utf-8", newline="") as file:
+            rows = list(csv.DictReader(file))
+        assert rows[0]["form_name"] == "Quiz"
+
+    def test_export_resolves_bare_name_via_platformdir(
+        self, tmp_path: Path
+    ) -> None:
+        """Export resolves a bare filename found only in the platformdir."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        conn = init_db(db_dir / "bare_only.db")
+        save_response(conn, "Quiz", {"q1": "a"})
+        conn.close()
+        out = tmp_path / "out.csv"
+        with patch("formtuist.cli.get_default_db_dir", return_value=db_dir):
+            result = runner.invoke(
+                app, ["export", "bare_only.db", "--output", str(out)]
+            )
+        assert result.exit_code == 0
+        assert "Exported 1 response(s) to" in _plain(result)
+        assert out.exists()
+
+    def test_export_missing_database_error(self, tmp_path: Path) -> None:
+        """Export reports a friendly error for an absent database."""
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        out = tmp_path / "out.csv"
+        result = runner.invoke(
+            app, ["export", "--db-dir", str(db_dir), "--output", str(out)]
+        )
+        assert result.exit_code == 1
+        assert "Responses database not found" in _plain(result)
+        assert not out.exists()
+
     def test_export_json_writes_array(self, tmp_path: Path) -> None:
         """Export --format json writes a JSON array."""
         db = self._responses_db(tmp_path)
@@ -605,6 +691,131 @@ class TestExportCommand:
         finally:
             conn.close()
         assert rows[0] == ("Quiz", "a")
+
+    def _graded_export_db(self, tmp_path: Path) -> Path:
+        """Create a database with a stored multi-question grade."""
+        db_path = tmp_path / "grades.db"
+        conn = init_db(db_path)
+        grade: dict[str, Any] = {
+            "total": 15,
+            "max": 20,
+            "percentage": 75.0,
+            "breakdown": [
+                {"id": "q1", "score": 10, "max": 10, "correct": True},
+                {"id": "q2", "score": 5, "max": 10, "correct": False},
+            ],
+        }
+        save_response(
+            conn,
+            "Quiz",
+            {"q1": "a", "q2": "b"},
+            github_username="alice",
+            grade=grade,
+        )
+        conn.close()
+        return db_path
+
+    def test_export_type_default_full(self, tmp_path: Path) -> None:
+        """Export defaults to the full view with answer columns."""
+        db = self._responses_db(tmp_path)
+        out = tmp_path / "out.csv"
+        result = runner.invoke(
+            app, ["export", str(db), "--format", "csv", "--output", str(out)]
+        )
+        assert result.exit_code == 0
+        header = out.read_text(encoding="utf-8").splitlines()[0]
+        assert "github_username" in header
+        assert "q1" in header
+
+    def test_export_type_graded_csv(self, tmp_path: Path) -> None:
+        """Graded CSV carries the student and per-question scores."""
+        db = self._graded_export_db(tmp_path)
+        out = tmp_path / "grades.csv"
+        result = runner.invoke(
+            app,
+            [
+                "export",
+                str(db),
+                "--type",
+                "graded",
+                "--format",
+                "csv",
+                "--output",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0
+        text = out.read_text(encoding="utf-8")
+        header = text.splitlines()[0]
+        assert "student" in header
+        assert "total" in header
+        assert "q1" in header
+        assert "alice" in text
+
+    def test_export_type_graded_with_form(self, tmp_path: Path) -> None:
+        """Graded export with --form recomputes grades."""
+        db_path = tmp_path / "plain.db"
+        conn = init_db(db_path)
+        save_response(conn, "Quiz", {"q1": "a"}, github_username="alice")
+        conn.close()
+        form = _write_form(
+            tmp_path / "quiz.json",
+            {
+                "name": "Quiz",
+                "questions": [
+                    {
+                        "id": "q1",
+                        "text": "Q?",
+                        "type": "short_text",
+                        "correct_answer": "a",
+                        "points": 10,
+                        "grading_type": "exact",
+                    },
+                ],
+            },
+        )
+        out = tmp_path / "grades.csv"
+        result = runner.invoke(
+            app,
+            [
+                "export",
+                str(db_path),
+                "--type",
+                "graded",
+                "--format",
+                "csv",
+                "--output",
+                str(out),
+                "--form",
+                str(form),
+            ],
+        )
+        assert result.exit_code == 0
+        text = out.read_text(encoding="utf-8")
+        header = text.splitlines()[0]
+        assert "student" in header
+        assert "q1" in header
+        assert "alice,10" in text
+
+    def test_export_type_graded_sqlite_rejected(self, tmp_path: Path) -> None:
+        """Graded export rejects the sqlite format."""
+        db = self._responses_db(tmp_path)
+        out = tmp_path / "out.db"
+        result = runner.invoke(
+            app,
+            [
+                "export",
+                str(db),
+                "--type",
+                "graded",
+                "--format",
+                "sqlite",
+                "--output",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "not supported" in _plain(result)
 
     def test_export_form_name_filters(self, tmp_path: Path) -> None:
         """Export --form-name only includes matching responses."""
@@ -695,6 +906,7 @@ class TestExampleFormsCLI:
             "invalid_duplicate_ids.json",
             "invalid_multiple_choice_one_choice.json",
             "invalid_rating_max_less_than_min.json",
+            "invalid_single_submission_no_auth.json",
             "invalid_unknown_question_type.json",
         ],
     )
@@ -794,6 +1006,140 @@ class TestMainFunction:
         assert "Grade responses" in _plain(result)
 
 
+class TestProvenanceCommand:
+    """Tests for the provenance inspection command."""
+
+    def test_provenance_defaults_to_list_tui(self, tmp_path: Path) -> None:
+        """Provenance opens the list TUI by default."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        conn.close()
+        with patch("formtuist.tui.app.ProvenanceApp") as mock_app_cls:
+            result = runner.invoke(app, ["provenance", str(db_path)])
+        assert result.exit_code == 0
+        mock_app_cls.assert_called_once_with(
+            db_path, initial_view="list", response_id=None
+        )
+        mock_app_cls.return_value.run.assert_called_once()
+
+    def test_provenance_uses_default_database(self, tmp_path: Path) -> None:
+        """Provenance resolves the default database when no path is given."""
+        db_path = tmp_path / "default.db"
+        conn = init_db(db_path)
+        conn.close()
+        with patch(
+            "formtuist.cli.resolve_db_path", return_value=db_path
+        ) as mock_resolve:
+            with patch("formtuist.tui.app.ProvenanceApp") as mock_app_cls:
+                result = runner.invoke(app, ["provenance"])
+        assert result.exit_code == 0
+        mock_resolve.assert_called_once_with(None, None)
+        mock_app_cls.assert_called_once_with(
+            db_path, initial_view="list", response_id=None
+        )
+
+    def test_provenance_latest_opens_newest_response(
+        self, tmp_path: Path
+    ) -> None:
+        """The latest option opens the newest response detail view."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        save_response(conn, "Quiz", {"q1": "first"})
+        newest_id = save_response(conn, "Quiz", {"q1": "last"})
+        conn.close()
+        with patch("formtuist.tui.app.ProvenanceApp") as mock_app_cls:
+            result = runner.invoke(
+                app, ["provenance", str(db_path), "--latest"]
+            )
+        assert result.exit_code == 0
+        mock_app_cls.assert_called_once_with(
+            db_path, initial_view="latest", response_id=None
+        )
+        assert newest_id > 0
+
+    def test_provenance_positional_id_opens_detail(
+        self, tmp_path: Path
+    ) -> None:
+        """The legacy positional response ID still opens detail mode."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        response_id = save_response(conn, "Quiz", {"q1": "answer"})
+        conn.close()
+        with patch("formtuist.tui.app.ProvenanceApp") as mock_app_cls:
+            result = runner.invoke(
+                app, ["provenance", str(db_path), str(response_id)]
+            )
+        assert result.exit_code == 0
+        mock_app_cls.assert_called_once_with(
+            db_path, initial_view="response", response_id=response_id
+        )
+
+    def test_provenance_response_id_opens_detail(self, tmp_path: Path) -> None:
+        """The response-id option opens one validated response."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        response_id = save_response(conn, "Quiz", {"q1": "answer"})
+        conn.close()
+        with patch("formtuist.tui.app.ProvenanceApp") as mock_app_cls:
+            result = runner.invoke(
+                app,
+                [
+                    "provenance",
+                    str(db_path),
+                    "--response-id",
+                    str(response_id),
+                ],
+            )
+        assert result.exit_code == 0
+        mock_app_cls.assert_called_once_with(
+            db_path, initial_view="response", response_id=response_id
+        )
+
+    def test_provenance_unknown_response_exits(self, tmp_path: Path) -> None:
+        """Provenance exits nonzero for an unknown response ID."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        conn.close()
+        result = runner.invoke(
+            app, ["provenance", str(db_path), "--response-id", "99"]
+        )
+        assert result.exit_code == 1
+        assert "No response found" in _plain(result)
+
+    def test_provenance_conflicting_selection_options_exit(
+        self, tmp_path: Path
+    ) -> None:
+        """Conflicting provenance selectors are rejected."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        conn.close()
+        result = runner.invoke(
+            app,
+            [
+                "provenance",
+                str(db_path),
+                "--latest",
+                "--response-id",
+                "1",
+            ],
+        )
+        assert result.exit_code == USAGE_ERROR_EXIT_CODE
+        assert "only one" in _plain(result)
+
+    def test_provenance_response_view_requires_id(
+        self, tmp_path: Path
+    ) -> None:
+        """The response view requires a response ID."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        conn.close()
+        result = runner.invoke(
+            app, ["provenance", str(db_path), "--view", "response"]
+        )
+        assert result.exit_code == USAGE_ERROR_EXIT_CODE
+        assert "requires" in _plain(result)
+
+
 class TestDisplayCommand:
     """Tests for the display command body using mocking."""
 
@@ -813,6 +1159,46 @@ class TestDisplayCommand:
             expected_db_path = db_dir / "responses.db"
             mock_app_cls.assert_called_once_with(form, expected_db_path)
             mock_instance.run.assert_called_once()
+
+    def test_display_passes_code_dir_to_app(self, tmp_path: Path) -> None:
+        """Display forwards code_dir when launching the TUI app."""
+        code_dir = tmp_path / "code"
+        code_dir.mkdir()
+        (code_dir / "snippet.py").write_text("x = 1\n", encoding="utf-8")
+        form = _write_form(
+            tmp_path / "form.json",
+            {
+                "name": "T",
+                "questions": [
+                    {
+                        "id": "q",
+                        "text": "Q?",
+                        "type": "short_text",
+                        "code": {
+                            "language": "python",
+                            "file": "snippet.py",
+                        },
+                    }
+                ],
+            },
+        )
+        db_dir = tmp_path / "db_out"
+        with patch("formtuist.tui.app.FormtuistApp") as mock_app_cls:
+            result = runner.invoke(
+                app,
+                [
+                    "display",
+                    str(form),
+                    "--db-dir",
+                    str(db_dir),
+                    "--code-dir",
+                    str(code_dir),
+                ],
+            )
+        assert result.exit_code == 0
+        mock_app_cls.assert_called_once_with(
+            form, db_dir / "responses.db", code_dir
+        )
 
     def test_display_invalid_form_exits(self, tmp_path: Path) -> None:
         """Display exits 1 for an invalid form."""
@@ -918,6 +1304,24 @@ class TestServeCommand:
             assert kwargs["host"] == "100.64.1.1"
             assert kwargs["port"] == 9000  # noqa: PLR2004
             mock_instance.serve.assert_called_once()
+
+    def test_serve_sets_attempt_id_env(self, tmp_path: Path) -> None:
+        """Serve injects one shared attempt id for its spawned displays."""
+        form = _write_form(
+            tmp_path / "form.json",
+            {"name": "ServedForm", "questions": []},
+        )
+        previous = os.environ.get(ATTEMPT_ID_ENV_NAME)
+        try:
+            with patch("formtuist.server.FormtuistServer"):
+                result = runner.invoke(app, ["serve", str(form)])
+            assert result.exit_code == 0
+            assert os.environ.get(ATTEMPT_ID_ENV_NAME)
+        finally:
+            if previous is None:
+                os.environ.pop(ATTEMPT_ID_ENV_NAME, None)
+            else:
+                os.environ[ATTEMPT_ID_ENV_NAME] = previous
 
 
 class TestSchemaCommand:

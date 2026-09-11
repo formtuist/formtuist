@@ -1,8 +1,8 @@
 {
   "name": "Python True/False Quiz",
-  "description": "A short auto-graded quiz of yes_no (true/false) questions.",
+  "description": "A short auto-graded quiz of yes_no (true/false) questions, authenticated so each student submits once.",
   "config": {
-    "auth": null,
+    "auth": "github",
     "randomize_questions": true,
     "auto_grade": true,
     "allow_multiple_submissions": false

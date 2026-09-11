@@ -1,12 +1,14 @@
 """Auto-grading logic for quizzes with correct answers."""
 
 import re
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
 from formtuist.schema import (
     GRADING_TYPE_CONTAINS,
     GRADING_TYPE_REGEX,
+    REVIEW_REQUIRED,
     CheckboxQuestion,
     CodeBlock,
     FormDefinition,
@@ -25,6 +27,10 @@ MAX_KEY = "max"
 PERCENTAGE_KEY = "percentage"
 BREAKDOWN_KEY = "breakdown"
 
+# final keys for post-graded reports
+TOTAL_FINAL_KEY = "total_final"
+PERCENTAGE_FINAL_KEY = "percentage_final"
+
 # keys for the JSON-safe forms of numeric ranges and code blocks
 RANGE_MIN_KEY = "min"
 RANGE_MAX_KEY = "max"
@@ -40,11 +46,29 @@ BREAKDOWN_MAX_KEY = "max"
 BREAKDOWN_CORRECT_KEY = "correct"
 BREAKDOWN_LANGUAGE_KEY = "language"
 
+# review keys for manual post-grading
+PRELIM_SCORE_KEY = "prelim_score"
+MANUAL_SCORE_KEY = "manual_score"
+FINAL_SCORE_KEY = "final_score"
+NEEDS_REVIEW_KEY = "needs_review"
+REVIEWED_BY_KEY = "reviewed_by"
+REVIEWED_AT_KEY = "reviewed_at"
+COMMENT_KEY = "comment"
+
 # rounding precision for the percentage score
 PERCENTAGE_DIGITS = 2
 
 # timestamp key added to the stored grade snapshot
 GRADED_AT_KEY = "graded_at"
+
+
+def has_gradeable_questions(form: FormDefinition) -> bool:
+    """Return whether any question has a correct answer to grade."""
+    return any(
+        getattr(question, "correct_answer", None) is not None
+        or getattr(question, "review", "none") == REVIEW_REQUIRED
+        for question in form.questions
+    )
 
 
 def grade_response(
@@ -56,13 +80,23 @@ def grade_response(
     breakdown: list[dict[str, Any]] = []
     for question in form.questions:
         correct_answer = getattr(question, "correct_answer", None)
-        if correct_answer is None:
+        review = getattr(question, "review", "none")
+        is_gradeable = correct_answer is not None or review == REVIEW_REQUIRED
+        if not is_gradeable:
             continue
         answer = answers.get(question.id)
-        score, max_score = _grade_question(question, answer)
+        # manual questions with no correct answer get prelim 0
+        if correct_answer is None and review == REVIEW_REQUIRED:
+            score, max_score = 0, getattr(question, "points", 0)
+        else:
+            score, max_score = _grade_question(question, answer)
         total += score
         max_total += max_score
         code_block = getattr(question, "code", None)
+        needs_review = review == REVIEW_REQUIRED
+        prelim_score = score
+        # final tracks prelim until a manual score is set
+        final_score = score
         breakdown.append(
             {
                 BREAKDOWN_ID_KEY: question.id,
@@ -70,20 +104,31 @@ def grade_response(
                 BREAKDOWN_ANSWER_KEY: answer,
                 BREAKDOWN_CORRECT_ANSWER_KEY: correct_answer,
                 BREAKDOWN_SCORE_KEY: score,
+                PRELIM_SCORE_KEY: prelim_score,
+                MANUAL_SCORE_KEY: None,
+                FINAL_SCORE_KEY: final_score,
                 BREAKDOWN_MAX_KEY: max_score,
                 BREAKDOWN_CORRECT_KEY: score == max_score,
                 BREAKDOWN_LANGUAGE_KEY: (
                     code_block.language if code_block is not None else None
                 ),
+                NEEDS_REVIEW_KEY: needs_review,
+                REVIEWED_BY_KEY: None,
+                REVIEWED_AT_KEY: None,
+                COMMENT_KEY: None,
             }
         )
     percentage = (
         round(total / max_total * 100, PERCENTAGE_DIGITS) if max_total else 0
     )
+    total_final = total
+    percentage_final = percentage
     return {
         TOTAL_KEY: total,
         MAX_KEY: max_total,
         PERCENTAGE_KEY: percentage,
+        TOTAL_FINAL_KEY: total_final,
+        PERCENTAGE_FINAL_KEY: percentage_final,
         BREAKDOWN_KEY: breakdown,
     }
 
@@ -95,10 +140,14 @@ def grade_report_to_json(report: dict[str, Any]) -> dict[str, Any]:
     plain dicts so the snapshot survives a JSON round trip. A graded_at
     timestamp records when the snapshot was created.
     """
+    total_final = report.get(TOTAL_FINAL_KEY, report[TOTAL_KEY])
+    perc_final = report.get(PERCENTAGE_FINAL_KEY, report[PERCENTAGE_KEY])
     return {
         TOTAL_KEY: report[TOTAL_KEY],
         MAX_KEY: report[MAX_KEY],
         PERCENTAGE_KEY: report[PERCENTAGE_KEY],
+        TOTAL_FINAL_KEY: total_final,
+        PERCENTAGE_FINAL_KEY: perc_final,
         BREAKDOWN_KEY: [
             {
                 BREAKDOWN_ID_KEY: entry[BREAKDOWN_ID_KEY],
@@ -108,14 +157,148 @@ def grade_report_to_json(report: dict[str, Any]) -> dict[str, Any]:
                     entry[BREAKDOWN_CORRECT_ANSWER_KEY]
                 ),
                 BREAKDOWN_SCORE_KEY: entry[BREAKDOWN_SCORE_KEY],
+                PRELIM_SCORE_KEY: entry.get(
+                    PRELIM_SCORE_KEY, entry[BREAKDOWN_SCORE_KEY]
+                ),
+                MANUAL_SCORE_KEY: entry.get(MANUAL_SCORE_KEY),
+                FINAL_SCORE_KEY: entry.get(
+                    FINAL_SCORE_KEY, entry[BREAKDOWN_SCORE_KEY]
+                ),
                 BREAKDOWN_MAX_KEY: entry[BREAKDOWN_MAX_KEY],
                 BREAKDOWN_CORRECT_KEY: entry[BREAKDOWN_CORRECT_KEY],
                 BREAKDOWN_LANGUAGE_KEY: entry[BREAKDOWN_LANGUAGE_KEY],
+                NEEDS_REVIEW_KEY: entry.get(NEEDS_REVIEW_KEY, False),
+                REVIEWED_BY_KEY: entry.get(REVIEWED_BY_KEY),
+                REVIEWED_AT_KEY: entry.get(REVIEWED_AT_KEY),
+                COMMENT_KEY: entry.get(COMMENT_KEY),
             }
             for entry in report[BREAKDOWN_KEY]
         ],
         GRADED_AT_KEY: datetime.now(timezone.utc).isoformat(),
     }
+
+
+def is_pending(report: dict[str, Any]) -> bool:
+    """Return whether any required review is still pending."""
+    for entry in report.get(BREAKDOWN_KEY, []):
+        if entry.get(NEEDS_REVIEW_KEY) and entry.get(MANUAL_SCORE_KEY) is None:
+            return True
+    return False
+
+
+def apply_post_grade(
+    report: dict[str, Any],
+    overrides: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Return a new report with manual scores applied.
+
+    *overrides* maps question id to a dict with
+    ``manual_score``, ``comment``, and ``reviewer``.
+    Re-applying overwrites the previous manual values; a None
+    ``comment`` or ``reviewer`` clears the stored value, and a
+    successfully applied score marks the entry no longer pending.
+    """
+    cloned = deepcopy(report)
+    by_id = {entry[BREAKDOWN_ID_KEY]: entry for entry in cloned[BREAKDOWN_KEY]}
+    for qid, data in overrides.items():
+        entry = by_id.get(qid)
+        if entry is None:
+            continue
+        manual = data.get("manual_score")
+        comment = data.get("comment")
+        reviewer = data.get("reviewer")
+        if manual is not None:
+            entry[MANUAL_SCORE_KEY] = int(manual)
+            entry[FINAL_SCORE_KEY] = int(manual)
+            entry[BREAKDOWN_CORRECT_KEY] = (
+                int(manual) == entry[BREAKDOWN_MAX_KEY]
+            )
+            entry[NEEDS_REVIEW_KEY] = False
+        # replace unconditionally so an explicit None clears old values
+        entry[COMMENT_KEY] = comment
+        entry[REVIEWED_BY_KEY] = reviewer
+        entry[REVIEWED_AT_KEY] = datetime.now(timezone.utc).isoformat()
+    # recompute totals for final
+    total_final = sum(
+        entry.get(FINAL_SCORE_KEY, entry[BREAKDOWN_SCORE_KEY])
+        for entry in cloned[BREAKDOWN_KEY]
+    )
+    max_total = cloned[MAX_KEY]
+    cloned[TOTAL_FINAL_KEY] = total_final
+    cloned[PERCENTAGE_FINAL_KEY] = (
+        round(total_final / max_total * 100, PERCENTAGE_DIGITS)
+        if max_total
+        else 0
+    )
+    return cloned
+
+
+def finalize_report(report: dict[str, Any]) -> dict[str, Any]:
+    """Recompute final totals from existing manual scores."""
+    cloned = deepcopy(report)
+    for entry in cloned[BREAKDOWN_KEY]:
+        if entry.get(MANUAL_SCORE_KEY) is not None:
+            entry[FINAL_SCORE_KEY] = entry[MANUAL_SCORE_KEY]
+            entry[NEEDS_REVIEW_KEY] = False
+        else:
+            entry[FINAL_SCORE_KEY] = entry.get(
+                PRELIM_SCORE_KEY, entry[BREAKDOWN_SCORE_KEY]
+            )
+        # correct reflects final
+        entry[BREAKDOWN_CORRECT_KEY] = (
+            entry[FINAL_SCORE_KEY] == entry[BREAKDOWN_MAX_KEY]
+        )
+    total_final = sum(
+        entry[FINAL_SCORE_KEY] for entry in cloned[BREAKDOWN_KEY]
+    )
+    max_total = cloned[MAX_KEY]
+    cloned[TOTAL_FINAL_KEY] = total_final
+    cloned[PERCENTAGE_FINAL_KEY] = (
+        round(total_final / max_total * 100, PERCENTAGE_DIGITS)
+        if max_total
+        else 0
+    )
+    return cloned
+
+
+def refresh_prelim(
+    old_report: dict[str, Any],
+    form: FormDefinition,
+    answers: dict[str, Any],
+) -> dict[str, Any]:
+    """Recompute prelim scores while preserving manual decisions."""
+    fresh = grade_response(form, answers)
+    # carry manual fields from old report
+    old_by_id = {
+        entry[BREAKDOWN_ID_KEY]: entry
+        for entry in old_report.get(BREAKDOWN_KEY, [])
+    }
+    for entry in fresh[BREAKDOWN_KEY]:
+        old = old_by_id.get(entry[BREAKDOWN_ID_KEY])
+        if old is not None and old.get(MANUAL_SCORE_KEY) is not None:
+            entry[MANUAL_SCORE_KEY] = old[MANUAL_SCORE_KEY]
+            entry[FINAL_SCORE_KEY] = old[MANUAL_SCORE_KEY]
+            entry[COMMENT_KEY] = old.get(COMMENT_KEY)
+            entry[REVIEWED_BY_KEY] = old.get(REVIEWED_BY_KEY)
+            entry[REVIEWED_AT_KEY] = old.get(REVIEWED_AT_KEY)
+            entry[NEEDS_REVIEW_KEY] = False
+            entry[BREAKDOWN_CORRECT_KEY] = (
+                entry[FINAL_SCORE_KEY] == entry[BREAKDOWN_MAX_KEY]
+            )
+    # recompute final totals after merge
+    total_final = sum(
+        entry.get(FINAL_SCORE_KEY, entry[BREAKDOWN_SCORE_KEY])
+        for entry in fresh[BREAKDOWN_KEY]
+    )
+    max_total = fresh[MAX_KEY]
+    fresh[TOTAL_FINAL_KEY] = total_final
+    fresh[PERCENTAGE_FINAL_KEY] = (
+        round(total_final / max_total * 100, PERCENTAGE_DIGITS)
+        if max_total
+        else 0
+    )
+    # preserve graded_at? will be overwritten by grade_report_to_json
+    return fresh
 
 
 def _json_safe(value: Any) -> Any:

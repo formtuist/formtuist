@@ -1,5 +1,6 @@
 """Pydantic models for validating JSON form definitions."""
 
+import math
 import re
 from enum import Enum
 from pathlib import Path
@@ -36,6 +37,20 @@ GRADING_TYPE_EXACT = "exact"
 GRADING_TYPE_REGEX = "regex"
 GRADING_TYPE_CONTAINS = "contains"
 
+# review modes for post-grading of responses
+REVIEW_NONE = "none"
+REVIEW_PERMITTED = "permitted"
+REVIEW_REQUIRED = "required"
+REVIEW_FIELD = "review"
+REVIEW_LITERAL = Literal["none", "permitted", "required"]
+
+# a single-submission form must identify repeat users to block them
+SINGLE_SUBMISSION_REQUIRES_AUTH_ERROR = (
+    "allow_multiple_submissions is false but auth is not set: "
+    "single-submission forms require a GitHub auth provider so that "
+    "duplicate submissions can be blocked by identity"
+)
+
 
 class FormConfig(BaseModel):
     """Configuration options for a form."""
@@ -45,12 +60,30 @@ class FormConfig(BaseModel):
     allow_multiple_submissions: bool = True
     auth: AuthProvider | None = None
 
+    # without an auth provider there is no identity to check, so the
+    # single-submission promise cannot be kept and the form must be rejected
+    @model_validator(mode="after")
+    def _single_submission_requires_auth(self) -> "FormConfig":
+        """Require an auth provider when resubmission is forbidden."""
+        if not self.allow_multiple_submissions and self.auth is None:
+            raise ValueError(SINGLE_SUBMISSION_REQUIRES_AUTH_ERROR)
+        return self
+
 
 # validation context key carrying the base directory for code files
 CODE_DIR_CONTEXT_KEY = "code_dir"
 
 # encoding used when loading code from referenced files
 CODE_ENCODING = "utf-8"
+
+# minimum score value allowed for a scored question
+MIN_POINTS = 0
+
+# validation messages for numeric answer ranges
+NUMERIC_RANGE_FINITE_ERROR = "numeric range bounds must be finite"
+NUMERIC_RANGE_ORDER_ERROR = (
+    "numeric range min must be less than or equal to max"
+)
 
 
 class CodeBlock(BaseModel):
@@ -143,9 +176,22 @@ class _QuestionBase(BaseModel):
     required: bool = False
     # when false, the question keeps its file position during randomization
     randomize: bool = True
+    # when true, a choice question's options render in shuffled order
+    randomize_choices: bool = False
     code: CodeBlock | None = None
     image_path: str | None = None
     url: str | None = None
+    review: REVIEW_LITERAL = REVIEW_NONE  # type: ignore[assignment]
+
+    # permitted requires a correct answer; required may be manual
+    @model_validator(mode="after")
+    def _review_requires_correct_answer(self) -> "_QuestionBase":
+        """Validate review mode against correct_answer presence."""
+        review = getattr(self, "review", REVIEW_NONE)
+        correct = getattr(self, "correct_answer", None)
+        if review == REVIEW_PERMITTED and correct is None:
+            raise ValueError("review permitted requires a correct_answer")
+        return self
 
 
 class ShortTextQuestion(_QuestionBase):
@@ -154,7 +200,7 @@ class ShortTextQuestion(_QuestionBase):
     type: Literal["short_text"]
     correct_answer: CodeAnswer | None = None
     accepts: str | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: GRADING_LITERAL | None = None
 
     # ensure an accepts pattern is a usable regular expression
@@ -180,7 +226,7 @@ class ParagraphQuestion(_QuestionBase):
     type: Literal["paragraph"]
     correct_answer: CodeAnswer | None = None
     accepts: str | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: GRADING_LITERAL | None = None
 
     # ensure an accepts pattern is a usable regular expression
@@ -209,7 +255,7 @@ class MultipleChoiceQuestion(_QuestionBase):
     type: Literal["multiple_choice"]
     choices: list[str]
     correct_answer: str | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: Literal["exact"] | None = "exact"
 
     # ensure at least two choices exist for a meaningful selection
@@ -239,7 +285,7 @@ class CheckboxQuestion(_QuestionBase):
     type: Literal["checkbox"]
     choices: list[str]
     correct_answer: list[str] | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: Literal["exact"] | None = "exact"
 
     # ensure at least one checkbox option is defined
@@ -271,13 +317,22 @@ class NumericRange(BaseModel):
     min: float
     max: float
 
+    @model_validator(mode="after")
+    def _valid_bounds(self) -> "NumericRange":
+        """Validate finite, ordered numeric range bounds."""
+        if not math.isfinite(self.min) or not math.isfinite(self.max):
+            raise ValueError(NUMERIC_RANGE_FINITE_ERROR)
+        if self.min > self.max:
+            raise ValueError(NUMERIC_RANGE_ORDER_ERROR)
+        return self
+
 
 class NumericQuestion(_QuestionBase):
     """A numeric input question with optional range grading."""
 
     type: Literal["numeric"]
     correct_answer: float | NumericRange | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: Literal["exact"] | None = "exact"
 
 
@@ -309,7 +364,7 @@ class YesNoQuestion(_QuestionBase):
 
     type: Literal["yes_no"]
     correct_answer: bool | None = None
-    points: int = 0
+    points: int = Field(default=MIN_POINTS, ge=MIN_POINTS)
     grading_type: Literal["exact"] | None = "exact"
 
 
@@ -331,6 +386,7 @@ class FormDefinition(BaseModel):
     """Top-level form definition containing metadata, config, and questions."""
 
     name: str
+    version: str | None = None
     description: str = ""
     config: FormConfig = Field(default_factory=FormConfig)
     questions: list[Question]
@@ -354,6 +410,7 @@ class FormDefinition(BaseModel):
                 question
                 for question in self.questions
                 if getattr(question, "correct_answer", None) is not None
+                or getattr(question, "review", REVIEW_NONE) == REVIEW_REQUIRED
             ]
             if not graded:
                 raise ValueError(

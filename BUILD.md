@@ -118,9 +118,8 @@ first module:
 - `test` → `pytest -x -s -vv`
 - `test-parallel` → `pytest -x -s -vv -n auto -p no:sugar`
 - `test-silent` → `pytest -x --show-capture=no -n auto`
-- `test-coverage` → `pytest -s --cov=formtuist
---cov-branch --cov-fail-under={coveragefailunder}
---cov-report=term-missing tests/`
+- `test-coverage` → `pytest -s --cov=formtuist --cov-branch
+  --cov-fail-under={coveragefailunder} --cov-report=term-missing tests/`
 - `test-propertybased` → `pytest -x -s -vv -m propertybased`
 - `test-not-propertybased` → `pytest -x -s -vv -m 'not propertybased'`
 - `display` → `uv run formtuist display`
@@ -211,6 +210,7 @@ ______________________________________________________________________
 ```json
 {
   "name": "CS 101 Attendance",
+  "version": "0.1.0",
   "description": "Daily attendance check-in",
   "config": {
     "randomize_questions": false,
@@ -238,6 +238,17 @@ ______________________________________________________________________
 }
 ```
 
+The optional `version` field is author-supplied descriptive metadata. On
+submission, Formtuist additionally records the exact input JSON contents, its
+fully qualified source path, and a SHA-256 hash; those provenance fields are
+the authoritative form identity.
+
+When `allow_multiple_submissions` is `false` the form must also declare an
+`auth` provider. Without an identity there is no way to recognize a repeat
+submitter, so such definitions are rejected at parse time instead of silently
+promising an enforcement they cannot deliver. Anonymous forms keep
+`allow_multiple_submissions` at its default of `true`.
+
 ### 2.2 Question Types (v1)
 
 | Type | Textual Widget(s) | Storage Type |
@@ -249,13 +260,20 @@ ______________________________________________________________________
 | `numeric` | `Input` + `Integer` validator | `REAL` |
 | `rating` | `RadioSet` (horizontal) or `Select` | `INTEGER` |
 | `date` | `Input` + date validator | `TEXT` (ISO 8601) |
-| `yes_no` | `Switch` or `Checkbox` | `INTEGER` (0/1) |
+| `yes_no` | `RadioSet` with Yes/No options | `INTEGER` (0/1) |
 
 Each question accepts a `randomize` field that defaults to `true`. When
 `config.randomize_questions` is enabled, a question with `randomize` set
 to `false` keeps its exact file position while the remaining questions
 are shuffled into the other positions. This suits questions that only
 make sense at a fixed point, such as a closing confidence rating.
+
+`multiple_choice` and `checkbox` questions additionally accept a
+`randomize_choices` field that defaults to `false` (opt-in). Set it to
+`true` to shuffle the display order of the question's options once per
+session, seeded the same way as question ordering, so each student sees
+a different (but stable) option order. Grading is unaffected because
+submitted answers are the choice labels and `correct_answer` is a label.
 
 ### 2.3 Grading Fields
 
@@ -428,9 +446,14 @@ Design a SQLite schema:
 CREATE TABLE responses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     form_name TEXT NOT NULL,
+    attempt_id TEXT,
     submitted_at TEXT NOT NULL,  -- ISO 8601
     answers_json TEXT NOT NULL,  -- JSON object mapping question_id -> answer
-    grade_json TEXT              -- JSON grade snapshot (auto-graded forms)
+    grade_json TEXT,             -- JSON grade snapshot (auto-graded forms)
+    form_version TEXT,
+    form_hash TEXT,
+    form_path TEXT,
+    form_contents TEXT
 );
 ```
 
@@ -459,14 +482,31 @@ submit a timed quiz within a 10-second window.
 Functions needed:
 
 - `init_db(db_path: Path) -> sqlite3.Connection` — runs WAL + busy_timeout
-- `save_response(conn, form_name: str, answers: dict) -> int`
+- `save_response(conn, form_name, answers, *, attempt_id=None,
+  form_version=None, form_hash=None, form_path=None, form_contents=None) -> int`
 - `update_response_grade(conn, response_id: int, grade: dict) -> None`
 - `get_responses(conn, form_name: str | None) -> list[dict]`
 - `get_response_count(conn, form_name: str) -> int`
+- `has_submission(conn, form_name, attempt_id, username) -> bool`
+- `ensure_single_submission_index(conn, form_name, attempt_id) -> bool`
 
 `save_response` accepts an optional `grade` keyword argument holding a
 JSON-safe report snapshot; `update_response_grade` overwrites the snapshot
-for an existing row (used by `grade --recompute`).
+for an existing row (used by `grade --recompute`). Every row also carries an
+`attempt_id` column that scopes a submission to one run of the form. Every
+new submission also stores the optional author version, the SHA-256 hash of the
+exact input JSON bytes, its fully qualified source path, and the exact input
+JSON contents. Older rows are migrated with nullable provenance fields.
+
+For a single-submission form, `ensure_single_submission_index()` creates a
+partial unique index on `(form_name, attempt_id, github_username)` restricted
+to rows with a non-null username. Scoping the index to one form name and one
+attempt keeps repeat submissions legal on forms that allow them and lets a
+re-run of the same form start a fresh fairness domain, so one database can be
+reused across weeks. The index closes the check-then-insert race when two
+concurrent subprocesses save the same identity at once. `has_submission()`
+backs the TUI's friendly pre-save check; databases that already hold
+duplicate identity rows skip the index and rely on that check alone.
 
 ### 3.4 `exporter.py` — Export Formats
 
@@ -474,18 +514,32 @@ for an existing row (used by `grade --recompute`).
 - `export_to_json(responses, output_path)`
 - `export_to_jsonl(responses, output_path)`
 - `export_to_sqlite(responses, output_path)` (for `datasette view`)
+- `grade_columns(responses, form=None)`, `flatten_grades(...)` and the
+  `export_grades_to_{csv,json,jsonl}` writers for the graded view.
 
-All formats flatten each response into one row: metadata columns (id,
-form_name, submitted_at, github_username, github_url), the stored grade
+All full-view formats flatten each response into one row: metadata columns
+(id, form_name, attempt_id, submitted_at, github_username, github_url,
+form_version, form_hash, form_path, form_contents), the stored grade
 totals (total, max, percentage), and one column per question id (the sorted
 union of answer keys across responses). Missing answers become empty cells,
 `null`s, or NULLs. List answers are JSON-encoded in csv and sqlite cells
-and stay native arrays in json. The sqlite export writes a fresh
+and stay native arrays in json. Every gradeable question also contributes
+a `qid_comment` column carrying that question's review comment (empty
+when none was written). The sqlite export writes a fresh
 `responses_flat` table so datasette shows real columns.
+
+The graded view (`--type graded`) writes only the grades plus provenance:
+id, form_name, attempt_id, student (github_username or the `-` placeholder),
+form_version, form_hash, form_path, form_contents, per-question
+scores, total, max, and percentage. With a form the per-question columns
+follow the form's question order and each grade is recomputed; without a form
+the columns follow the stored snapshot's breakdown order and grades are read
+from storage (blank for responses with no snapshot).
 
 ### 3.5 `grader.py` — Auto-Grading
 
 - `grade_response(form_definition, answers) -> dict`
+- `has_gradeable_questions(form_definition) -> bool`
 - Returns per-question score, total score, and feedback.
 - Handle each `grading_type` (`exact`, `regex`, `contains`).
 - Support partial credit for `checkbox` questions (e.g., proportion correct).
@@ -515,6 +569,12 @@ def grade_response(form: FormDefinition, answers: dict[str, Any]) -> dict:
 The report is converted into a JSON-safe snapshot for storage with
 `grade_report_to_json()`, which turns `NumericRange` and `CodeBlock`
 values into plain dicts and records a `graded_at` timestamp.
+
+When a form has at least one gradeable question (a `correct_answer`), the
+TUI computes and stores a `grade_json` snapshot at submit time regardless of
+`config.auto_grade`. `auto_grade` only controls whether the grade review is
+displayed on the submit screen, not whether the grade is computed and stored.
+This is what lets a graded export work without the form file.
 
 ```python
 def _grade_question(q, answer):
@@ -614,7 +674,7 @@ viewport testing is required for v1.
 | `numeric` | `Input` + validator | `Label` |
 | `rating` | `RadioSet` (or `Select`) | `Label` |
 | `date` | `Input` + validator | `Label` |
-| `yes_no` | `Switch` | `Label` |
+| `yes_no` | `RadioSet` with Yes/No options | `Label` |
 
 ### 4.2 Custom Widget: `QuestionContainer`
 
@@ -753,7 +813,8 @@ def make_input_widget(question: Question) -> Widget:
     elif question.type == "date":
         return Input(placeholder="YYYY-MM-DD")
     elif question.type == "yes_no":
-        return Switch()
+        # no option is selected until the respondent chooses Yes or No
+        return RadioSet("Yes", "No")
     else:
         raise ValueError(f"unknown question type: {question.type}")
 ```
@@ -941,6 +1002,8 @@ ______________________________________________________________________
 1. Initialize/connect to SQLite DB.
 1. Launch Textual app (`FormScreen`).
 1. On submit, validate required fields.
+1. For single-submission forms, ensure the unique index and block
+   resubmission when this identity has already responded.
 1. Save response to DB.
 1. Show `SubmitScreen`.
 
@@ -973,9 +1036,13 @@ worker while preserving the WebSocket pathname for the terminal bridge.
 
 `--output`/`-o` is required; `--format` defaults to csv and also accepts
 json (a JSON array), jsonl (JSON-lines), or sqlite (a flat `responses_flat`
-table that `view`/datasette can browse). The grade columns come from the
-stored snapshots, so exports never change retroactively when the form file
-is edited.
+table that `view`/datasette can browse). `--type full` (default) writes the
+full row plus one column per question; `--type graded` writes only the
+student, per-question scores, and total/max/percentage. With `--type graded`
+a graded export reads stored snapshots by default or recomputes every grade
+against the form when `--form` is given; the sqlite format is not available
+for a graded export. Because grades are always computed and stored at submit
+time for gradeable forms, a graded export works without the form file.
 
 ### 5.6 `view <responses.db> [--datasette-args ...]`
 
@@ -983,7 +1050,22 @@ is edited.
 1. Launch `datasette serve <responses.db>` with optional args.
 1. Print URL to console.
 
-### 5.7 `grade <form.json> <responses.db> [--recompute]`
+### 5.7 `provenance [responses.db] [--view ...]`
+
+1. Open a read-only TUI using the default database or an explicit database
+   path.
+1. Show a submission list by default, including response ID, form name,
+   version, timestamp, identity, and shortened hash.
+1. Let the user navigate to a response and inspect its author version, SHA-256
+   hash, fully qualified source path, exact JSON contents, and source
+   availability.
+1. Support `--latest`, `--response-id`, and `--view list|latest|response`.
+1. Return a nonzero exit code when a requested response ID does not exist.
+
+The stored JSON contents are the reproducibility authority. A source path is
+only a convenience because the file may be moved or edited after submission.
+
+### 5.8 `grade <form.json> <responses.db> [--recompute]`
 
 1. Load form definition (with `correct_answer` fields).
 1. Load all responses from DB.
@@ -997,6 +1079,41 @@ is edited.
 the fresh snapshots back to the database. This is the tool to use after
 correcting a question or point value: run it once to refresh all stored
 grades, otherwise editing the form never changes recorded scores.
+
+### 5.9 `review <form.json> [responses.db]`
+
+Human post-grading for `multiple_choice`, `checkbox`, free-text, and
+manual questions:
+
+1. `--review-type required|all` — which queue to open (default
+   `required`; `all` also includes `permitted` questions).
+1. `--review-mode interactive|bulk-save` — `interactive` (default)
+   opens the question-first reviewer TUI; `bulk-save` accepts the
+   current preliminary score as the final score for every pending
+   required entry and exits (no manual scores are overwritten).
+1. `--question <id>` restricts the queue to one question;
+   `--reviewer <name>` records identity (defaults to the local OS
+   username); `--batch overrides.csv` applies CSV overrides;
+   `--show-student-name/--no-show-student-name` toggles the student
+   name in the detail pane.
+1. A required entry is PENDING until a `manual_score` is saved in its
+   `grade_json` breakdown, even when the auto-graded prelim is full
+   credit; the reviewer marks such items `(pending save)` and provides
+   `M-a` (Save All, Alt+A) to bulk-confirm the remaining queue.
+
+Recorded architecture decisions for post-grade review:
+
+1. Reviewed content (manual_score, comment, reviewer, reviewed_at)
+   persists INTO the response's `grade_json` snapshot — a single source
+   of truth, with no separate post-grades table. Exports (`export --type
+   graded`, `--type full`) and `analyze` read it directly.
+1. Recompute (`grade --recompute`, `export --type graded --form`)
+   refreshes PRELIM scores only and never overwrites a saved
+   `manual_score` or comment; `refresh_prelim` preserves human
+   decisions.
+1. `grade` is legacy: hidden from `--help` and superseded by `review`
+   plus `export --type graded`, which both read the same stored
+   snapshots.
 
 ______________________________________________________________________
 

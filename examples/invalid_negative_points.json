@@ -1,0 +1,12 @@
+{
+  "name": "Invalid Negative Points",
+  "questions": [
+    {
+      "id": "answer",
+      "text": "Give an answer",
+      "type": "short_text",
+      "correct_answer": "yes",
+      "points": -1
+    }
+  ]
+}

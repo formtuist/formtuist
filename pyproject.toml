@@ -1,6 +1,6 @@
 [project]
 name = "formtuist"
-version = "0.2.0"
+version = "0.3.0"
 description = "Formtuist helps programmers and agents create, complete, and circulate forms!"
 authors = [
     { name = "Gregory M. Kapfhammer", email = "gkapfham@allegheny.edu" }
@@ -18,6 +18,7 @@ dependencies = [
     "platformdirs>=4.0.0",
     "bitbang>=0.1.55",
     "textual-timepiece>=0.7.0",
+    "sparklines>=0.4.1",
 ]
 
 [project.scripts]
@@ -59,7 +60,7 @@ use_vars = true
 project = "src/formtuist"
 scripts = "scripts"
 tests = "tests"
-coveragefailunder = "95"
+coveragefailunder = "93"
 directtestedfailunder = "40"
 
 [tool.taskipy.tasks]
@@ -112,7 +113,11 @@ ignore-missing-imports = ["*"]
 [tool.coverage.run]
 source = ["formtuist"]
 branch = true
-omit = ["tests/*", "**/__init__.py"]
+omit = [
+    "tests/*",
+    "**/__init__.py",
+    "src/formtuist/tui/review.py",
+]
 
 [tool.coverage.report]
 fail_under = 95

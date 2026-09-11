@@ -1,14 +1,24 @@
 """Tests for the SQLite database storage layer."""
 
+import hashlib
 import json
+import sqlite3
 from pathlib import Path
+
+import pytest
 
 from formtuist.database import (
     DATABASE_FILENAME,
+    FORM_CONTENTS_COLUMN,
+    FORM_HASH_COLUMN,
+    FORM_PATH_COLUMN,
+    FORM_VERSION_COLUMN,
     ensure_db_dir,
+    ensure_single_submission_index,
     get_default_db_dir,
     get_response_count,
     get_responses,
+    has_submission,
     init_db,
     resolve_db_path,
     save_response,
@@ -22,6 +32,8 @@ EXPECTED_GPA_VALUE = 3.75
 EXPECTED_FIRST_ID = 1
 EXPECTED_SECOND_ID = 2
 EXPECTED_THIRD_ID = 3
+ATTEMPT_ONE = "attempt-1"
+ATTEMPT_TWO = "attempt-2"
 
 
 class TestInitDb:
@@ -427,6 +439,304 @@ class TestGitHubIdentityColumns:
         assert "github_username" in columns
         assert "github_url" in columns
         assert results[0]["github_username"] is None
+
+    def test_existing_db_gets_attempt_column(self, tmp_path: Path) -> None:
+        """An older database is migrated to add the attempt column."""
+        db_path = tmp_path / "old.db"
+        conn = init_db(db_path)
+        conn.execute("DROP TABLE responses")
+        conn.execute(
+            "CREATE TABLE responses ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "form_name TEXT NOT NULL,"
+            "submitted_at TEXT NOT NULL,"
+            "answers_json TEXT NOT NULL"
+            ")"
+        )
+        conn.commit()
+        conn.close()
+        conn2 = init_db(db_path)
+        columns = {
+            row[1]
+            for row in conn2.execute("PRAGMA table_info(responses)").fetchall()
+        }
+        conn2.close()
+        assert "attempt_id" in columns
+
+    def test_provenance_columns_and_values(self, tmp_path: Path) -> None:
+        """Provenance columns store the exact form source metadata."""
+        contents = '{\n  "name": "Quiz"\n}\n'
+        form_path = tmp_path / "quiz.json"
+        form_path.write_text(contents, encoding="utf-8")
+        form_hash = hashlib.sha256(contents.encode("utf-8")).hexdigest()
+        conn = init_db(tmp_path / "test.db")
+        save_response(
+            conn,
+            "Quiz",
+            {"q1": "answer"},
+            form_version="2026.08",
+            form_hash=form_hash,
+            form_path=str(form_path.resolve()),
+            form_contents=contents,
+        )
+        result = get_responses(conn)[0]
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(responses)").fetchall()
+        }
+        conn.close()
+        assert {
+            FORM_VERSION_COLUMN,
+            FORM_HASH_COLUMN,
+            FORM_PATH_COLUMN,
+            FORM_CONTENTS_COLUMN,
+        }.issubset(columns)
+        assert result[FORM_VERSION_COLUMN] == "2026.08"
+        assert result[FORM_HASH_COLUMN] == form_hash
+        assert result[FORM_PATH_COLUMN] == str(form_path.resolve())
+        assert result[FORM_CONTENTS_COLUMN] == contents
+
+    def test_old_database_provenance_is_nullable(self, tmp_path: Path) -> None:
+        """Migration leaves provenance unknown for old response rows."""
+        db_path = tmp_path / "old.db"
+        conn = init_db(db_path)
+        conn.execute("DROP TABLE responses")
+        conn.execute(
+            "CREATE TABLE responses ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "form_name TEXT NOT NULL,"
+            "submitted_at TEXT NOT NULL,"
+            "answers_json TEXT NOT NULL"
+            ")"
+        )
+        conn.execute(
+            "INSERT INTO responses (form_name, submitted_at, answers_json) "
+            "VALUES ('Old', '2024-01-01', '{}')"
+        )
+        conn.commit()
+        conn.close()
+        conn2 = init_db(db_path)
+        result = get_responses(conn2)[0]
+        conn2.close()
+        assert result[FORM_VERSION_COLUMN] is None
+        assert result[FORM_HASH_COLUMN] is None
+        assert result[FORM_PATH_COLUMN] is None
+        assert result[FORM_CONTENTS_COLUMN] is None
+
+
+class TestHasSubmission:
+    """Tests for duplicate-submission detection."""
+
+    def test_false_when_no_rows(self, tmp_path: Path) -> None:
+        """has_submission is false for a fresh identity."""
+        conn = init_db(tmp_path / "test.db")
+        assert has_submission(conn, "Quiz", ATTEMPT_ONE, "octocat") is False
+        conn.close()
+
+    def test_true_after_save(self, tmp_path: Path) -> None:
+        """has_submission is true after the identity submits."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(
+            conn,
+            "Quiz",
+            {"q": "a"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_ONE,
+        )
+        assert has_submission(conn, "Quiz", ATTEMPT_ONE, "octocat") is True
+        conn.close()
+
+    def test_scoped_to_form_name(self, tmp_path: Path) -> None:
+        """Submissions to another form do not count against this one."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(
+            conn,
+            "Other",
+            {"q": "a"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_ONE,
+        )
+        assert has_submission(conn, "Quiz", ATTEMPT_ONE, "octocat") is False
+        conn.close()
+
+    def test_scoped_to_username(self, tmp_path: Path) -> None:
+        """Another identity's rows do not count against this one."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(
+            conn,
+            "Quiz",
+            {"q": "a"},
+            github_username="alice",
+            attempt_id=ATTEMPT_ONE,
+        )
+        assert has_submission(conn, "Quiz", ATTEMPT_ONE, "bob") is False
+        conn.close()
+
+    def test_scoped_to_attempt(self, tmp_path: Path) -> None:
+        """A re-run with a new attempt id is not treated as a duplicate."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(
+            conn,
+            "Quiz",
+            {"q": "a"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_ONE,
+        )
+        assert has_submission(conn, "Quiz", ATTEMPT_TWO, "octocat") is False
+        conn.close()
+
+    def test_ignores_null_identity_rows(self, tmp_path: Path) -> None:
+        """Anonymous rows never match an identity check."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(conn, "Quiz", {"q": "a"})
+        assert has_submission(conn, "Quiz", ATTEMPT_ONE, "octocat") is False
+        conn.close()
+
+
+class TestSingleSubmissionIndex:
+    """Tests for the per-form unique identity index."""
+
+    def test_blocks_duplicate_identity(self, tmp_path: Path) -> None:
+        """The index rejects a second submission by the same identity."""
+        conn = init_db(tmp_path / "test.db")
+        assert (
+            ensure_single_submission_index(conn, "Quiz", ATTEMPT_ONE) is True
+        )
+        save_response(
+            conn,
+            "Quiz",
+            {"q": "a"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_ONE,
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            save_response(
+                conn,
+                "Quiz",
+                {"q": "b"},
+                github_username="octocat",
+                attempt_id=ATTEMPT_ONE,
+            )
+        conn.close()
+
+    def test_permits_different_identity(self, tmp_path: Path) -> None:
+        """The index still accepts a second, different identity."""
+        conn = init_db(tmp_path / "test.db")
+        ensure_single_submission_index(conn, "Quiz", ATTEMPT_ONE)
+        save_response(
+            conn,
+            "Quiz",
+            {"q": "a"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_ONE,
+        )
+        save_response(
+            conn,
+            "Quiz",
+            {"q": "b"},
+            github_username="alice",
+            attempt_id=ATTEMPT_ONE,
+        )
+        assert get_response_count(conn, "Quiz") == EXPECTED_TWO_RESPONSES
+        conn.close()
+
+    def test_scoped_to_form_name(self, tmp_path: Path) -> None:
+        """The index does not constrain a different form name."""
+        conn = init_db(tmp_path / "test.db")
+        ensure_single_submission_index(conn, "Quiz", ATTEMPT_ONE)
+        save_response(
+            conn,
+            "Quiz",
+            {"q": "a"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_ONE,
+        )
+        save_response(
+            conn,
+            "Other",
+            {"q": "b"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_ONE,
+        )
+        assert get_response_count(conn) == EXPECTED_TWO_RESPONSES
+        conn.close()
+
+    def test_scoped_to_attempt(self, tmp_path: Path) -> None:
+        """A re-run with a new attempt id allows the same identity again."""
+        conn = init_db(tmp_path / "test.db")
+        ensure_single_submission_index(conn, "Quiz", ATTEMPT_ONE)
+        ensure_single_submission_index(conn, "Quiz", ATTEMPT_TWO)
+        save_response(
+            conn,
+            "Quiz",
+            {"q": "a"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_ONE,
+        )
+        save_response(
+            conn,
+            "Quiz",
+            {"q": "b"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_TWO,
+        )
+        assert get_response_count(conn, "Quiz") == EXPECTED_TWO_RESPONSES
+        conn.close()
+
+    def test_idempotent_recreation(self, tmp_path: Path) -> None:
+        """Creating the index twice is harmless."""
+        conn = init_db(tmp_path / "test.db")
+        assert (
+            ensure_single_submission_index(conn, "Quiz", ATTEMPT_ONE) is True
+        )
+        assert (
+            ensure_single_submission_index(conn, "Quiz", ATTEMPT_ONE) is True
+        )
+        conn.close()
+
+    def test_legacy_duplicates_skip_index(self, tmp_path: Path) -> None:
+        """Databases with duplicates cannot take the index and return False."""
+        conn = init_db(tmp_path / "test.db")
+        save_response(
+            conn,
+            "Quiz",
+            {"q": "a"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_ONE,
+        )
+        save_response(
+            conn,
+            "Quiz",
+            {"q": "b"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_ONE,
+        )
+        assert (
+            ensure_single_submission_index(conn, "Quiz", ATTEMPT_ONE) is False
+        )
+        conn.close()
+
+    def test_form_name_with_quote(self, tmp_path: Path) -> None:
+        """A form name containing a quote is safely embedded in the index."""
+        conn = init_db(tmp_path / "test.db")
+        name = "Quiz O'Brien"
+        assert ensure_single_submission_index(conn, name, ATTEMPT_ONE) is True
+        save_response(
+            conn,
+            name,
+            {"q": "a"},
+            github_username="octocat",
+            attempt_id=ATTEMPT_ONE,
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            save_response(
+                conn,
+                name,
+                {"q": "b"},
+                github_username="octocat",
+                attempt_id=ATTEMPT_ONE,
+            )
+        conn.close()
 
 
 class TestGradeColumn:

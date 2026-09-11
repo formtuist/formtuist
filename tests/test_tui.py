@@ -1,7 +1,9 @@
 """Smoke tests for TUI screens and application construction."""
 
 import asyncio
+import hashlib
 import json
+import sqlite3
 from math import factorial
 from pathlib import Path
 from typing import cast
@@ -14,10 +16,12 @@ from pygments.styles import ClassNotFound
 from rich.syntax import Syntax
 from textual._context import NoActiveAppError
 from textual.app import App
+from textual.containers import VerticalScroll
 from textual.widgets import (
     Footer,
     Input,
     Label,
+    RadioButton,
     RadioSet,
     SelectionList,
     Static,
@@ -28,6 +32,14 @@ from textual_timepiece.pickers import DatePicker
 from whenever import Date
 
 from formtuist.auth import GitHubIdentity
+from formtuist.database import (
+    FORM_CONTENTS_COLUMN,
+    FORM_HASH_COLUMN,
+    FORM_PATH_COLUMN,
+    FORM_VERSION_COLUMN,
+    init_db,
+    save_response,
+)
 from formtuist.grader import TOTAL_KEY, grade_response
 from formtuist.schema import (
     AuthProvider,
@@ -45,8 +57,14 @@ from formtuist.schema import (
     ShortTextQuestion,
     YesNoQuestion,
 )
-from formtuist.tui.app import FormtuistApp
+from formtuist.tui.app import FormtuistApp, ProvenanceApp
+from formtuist.tui.provenance import (
+    PROVENANCE_SCROLL_LINES,
+    ProvenanceScreen,
+)
 from formtuist.tui.screens import (
+    ALREADY_SUBMITTED_MESSAGE,
+    SINGLE_SUBMISSION_NOTE,
     FormScreen,
     SubmitScreen,
     WelcomeScreen,
@@ -64,6 +82,8 @@ from formtuist.tui.widgets import (
 
 MIN_WELCOME_CHILDREN = 3
 MIN_SUBMIT_CHILDREN = 3
+PROVENANCE_RESPONSE_COUNT = 2
+PROVENANCE_RESPONSE_ID = 3
 
 # project stylesheet needed to verify text-wrapping behavior
 STYLESHEET_PATH = (
@@ -247,9 +267,57 @@ class TestFormScreen:
             None,
             None,
             grade=None,
+            attempt_id=mock_app.attempt_id,
         )
         mock_app.push_screen.assert_called_once()
         mock_notify.assert_not_called()
+
+    def test_action_submit_saves_provenance(self, tmp_path: Path) -> None:
+        """FormScreen passes source provenance to save_response."""
+        raw = b'{"name":"Saved","version":"v2","questions":[]}\n'
+        source_path = tmp_path / "saved.json"
+        source_path.write_bytes(raw)
+        form = FormDefinition(
+            name="Saved",
+            version="v2",
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text")
+            ],
+        )
+        screen = FormScreen(
+            form,
+            Path(":memory:"),
+            form_version=form.version,
+            form_hash=hashlib.sha256(raw).hexdigest(),
+            form_source_path=source_path.resolve(),
+            form_contents=raw.decode("utf-8"),
+        )
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify"):
+                with patch("formtuist.tui.screens.init_db"):
+                    with patch(
+                        "formtuist.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        asyncio.run(screen.action_submit())
+        assert mock_save.call_args.kwargs[FORM_VERSION_COLUMN] == "v2"
+        assert mock_save.call_args.kwargs[FORM_HASH_COLUMN] == (
+            hashlib.sha256(raw).hexdigest()
+        )
+        assert mock_save.call_args.kwargs[FORM_PATH_COLUMN] == str(
+            source_path.resolve()
+        )
+        assert mock_save.call_args.kwargs[FORM_CONTENTS_COLUMN] == raw.decode(
+            "utf-8"
+        )
 
     def test_action_submit_stores_iso_date_from_picker(self) -> None:
         """action_submit saves the ISO date string from the DatePicker."""
@@ -351,7 +419,13 @@ class TestFormScreen:
                         asyncio.run(screen.action_submit())
         mock_init.assert_called_once()
         mock_save.assert_called_once_with(
-            mock_init.return_value, "Test", {"q1": ""}, None, None, grade=None
+            mock_init.return_value,
+            "Test",
+            {"q1": ""},
+            None,
+            None,
+            grade=None,
+            attempt_id=mock_app.attempt_id,
         )
         mock_app.push_screen.assert_called_once()
         mock_notify.assert_not_called()
@@ -507,6 +581,75 @@ class TestFormScreen:
         json.dumps(saved_grade)
         mock_notify.assert_not_called()
 
+    def test_action_submit_stores_grade_when_not_auto(self) -> None:
+        """A gradeable form stores a grade even when auto_grade is off."""
+        form = FormDefinition(
+            name="Hidden",
+            config=FormConfig(auto_grade=False),
+            questions=[
+                ShortTextQuestion(
+                    id="q1",
+                    text="Capital?",
+                    type="short_text",
+                    correct_answer="Paris",
+                    points=GRADE_POINTS,
+                    grading_type="exact",
+                ),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "Paris"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db"):
+                    with patch(
+                        "formtuist.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        asyncio.run(screen.action_submit())
+        saved_grade = mock_save.call_args.kwargs["grade"]
+        assert saved_grade is not None
+        assert saved_grade[TOTAL_KEY] == GRADE_TOTAL
+        pushed = mock_app.push_screen.call_args[0][0]
+        assert isinstance(pushed, SubmitScreen)
+        assert pushed.grade_report is None
+        mock_notify.assert_not_called()
+
+    def test_action_submit_does_not_store_grade_for_poll(self) -> None:
+        """A form without correct answers stores no grade."""
+        form = FormDefinition(
+            name="Poll",
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "ok"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db"):
+                    with patch(
+                        "formtuist.tui.screens.save_response"
+                    ) as mock_save:
+                        mock_save.return_value = 1
+                        asyncio.run(screen.action_submit())
+        assert mock_save.call_args.kwargs["grade"] is None
+        mock_notify.assert_not_called()
+
     def test_action_submit_with_github_auth(self) -> None:
         """action_submit validates the token and stores the identity."""
         form = FormDefinition(
@@ -551,6 +694,7 @@ class TestFormScreen:
             "octocat",
             "https://github.com/octocat",
             grade=None,
+            attempt_id=mock_app.attempt_id,
         )
         mock_app.push_screen.assert_called_once()
         pushed_screen = mock_app.push_screen.call_args[0][0]
@@ -620,6 +764,208 @@ class TestFormScreen:
         mock_init.assert_not_called()
         mock_notify.assert_called_once()
         mock_app.push_screen.assert_not_called()
+
+    def test_action_submit_blocks_duplicate_single_submission(
+        self,
+    ) -> None:
+        """action_submit blocks a second submission by the same identity."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        mock_auth_input = MagicMock(spec=Input)
+        mock_auth_input.value = "ghp_valid_token"
+        screen.auth_input = mock_auth_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db") as _mock_init:
+                    with patch(
+                        "formtuist.tui.screens.ensure_single_submission_index",
+                        return_value=True,
+                    ):
+                        with patch(
+                            "formtuist.tui.screens.has_submission",
+                            return_value=True,
+                        ):
+                            with patch(
+                                "formtuist.tui.screens.save_response"
+                            ) as mock_save:
+                                with patch(
+                                    "formtuist.tui.screens.fetch_github_identity",
+                                    return_value=GitHubIdentity(
+                                        username="octocat",
+                                        profile_url="https://github.com/octocat",
+                                    ),
+                                ):
+                                    asyncio.run(screen.action_submit())
+        mock_save.assert_not_called()
+        mock_app.push_screen.assert_not_called()
+        mock_notify.assert_called_once_with(
+            ALREADY_SUBMITTED_MESSAGE, severity="error"
+        )
+
+    def test_action_submit_allows_first_single_submission(self) -> None:
+        """action_submit saves when the identity has not yet submitted."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        mock_auth_input = MagicMock(spec=Input)
+        mock_auth_input.value = "ghp_valid_token"
+        screen.auth_input = mock_auth_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db") as _mock_init:
+                    with patch(
+                        "formtuist.tui.screens.ensure_single_submission_index",
+                        return_value=True,
+                    ):
+                        with patch(
+                            "formtuist.tui.screens.has_submission",
+                            return_value=False,
+                        ):
+                            with patch(
+                                "formtuist.tui.screens.save_response"
+                            ) as mock_save:
+                                mock_save.return_value = 1
+                                with patch(
+                                    "formtuist.tui.screens.fetch_github_identity",
+                                    return_value=GitHubIdentity(
+                                        username="octocat",
+                                        profile_url="https://github.com/octocat",
+                                    ),
+                                ):
+                                    asyncio.run(screen.action_submit())
+        mock_save.assert_called_once()
+        mock_app.push_screen.assert_called_once()
+        mock_notify.assert_not_called()
+
+    def test_action_submit_ignores_prior_when_multiple(self) -> None:
+        """A prior submission does not block when resubmission is allowed."""
+        form = FormDefinition(
+            name="Poll",
+            config=FormConfig(auth=AuthProvider.GITHUB),
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        mock_auth_input = MagicMock(spec=Input)
+        mock_auth_input.value = "ghp_valid_token"
+        screen.auth_input = mock_auth_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db") as _mock_init:
+                    with patch(
+                        "formtuist.tui.screens.has_submission",
+                        return_value=True,
+                    ) as mock_check:
+                        with patch(
+                            "formtuist.tui.screens.save_response"
+                        ) as mock_save:
+                            mock_save.return_value = 1
+                            with patch(
+                                "formtuist.tui.screens.fetch_github_identity",
+                                return_value=GitHubIdentity(
+                                    username="octocat",
+                                    profile_url="https://github.com/octocat",
+                                ),
+                            ):
+                                asyncio.run(screen.action_submit())
+        mock_save.assert_called_once()
+        mock_app.push_screen.assert_called_once()
+        mock_notify.assert_not_called()
+        mock_check.assert_not_called()
+
+    def test_action_submit_catches_integrity_error(self) -> None:
+        """A raced duplicate save shows the already-submitted message."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[
+                ShortTextQuestion(id="q1", text="Q?", type="short_text"),
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"))
+        mock_app = MagicMock()
+        mock_input = MagicMock(spec=Input)
+        mock_input.value = "answer"
+        mock_input.is_valid = True
+        screen.inputs["q1"] = mock_input
+        mock_auth_input = MagicMock(spec=Input)
+        mock_auth_input.value = "ghp_valid_token"
+        screen.auth_input = mock_auth_input
+        with patch.object(
+            FormScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(FormScreen, "notify") as mock_notify:
+                with patch("formtuist.tui.screens.init_db") as _mock_init:
+                    with patch(
+                        "formtuist.tui.screens.ensure_single_submission_index",
+                        return_value=True,
+                    ):
+                        with patch(
+                            "formtuist.tui.screens.has_submission",
+                            return_value=False,
+                        ):
+                            with patch(
+                                "formtuist.tui.screens.save_response",
+                                side_effect=sqlite3.IntegrityError,
+                            ):
+                                with patch(
+                                    "formtuist.tui.screens.fetch_github_identity",
+                                    return_value=GitHubIdentity(
+                                        username="octocat",
+                                        profile_url="https://github.com/octocat",
+                                    ),
+                                ):
+                                    asyncio.run(screen.action_submit())
+        mock_app.push_screen.assert_not_called()
+        mock_notify.assert_called_once_with(
+            ALREADY_SUBMITTED_MESSAGE, severity="error"
+        )
 
     def test_action_focus_first_input(
         self, minimal_form: FormDefinition
@@ -1295,6 +1641,98 @@ class TestRandomizedOrder:
         assert shuffled_ids != [q.id for q in form.questions]
         assert sorted(shuffled_ids) == sorted(q.id for q in form.questions)
 
+    def test_choice_order_unchanged_by_default(self) -> None:
+        """Choices keep file order unless the question opts in."""
+        form = FormDefinition(
+            name="Fixed",
+            questions=[
+                MultipleChoiceQuestion(
+                    id="mc",
+                    text="Pick?",
+                    type="multiple_choice",
+                    choices=["A", "B", "C"],
+                    correct_answer="B",
+                    points=1,
+                )
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
+        assert "mc" not in screen.choice_orders
+
+    def test_choice_order_shuffles_per_seed(self) -> None:
+        """Opt-in questions shuffle choices deterministically per seed."""
+        form = FormDefinition(
+            name="ShuffledChoices",
+            questions=[
+                MultipleChoiceQuestion(
+                    id="mc",
+                    text="Pick?",
+                    type="multiple_choice",
+                    choices=["A", "B", "C", "D"],
+                    correct_answer="B",
+                    points=1,
+                    randomize_choices=True,
+                )
+            ],
+        )
+        first = FormScreen(form, Path(":memory:"), seed=42)
+        assert first.choice_orders["mc"] == ["C", "B", "D", "A"]
+        again = FormScreen(form, Path(":memory:"), seed=42)
+        assert again.choice_orders["mc"] == ["C", "B", "D", "A"]
+        other = FormScreen(form, Path(":memory:"), seed=43)
+        assert other.choice_orders["mc"] != first.choice_orders["mc"]
+        assert set(first.choice_orders["mc"]) == {"A", "B", "C", "D"}
+
+    def test_checkbox_choice_order_shuffles_per_seed(self) -> None:
+        """Checkbox options shuffle when the question opts in."""
+        form = FormDefinition(
+            name="CheckboxShuffle",
+            questions=[
+                CheckboxQuestion(
+                    id="cb",
+                    text="Pick all",
+                    type="checkbox",
+                    choices=["A", "B", "C", "D"],
+                    correct_answer=["A"],
+                    points=1,
+                    randomize_choices=True,
+                )
+            ],
+        )
+        screen = FormScreen(form, Path(":memory:"), seed=42)
+        assert screen.choice_orders["cb"] == ["C", "B", "D", "A"]
+        assert set(screen.choice_orders["cb"]) == {"A", "B", "C", "D"}
+
+    def test_compose_renders_shuffled_choices(self) -> None:
+        """The composed RadioSet shows the per-session choice order."""
+        form = FormDefinition(
+            name="ComposedShuffle",
+            questions=[
+                MultipleChoiceQuestion(
+                    id="mc",
+                    text="Pick?",
+                    type="multiple_choice",
+                    choices=["A", "B", "C", "D"],
+                    correct_answer="B",
+                    points=1,
+                    randomize_choices=True,
+                )
+            ],
+        )
+
+        async def run() -> None:
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                screen = FormScreen(form, Path(":memory:"), seed=42)
+                await app.push_screen(screen)
+                radioset = screen.query_one(RadioSet)
+                labels = [
+                    str(button.label) for button in radioset.query(RadioButton)
+                ]
+                assert labels == screen.choice_orders["mc"]
+
+        asyncio.run(run())
+
     def test_inputs_follow_shuffled_order(self) -> None:
         """Compose renders the input widgets in the shuffled order."""
 
@@ -1376,7 +1814,7 @@ class TestRandomizedOrder:
         )
 
     def test_focus_navigation_follows_shuffled_order(self) -> None:
-        """ctrl+j moves focus to the next question in the shuffled order."""
+        """Ctrl+N moves focus to the next question in the shuffled order."""
 
         async def run() -> None:
             form = FormDefinition(
@@ -1388,7 +1826,7 @@ class TestRandomizedOrder:
             async with app.run_test() as pilot:
                 screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
                 await app.push_screen(screen)
-                await pilot.press("ctrl+j")
+                await pilot.press("ctrl+n")
                 assert screen.focused is not None
                 expected = screen.ordered_questions[1].id
                 assert screen.focused.id == f"input-{expected}"
@@ -1405,6 +1843,7 @@ class TestRandomizedOrder:
                 questions=_build_questions(SHUFFLE_QUESTION_COUNT),
             )
             app: App = App()
+            setattr(app, "attempt_id", "attempt-shuffled")
             async with app.run_test():
                 screen = FormScreen(form, Path(":memory:"), seed=SHUFFLE_SEED)
                 await app.push_screen(screen)
@@ -1444,6 +1883,14 @@ class TestWidgetFactory:
             id="t", text="T", type="multiple_choice", choices=["A", "B"]
         )
         widget = make_input_widget(q)
+        assert isinstance(widget, RadioSet)
+
+    def test_make_multiple_choice_with_choice_order(self) -> None:
+        """make_input_widget honors an explicit choice order."""
+        q = MultipleChoiceQuestion(
+            id="t", text="T", type="multiple_choice", choices=["A", "B"]
+        )
+        widget = make_input_widget(q, choices=["B", "A"])
         assert isinstance(widget, RadioSet)
 
     def test_make_checkbox_input(self) -> None:
@@ -1711,7 +2158,7 @@ class TestSubmitScreen:
         screen = SubmitScreen(form, Path("/tmp/test.db"))
         children = list(screen.compose())
         texts = [str(c.content) for c in children if hasattr(c, "content")]
-        assert any("Ctrl+P" in t for t in texts)
+        assert any("Ctrl+O" in t for t in texts)
 
     def test_compose_shows_identity(self) -> None:
         """SubmitScreen displays the authenticated identity when present."""
@@ -1794,6 +2241,84 @@ class TestSubmitScreen:
             mock_prop.return_value = mock_app
             screen.action_restart()
         mock_app.push_screen.assert_called_once()
+
+    def test_action_restart_blocked_when_single_submission(self) -> None:
+        """action_restart refuses for single-submission forms."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[],
+        )
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        mock_app = MagicMock()
+        with patch.object(
+            SubmitScreen, "app", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_app
+            with patch.object(SubmitScreen, "notify") as mock_notify:
+                screen.action_restart()
+        mock_app.push_screen.assert_not_called()
+        mock_notify.assert_called_once()
+
+    def test_compose_omits_restart_when_single_submission(self) -> None:
+        """The Restart button is omitted for single-submission forms."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[],
+        )
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        children = list(screen.compose())
+        ids = [child.id for child in children if hasattr(child, "id")]
+        assert "restart" not in ids
+
+    def test_compose_shows_single_submission_note(self) -> None:
+        """A note explains the single-submission policy."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[],
+        )
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        children = list(screen.compose())
+        texts = [str(c.content) for c in children if hasattr(c, "content")]
+        assert any(SINGLE_SUBMISSION_NOTE in t for t in texts)
+
+    def test_compose_includes_restart_when_multiple(self) -> None:
+        """The Restart button is present when resubmission is allowed."""
+        form = FormDefinition(name="Poll", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        children = list(screen.compose())
+        ids = [child.id for child in children if hasattr(child, "id")]
+        assert "restart" in ids
+
+    def test_check_action_hides_restart_when_single(self) -> None:
+        """The restart action is disabled for single-submission forms."""
+        form = FormDefinition(
+            name="Quiz",
+            config=FormConfig(
+                auth=AuthProvider.GITHUB,
+                allow_multiple_submissions=False,
+            ),
+            questions=[],
+        )
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        assert screen.check_action("restart", ()) is False
+
+    def test_check_action_allows_restart_when_multiple(self) -> None:
+        """The restart action is enabled when resubmission is allowed."""
+        form = FormDefinition(name="Poll", questions=[])
+        screen = SubmitScreen(form, Path("/tmp/test.db"))
+        assert screen.check_action("restart", ()) is not False
 
     def test_review_long_question_wraps(self) -> None:
         """The grade review wraps long question text."""
@@ -1881,6 +2406,77 @@ class TestSubmitScreen:
                 assert "Your answer: London" in rendered
                 assert "Correct answer: Rome" in rendered
                 assert "Capital of France?" not in rendered
+
+        asyncio.run(run())
+
+    def test_compose_separates_pending_manual_review(self) -> None:
+        """SubmitScreen shows pending questions and their point value."""
+
+        async def run() -> None:
+            form = FormDefinition(
+                name="Quiz",
+                questions=[
+                    ShortTextQuestion(
+                        id="wrong",
+                        text="Automatically graded?",
+                        type="short_text",
+                        correct_answer="yes",
+                        points=5,
+                        grading_type="exact",
+                    ),
+                    ShortTextQuestion(
+                        id="permitted",
+                        text="Permitted review?",
+                        type="short_text",
+                        correct_answer="yes",
+                        points=5,
+                        grading_type="exact",
+                        review="permitted",
+                    ),
+                    ParagraphQuestion(
+                        id="manual_one",
+                        text="Explain one.",
+                        type="paragraph",
+                        points=20,
+                        review="required",
+                    ),
+                    ParagraphQuestion(
+                        id="manual_two",
+                        text="Explain two.",
+                        type="paragraph",
+                        points=20,
+                        review="required",
+                    ),
+                ],
+            )
+            report = grade_response(
+                form,
+                {
+                    "wrong": "no",
+                    "permitted": "no",
+                    "manual_one": "first response",
+                    "manual_two": "second response",
+                },
+            )
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                screen = SubmitScreen(
+                    form, Path("/tmp/test.db"), grade_report=report
+                )
+                await app.push_screen(screen)
+                rendered = " ".join(
+                    str(s.content) for s in screen.query(Static)
+                )
+                assert "Preliminary score: 0 / 50" in rendered
+                assert "Pending manual review" in rendered
+                assert "2 questions (up to 40 points)" in rendered
+                assert "Incorrect answers" in rendered
+                assert "Automatically graded?" in rendered
+                assert "Correct answer: yes" in rendered
+                assert "Review mode: permitted" in rendered
+                assert "Correct answer: (no answer)" not in rendered
+                assert "Explain one." in rendered
+                assert "Explain two." in rendered
 
         asyncio.run(run())
 
@@ -2082,6 +2678,188 @@ class TestSubmitScreen:
         asyncio.run(run())
 
 
+class TestProvenanceScreen:
+    """Tests for the read-only provenance screen."""
+
+    def test_list_and_detail_views(self, tmp_path: Path) -> None:
+        """The provenance screen lists and renders stored responses."""
+        db_path = tmp_path / "responses.db"
+        source_path = tmp_path / "quiz.json"
+        contents = '{"name":"Quiz","version":"1.0.0"}\n'
+        source_path.write_text(contents, encoding="utf-8")
+        conn = init_db(db_path)
+        first_id = save_response(
+            conn,
+            "Quiz",
+            {"q1": "first"},
+            form_version="1.0.0",
+            form_hash="abcdef1234567890",
+            form_path=str(source_path.resolve()),
+            form_contents=contents,
+        )
+        save_response(conn, "Quiz", {"q1": "second"})
+        conn.close()
+
+        async def run() -> None:
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                screen = ProvenanceScreen(db_path)
+                await app.push_screen(screen)
+                assert len(screen.list_items) == PROVENANCE_RESPONSE_COUNT
+                assert screen.current_index == 0
+                screen.action_open_detail()
+                detail = screen.query_one("#provenance-detail-content", Static)
+                assert "Response ID: 1" in str(detail.render())
+                assert "SHA-256: abcdef1234567890" in str(detail.render())
+                assert contents in str(detail.render())
+                screen.action_next_response()
+                assert screen.current_index == 1
+                screen.action_back_to_list()
+                assert "Select a response" in str(detail.render())
+
+        asyncio.run(run())
+        assert first_id == 1
+
+    def test_scroll_detail_with_ctrl_j_and_ctrl_k(
+        self, tmp_path: Path
+    ) -> None:
+        """The provenance detail scrolls a fixed number of lines."""
+        db_path = tmp_path / "responses.db"
+        long_contents = "\n".join(
+            f'{{"line": {index}}}' for index in range(80)
+        )
+        conn = init_db(db_path)
+        save_response(
+            conn,
+            "Quiz",
+            {"q1": "x"},
+            form_version="1.0.0",
+            form_hash="abcdef1234567890",
+            form_path=str((tmp_path / "quiz.json").resolve()),
+            form_contents=long_contents,
+        )
+        conn.close()
+
+        async def run() -> None:
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test() as pilot:
+                screen = ProvenanceScreen(db_path)
+                await app.push_screen(screen)
+                screen.action_open_detail()
+                await pilot.pause()
+                detail = screen.query_one("#provenance-detail", VerticalScroll)
+                assert detail.scroll_offset.y == 0
+                await pilot.press("ctrl+j")
+                await pilot.pause()
+                assert detail.scroll_offset.y == PROVENANCE_SCROLL_LINES
+                await pilot.press("ctrl+k")
+                await pilot.pause()
+                assert detail.scroll_offset.y == 0
+                await pilot.press("ctrl+j")
+                await pilot.pause()
+                assert detail.scroll_offset.y == PROVENANCE_SCROLL_LINES
+                screen.action_next_response()
+                await pilot.pause()
+                assert detail.scroll_offset.y == 0
+
+        asyncio.run(run())
+
+    def test_latest_and_direct_response_views(self, tmp_path: Path) -> None:
+        """Latest and direct views select the intended response."""
+        db_path = tmp_path / "responses.db"
+        conn = init_db(db_path)
+        save_response(conn, "Quiz", {"q1": "first"})
+        second_id = save_response(conn, "Quiz", {"q1": "second"})
+        conn.close()
+
+        async def run() -> None:
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                latest = ProvenanceScreen(db_path, initial_view="latest")
+                await app.push_screen(latest)
+                assert latest.current_index == 1
+                assert latest.detail_mode is True
+                assert "Response ID: 2" in str(
+                    latest.query_one(
+                        "#provenance-detail-content", Static
+                    ).render()
+                )
+                await app.pop_screen()
+                direct = ProvenanceScreen(
+                    db_path, initial_view="response", response_id=second_id
+                )
+                await app.push_screen(direct)
+                assert direct.current_index == 1
+                assert direct.detail_mode is True
+
+        asyncio.run(run())
+
+    def test_legacy_and_empty_views(self, tmp_path: Path) -> None:
+        """Legacy and empty databases render clear provenance states."""
+        empty_db = tmp_path / "empty.db"
+        init_db(empty_db).close()
+        legacy_db = tmp_path / "legacy.db"
+        conn = init_db(legacy_db)
+        save_response(conn, "Old", {"q": "answer"})
+        conn.close()
+
+        async def run() -> None:
+            app: App = App(css_path=STYLESHEET_PATH)
+            async with app.run_test():
+                empty = ProvenanceScreen(empty_db)
+                await app.push_screen(empty)
+                assert "No responses" in str(
+                    empty.query_one(
+                        "#provenance-detail-content", Static
+                    ).render()
+                )
+                await app.pop_screen()
+                legacy = ProvenanceScreen(
+                    legacy_db, initial_view="response", response_id=1
+                )
+                await app.push_screen(legacy)
+                rendered = str(
+                    legacy.query_one(
+                        "#provenance-detail-content", Static
+                    ).render()
+                )
+                assert "legacy response" in rendered
+                assert "Source available: no" in rendered
+                await app.pop_screen()
+
+        asyncio.run(run())
+
+    def test_provenance_app_starts(self, tmp_path: Path) -> None:
+        """ProvenanceApp stores its initial view and response selection."""
+        db_path = tmp_path / "responses.db"
+        init_db(db_path).close()
+        app = ProvenanceApp(
+            db_path,
+            initial_view="latest",
+            response_id=PROVENANCE_RESPONSE_ID,
+        )
+        assert app.db_path == db_path
+        assert app.initial_view == "latest"
+        assert app.response_id == PROVENANCE_RESPONSE_ID
+
+    def test_provenance_app_mounts_screen(self, tmp_path: Path) -> None:
+        """ProvenanceApp pushes its screen with the selected response."""
+        db_path = tmp_path / "responses.db"
+        init_db(db_path).close()
+        app = ProvenanceApp(
+            db_path,
+            initial_view="response",
+            response_id=PROVENANCE_RESPONSE_ID,
+        )
+        with patch.object(app, "push_screen") as mock_push_screen:
+            app.on_mount()
+        screen = mock_push_screen.call_args.args[0]
+        assert isinstance(screen, ProvenanceScreen)
+        assert screen.initial_view == "response"
+        assert screen.current_index == 0
+        screen.on_unmount()
+
+
 class TestFormtuistApp:
     """Tests for the main application class."""
 
@@ -2097,12 +2875,29 @@ class TestFormtuistApp:
         """on_mount pushes the welcome screen."""
         db_path = Path(":memory:")
         tui_app = FormtuistApp(minimal_form_path, db_path)
-        tui_app.push_screen = MagicMock()
-        tui_app.on_mount()
-        tui_app.push_screen.assert_called_once()
+        with patch.object(tui_app, "push_screen") as mock_push_screen:
+            tui_app.on_mount()
+        mock_push_screen.assert_called_once()
+
+    def test_form_provenance_is_loaded_and_passed_to_screen(
+        self, tmp_path: Path
+    ) -> None:
+        """FormtuistApp passes exact source provenance to FormScreen."""
+        raw = b'{\n  "name": "Versioned",\n  "version": "v1",\n'
+        raw += b'  "questions": []\n}\n'
+        form_path = tmp_path / "versioned.json"
+        form_path.write_bytes(raw)
+        tui_app = FormtuistApp(form_path, tmp_path / "responses.db")
+        with patch.object(tui_app, "push_screen") as mock_push_screen:
+            tui_app.on_mount()
+        screen = mock_push_screen.call_args.args[0]
+        assert screen.form.version == "v1"
+        assert screen.form_hash == hashlib.sha256(raw).hexdigest()
+        assert screen.form_source_path == form_path.resolve()
+        assert screen.form_contents == raw.decode("utf-8")
 
     def test_footer_orders_navigation_keys_together(self) -> None:
-        """The custom footer shows ctrl+j and ctrl+k adjacent."""
+        """The custom footer shows Ctrl+N and Ctrl+P adjacent."""
 
         async def run() -> None:
             app = FormtuistApp(Path("examples/minimal.json"), Path(":memory:"))

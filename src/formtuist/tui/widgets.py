@@ -97,6 +97,10 @@ TEXTUAL_TO_PYGMENTS_THEME: dict[str, str] = {
 # CSS class applied to question code blocks so they pick up list spacing
 CODE_QUESTION_CLASS = "form-code"
 
+# labels used by the neutral yes/no choice field
+YES_NO_YES_LABEL = "Yes"
+YES_NO_NO_LABEL = "No"
+
 
 def resolve_code_theme(app: App) -> str:
     """Return a Pygments theme name matching the current Textual app theme."""
@@ -115,7 +119,9 @@ def resolve_code_theme(app: App) -> str:
     )
 
 
-def make_input_widget(question: Question) -> Widget:
+def make_input_widget(
+    question: Question, choices: list[str] | None = None
+) -> Widget:
     """Return the appropriate input widget for a question type."""
     if question.type not in KNOWN_QUESTION_TYPES:
         raise ValueError(f"Unknown question type: {question.type}")
@@ -124,9 +130,11 @@ def make_input_widget(question: Question) -> Widget:
     if isinstance(question, ParagraphQuestion):
         return TextArea()
     if isinstance(question, MultipleChoiceQuestion):
-        return RadioSet(*question.choices)
+        option_list = choices if choices is not None else question.choices
+        return RadioSet(*option_list)
     if isinstance(question, CheckboxQuestion):
-        return SelectionList(*[(c, c, False) for c in question.choices])
+        option_list = choices if choices is not None else question.choices
+        return SelectionList(*[(c, c, False) for c in option_list])
     if isinstance(question, NumericQuestion):
         return Input(
             placeholder="Type a number...",
@@ -137,7 +145,7 @@ def make_input_widget(question: Question) -> Widget:
     if isinstance(question, DateQuestion):
         return DatePickerField()
     if isinstance(question, YesNoQuestion):
-        return Switch()
+        return YesNoField()
     raise ValueError(f"Unknown question type: {question.type}")
 
 
@@ -167,6 +175,10 @@ def get_widget_value(widget: Widget) -> Any:
         return widget.value
     if isinstance(widget, TextArea):
         return widget.text
+    if isinstance(widget, YesNoField):
+        if widget.pressed_button is None:
+            return None
+        return str(widget.pressed_button.label) == YES_NO_YES_LABEL
     if isinstance(widget, RadioSet):
         if widget.pressed_button is not None:
             return str(widget.pressed_button.label)
@@ -190,6 +202,8 @@ def is_widget_empty(widget: Widget) -> bool:
         return widget.pressed_button is None
     if isinstance(widget, SelectionList):
         return len(widget.selected) == 0
+    if isinstance(widget, RadioSet):
+        return widget.pressed_button is None
     if isinstance(widget, Switch):
         return False
     if isinstance(widget, DatePicker):
@@ -202,6 +216,14 @@ def is_widget_valid(widget: Widget) -> bool:
     if isinstance(widget, Input):
         return widget.is_valid
     return True
+
+
+class YesNoField(RadioSet):
+    """A neutral two-option field for yes/no questions."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialise an unanswered yes/no choice field."""
+        super().__init__(YES_NO_YES_LABEL, YES_NO_NO_LABEL, **kwargs)
 
 
 class DatePickerField(DatePicker):
@@ -236,10 +258,10 @@ class FormtuistFooter(Footer):
     """Footer that groups form navigation bindings together.
 
     Textual renders footer keys in the order that bindings are registered.
-    Because the Input widget binds ctrl+k internally (kill line), our
-    priority binding for ctrl+k keeps the input's early position, which
-    splits the navigation keys apart.  This footer re-sorts the bindings
-    so that the navigation keys (ctrl+j / ctrl+k) are displayed together.
+    Because the Input widget binds ctrl+k internally (kill line), a priority
+    binding for a nav key can split the navigation keys apart. This footer
+    re-sorts the bindings so that the navigation keys (ctrl+n / ctrl+p) are
+    displayed together.
     """
 
     # sort priority for known form actions (lower is displayed first)

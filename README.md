@@ -217,19 +217,38 @@ answers and grades are empty cells in CSV, `null` in JSON, and NULL in
 SQLite. List answers (checkboxes) are JSON-encoded in CSV and SQLite cells
 and stay native arrays in JSON.
 
+**`full` vs `graded`.** The command writes one of two views. `--type full`
+(the default) is the complete record of what people answered -- the response
+id, form name, submitted timestamp, GitHub identity (username and URL), the
+grade totals, one column per question holding that question's *answer*, and
+a `qid_comment` column per gradeable question carrying any review comment
+the instructor wrote. It is a faithful snapshot of history and never
+recomputes. `--type graded`
+drops the answer content and timestamp and keeps only the gradebook line --
+the id, form name, attempt, a single `student` column (username or `-`), one
+column per question holding that question's *score*, and the total/max/
+percentage. In short, `full` answers "what did people answer?", while
+`graded` answers "what did people score?".
+
 **Options:**
 
 | Flag | Description | Default |
 |---|---|---|
 | `--output` / `-o` | Output file path (required) | — |
+| `--force` | Replace an existing non-database output | off |
 | `--format` | `csv`, `json`, `jsonl`, or `sqlite` | `csv` |
 | `--form-name` | Only export responses for this form | all forms |
+| `--type` | `full` or `graded`; what to write | `full` |
+| `--form` | Recompute grades against this form for a graded export | stored snapshots |
 
 **Examples:**
 
 ```bash
 # CSV for a spreadsheet (the default format)
 uvx formtuist export responses.db --output responses.csv
+
+# Explicitly replace an existing export
+uvx formtuist export responses.db --output responses.csv --force
 
 # A JSON array for other tools
 uvx formtuist export responses.db --format json --output responses.json
@@ -246,50 +265,190 @@ uvx formtuist export responses.db --format csv --form-name "CS 101 Quiz" \
   --output cs101.csv
 ```
 
-The grade columns come from the snapshot stored at submit time, so exports
-never change retroactively when the form file is edited.
+Every response to a form with correct answers gets its grade computed and
+stored at submit time, so a graded export works without the original form
+file. Because the full export reads those stored snapshots, it never changes
+retroactively when the form file is edited.
 
-### `grade` — Report grades for a quiz
+**Graded export.** Pass `--type graded` to write only the grades -- the
+student, the per-question scores, and the total/max/percentage -- instead of
+the answers. That is the shape a spreadsheet gradebook wants:
 
 ```bash
-uvx formtuist grade examples/quiz.json responses.db
+# The grade-only view, ready to import into a gradebook
+uvx formtuist export responses.db --type graded --format csv \
+  --output grades.csv
+
+# Recompute every grade against the current form (authoritative)
+uvx formtuist export responses.db --type graded --form quiz.json \
+  --format csv --output grades.csv
 ```
 
-Prints a per-question score table with one row per response. When a response
-was submitted to an auto-graded form, the score snapshot recorded at submit
-time is reported as-is, so grades never change retroactively when the form
-file is edited. Responses without a stored snapshot (older databases,
-non-auto-graded forms) are graded on the fly.
+A graded export reads stored snapshots by default; pass `--form` to
+recompute against the current answer key instead (useful when the key or
+points have changed). The `sqlite` format is not available for a graded
+export. Existing output files are never replaced unless `--force` is given;
+the source responses database can never be used as the output path.
+
+A stored snapshot is the grade as computed when the student submitted,
+using whatever answer key was in force then. Recomputing ignores that cached
+score, re-grades each stored answer with the form's current `correct_answer`
+and `points`, and is read-only -- `export --form` writes fresh numbers to the
+output file but does not update the database.
+
+### `review` — Post-grade manual review
+
+The reviewer lets you step through every response that needs human
+judgment and persist a `manual_score` plus optional comment into the
+database (`review <form.json> [responses.db]`). A required question is
+pending until a manual score is saved, even when its auto-graded prelim
+is already full credit -- the reviewer marks those items `(pending save)`
+so it is clear a save is still required.
+
+```bash
+uvx formtuist review examples/quiz_postgrade.json responses.db
+uvx formtuist review examples/quiz_postgrade.json responses.db \
+  --review-mode bulk-save   # accept prelim scores as final for pending items
+uvx formtuist review examples/quiz_postgrade.json responses.db \
+  --reviewer prof --show-student-name
+uvx formtuist review examples/quiz_postgrade.json responses.db \
+  --batch overrides.csv     # non-interactive CSV overrides
+```
+
+`--review-mode interactive` (default) opens the question-first reviewer
+TUI; `--review-mode bulk-save` applies the current prelim score as the
+final score for every pending required entry and exits without touching
+already-reviewed items. Inside the TUI, `M-a` (Save All, Alt+A)
+performs the same bulk confirm, and `Esc` returns focus to the
+screen. See the Keyboard shortcuts section for the full reviewer
+keymap.
+
+### `analyze` — Analyze quiz statistics
+
+```bash
+uvx formtuist analyze examples/quiz.json responses.db
+```
+
+Prints a terminal-native summary for a quiz without leaving the terminal or
+uploading to a spreadsheet: the quiz-level average and five-number summary,
+the score distribution as a binned histogram, and the per-question difficulty
+ranking from easiest to hardest. It reuses the stored `grade_json` snapshots
+so `review` decisions (`manual_score`/`final_score`) and `pending` states are
+already reflected — no recompute unless you ask for it.
+
+By default `analyze` uses `final` scores (`manual_score` when present,
+otherwise the prelim) and shows both `n_total` (all responses for the form)
+and `n_finalized` (responses with no `review: required` pending). Means,
+medians, and per-question averages are computed over `n_finalized` only, so
+a pending manual pile does not pull the mean down. The header shows
+`n=42 (finalized 38, pending 4)` when any manual grading is still open.
 
 **Options:**
 
 | Flag | Description | Default |
 |---|---|---|
-| `--recompute` | Re-grade every response with the current form and update the stored snapshots | `false` |
+| `--code-dir` | Directory that code file references are relative to | form file's directory |
+| `--review` | Which scores to summarize: `final` or `prelim` | `final` |
+| `--question` | Only analyze this question id | all gradeable |
+| `--format` | `table` (rich), `json`, or `csv` | `table` |
+| `--output` / `-o` | Write `json`/`csv` to a file instead of printing | — |
+| `--bins` | Number of histogram bins for `percentage` | `10` |
+| `--sparklines-id` | Comma-separated question ids for sparklines (table only) | — |
+| `--sparklines-all` | Show sparklines for every gradeable question (table only) | off |
 
-**Example:**
+`--sparklines-id` and `--sparklines-all` are mutually exclusive; omit both
+for a compact table with no sparklines. When enabled, each per-question row
+gains a `Sparkline` column — a tiny inline bar like `▂▇▁█` that shows the
+sequence of `final_score` values across students in `id` order (the same
+order `grade` and `export` use). `json`/`csv` omit the visual column.
+
+**Examples:**
 
 ```bash
-uvx formtuist grade examples/quiz.json responses.db --recompute
+# Rich table with average, histogram, and per-question ranking
+uvx formtuist analyze examples/quiz.json responses.db
+
+# Focus one question (deep dive)
+uvx formtuist analyze examples/quiz.json responses.db --question q7_lambda_square
+
+# Prelim vs final — what Sheets saw before human review
+uvx formtuist analyze examples/quiz.json responses.db \
+  --review prelim --format json | python -m json.tool | head -n 40
+uvx formtuist analyze examples/quiz.json responses.db \
+  --review final --format json | python -m json.tool | head -n 40
+
+# Sparklines (also try uvx sparklines 2 7 1 8 2 8 1 8 → ▂▇▁█▂█▁█)
+uvx formtuist analyze examples/quiz.json responses.db \
+  --sparklines-id q2_mutability,q7_lambda_square
+uvx formtuist analyze examples/quiz.json responses.db --sparklines-all
+
+# Machine-readable for Sheets or scripting
+uvx formtuist analyze examples/quiz.json responses.db --format json --output stats.json
+uvx formtuist analyze examples/quiz.json responses.db --format csv --output stats.csv
+
+# Fewer histogram buckets
+uvx formtuist analyze examples/quiz.json responses.db --bins 5
 ```
+
+The `table` view has three panels:
+
+- **Quiz Statistics** (mean/median/stddev + five-number)
+
+- **Distribution** (binned `percentage` with a legend to explain the bar
+
+- **Per-question** (highest-score → lowest-score, with `Avg`, `p%`, `Correct%`,
+  `Pending`, and `Sparkline` when requested).
 
 ## Keyboard shortcuts
 
-Inside the form TUI:
+The command-line TUIs share a small set of consistent keys, so a shortcut
+means the same thing on every screen:
+
+| Key | Meaning everywhere |
+|---|---|
+| `Ctrl+N` | Next question |
+| `Ctrl+P` | Previous question |
+| `Ctrl+B` | Toggle the sidebar |
+| `Ctrl+O` | Open the command palette |
+| `Ctrl+C` | Quit |
+
+### Form TUI (fill in and submit a survey/quiz)
 
 | Key | Action |
 |---|---|
 | `Ctrl+S` | Submit the form |
-| `Ctrl+J` | Focus the next question |
-| `Ctrl+K` | Focus the previous question |
+| `Ctrl+N` | Focus the next question |
+| `Ctrl+P` | Focus the previous question |
 | `Ctrl+F` | Focus the first input (or the auth token field) |
 | `Ctrl+B` | Toggle the sidebar |
+| `Ctrl+R` | Restart the form (on the confirmation screen) |
+| `Ctrl+O` | Open the command palette |
 | `Ctrl+C` | Quit |
-| `Ctrl+P` | Open the command palette |
 
-The left sidebar shows an abbreviated list of the questions and highlights
-the one you are currently answering. A counter at the bottom shows
-`Question X / Y`.
+The left sidebar shows an abbreviated list of the questions and
+highlights the one you are currently answering. A counter at the bottom
+shows `Question X / Y`.
+
+### Review TUI (post-grade manual review for assessments)
+
+Navigation in the reviewer is question-first: you step through the
+responses for one question with `Ctrl+J`/`Ctrl+K`, then move between
+questions with `Ctrl+N`/`Ctrl+P`.
+
+| Key | Action |
+|---|---|
+| `Ctrl+S` | Save the current manual score and comment |
+| `M-a` | Save All — bulk-confirm every pending item with its prelim score |
+| `Ctrl+J` | Next response (within the current question) |
+| `Ctrl+K` | Previous response |
+| `Ctrl+N` | Next question |
+| `Ctrl+P` | Previous question |
+| `e` | Focus the score input (validated to `0..points`) |
+| `f` | Toggle pending-only (only unsaved responses) |
+| `Ctrl+B` | Toggle the sidebar |
+| `esc` | Blur — return focus to the screen (frees the letter shortcuts) |
+| `Ctrl+O` | Open the command palette |
+| `Ctrl+C` | Quit |
 
 ## Authentication
 
@@ -327,6 +486,20 @@ Authentication is disabled by default (`auth` is `null`), which means the
 form is anonymous by definition. When `auth` is `"github"`, the response row
 always records the identity of the person who submitted.
 
+A single-submission form (`allow_multiple_submissions: false`) requires an
+`auth` provider. Without an identity, formtuist cannot tell one person's
+second submission from two people's firsts, so the definition is rejected at
+parse time. Anonymous forms should keep `allow_multiple_submissions` at its
+default of `true`.
+
+Single-submission enforcement is scoped per attempt: each run of a form
+receives its own `attempt_id`, stored on every response row, and the
+tools check for duplicates within that attempt only. The `serve` command
+hands one shared `attempt_id` to every browser session of a run, while a
+direct `display` run uses a per-run id. This means the same database can be
+reused for many runs of the same form without blocking returning students;
+someone who already submitted in a prior run may submit again in a new one.
+
 ## Form JSON format
 
 Forms are defined as JSON files. Here is a minimal example:
@@ -334,6 +507,7 @@ Forms are defined as JSON files. Here is a minimal example:
 ```json
 {
   "name": "My Form",
+  "version": "0.1.0",
   "description": "An example form.",
   "config": {
     "randomize_questions": false,
@@ -352,13 +526,18 @@ Forms are defined as JSON files. Here is a minimal example:
 }
 ```
 
+The optional `version` field is author-supplied descriptive metadata. Formtuist
+also records the exact source file contents, resolved path, and SHA-256 hash
+with each submitted response; those stored provenance fields, rather than
+`version`, establish the reproducible form identity.
+
 ### Config options
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `randomize_questions` | boolean | `false` | Show questions in random order |
-| `auto_grade` | boolean | `false` | Grade submissions automatically |
-| `allow_multiple_submissions` | boolean | `true` | Allow the same person to submit more than once |
+| `auto_grade` | boolean | `false` | Show the student their score review after submitting (grades are always computed and stored for gradeable questions) |
+| `allow_multiple_submissions` | boolean | `true` | Allow repeats; when `false`, `auth` must be set so duplicates can be blocked |
 | `auth` | `"github"` or `null` | `null` | Require a GitHub token to submit; `null` means anonymous |
 
 ### Question types
@@ -372,12 +551,15 @@ Forms are defined as JSON files. Here is a minimal example:
 | `numeric` | `Input` with integer validator | REAL |
 | `rating` | `RadioSet` (horizontal) | INTEGER |
 | `date` | `DatePicker` with a visual calendar | TEXT |
-| `yes_no` | `Switch` | INTEGER (0/1) |
+| `yes_no` | `RadioSet` with Yes/No options | INTEGER (0/1) |
 
 `numeric` inputs are validated on submit — invalid values block
 submission with an error message. `date` answers are chosen from a
-visual calendar picker, so a malformed date cannot be typed. In an
-auto-graded form, a `yes_no` question
+visual calendar picker, so a malformed date cannot be typed. A `yes_no`
+question starts with neither option selected. Leaving it untouched saves
+`null` for optional questions and blocks submission for required questions.
+Selecting No once records an explicit `false`. In an auto-graded form, a
+`yes_no` question
 can carry a boolean `correct_answer` (`true` or `false`) and a `points` value,
 so true/false quiz questions are scored automatically. Questions may also
 include optional `code` blocks (rendered with syntax highlighting), `url`
@@ -397,6 +579,12 @@ default. Set `"randomize": false` on a question to keep it at its file
 position while the other questions shuffle around it — useful for a
 closing question such as a confidence rating.
 
+For `multiple_choice` and `checkbox` questions you can also randomize
+the order of the options themselves. Set `"randomize_choices": true` on
+the question to shuffle its options per student (deterministic across
+re-renders). Answered values stay the choice labels, so grading is
+unaffected.
+
 See `examples/` for complete form definitions.
 
 ## Database
@@ -407,26 +595,64 @@ Responses are stored in a SQLite database with a single `responses` table:
 |---|---|---|
 | `id` | INTEGER | Auto-incrementing primary key |
 | `form_name` | TEXT | Name of the submitted form |
+| `attempt_id` | TEXT | Identifier for the form run |
 | `submitted_at` | TEXT | ISO 8601 timestamp |
 | `answers_json` | TEXT | JSON object of question IDs to answers |
 | `github_username` | TEXT | GitHub username (when auth is enabled) |
 | `github_url` | TEXT | GitHub profile URL (when auth is enabled) |
+| `grade_json` | TEXT | JSON grade snapshot when grading is available |
+| `form_version` | TEXT | Optional author-supplied form version |
+| `form_hash` | TEXT | SHA-256 hash of the exact input JSON bytes |
+| `form_path` | TEXT | Fully qualified path to the input JSON file |
+| `form_contents` | TEXT | Exact input JSON contents |
 
 The database is created in the platform-appropriate data directory
 (`~/.local/share/formtuist/` on Linux). Use `--db-dir` to override.
 Existing databases are migrated automatically when new columns are added.
+Older responses have `NULL` provenance values because their original form
+file did not record them.
 
-Browse saved responses with:
+Because the database runs in WAL mode, recent writes (including saved
+manual reviews) may live in the `-wal` sidecar file rather than the main
+`.db` file until a checkpoint runs. To back up a database safely, either
+checkpoint it first (`sqlite3 responses.db "PRAGMA wal_checkpoint(TRUNCATE);"`)
+or export a portable copy with `formtuist export --format sqlite`;
+plainly copying only the `.db` file can silently drop the most recent
+reviews.
+source was not captured.
+
+The `form_hash` and `form_contents` fields identify and reproduce the exact
+form source used at submission time. The author-supplied `form_version` is
+helpful metadata but is not authoritative. Browse saved responses with:
 
 ```bash
 uvx formtuist view ~/.local/share/formtuist/responses.db
 ```
 
+Inspect stored form provenance in the read-only TUI:
+
+```bash
+# show the submission list using the default database
+uvx formtuist provenance
+
+# use a specific database and open the newest response
+uvx formtuist provenance responses.db --latest
+
+# open one response directly after selecting its ID from the list
+uvx formtuist provenance responses.db --response-id 42
+```
+
+The default list shows response IDs, form names, author versions, submission
+times, identities, and shortened hashes. The detail view reports the author
+version, complete SHA-256 hash, fully qualified source path, source availability,
+exact JSON contents, and submission metadata. The full JSON contents remain
+authoritative even when the source file has been moved or edited.
+
 Or peek with `sqlite3`:
 
 ```bash
 sqlite3 -header -column ~/.local/share/formtuist/responses.db \
-  "SELECT id, form_name, github_username, submitted_at FROM responses;"
+  "SELECT id, form_name, form_version, form_hash, form_path, submitted_at FROM responses;"
 ```
 
 ## Example forms
