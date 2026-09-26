@@ -369,8 +369,8 @@ class TestPublisherHelpers:
             ) as popen,
             patch("formtuist.publisher.wait_for_server") as wait,
             patch(
-                "formtuist.publisher.BitBangWSGI", return_value=adapter
-            ) as bitbang,
+                "formtuist.publisher.FormtuistBitBang", return_value=adapter
+            ) as formtuist_bitbang,
             patch("formtuist.publisher._stop_process") as stop,
         ):
             publisher.publish_form(
@@ -387,7 +387,7 @@ class TestPublisherHelpers:
         ca_store.assert_called_once_with()
         popen.assert_called_once()
         wait.assert_called_once_with(HOST, PORT)
-        bitbang.assert_called_once()
+        formtuist_bitbang.assert_called_once()
         assert adapter.ws_target == TARGET
         adapter.run.assert_called_once_with()
         stop.assert_called_once_with(process)
@@ -420,7 +420,7 @@ class TestPublisherHelpers:
             ),
             patch("formtuist.publisher.wait_for_server"),
             patch(
-                "formtuist.publisher.BitBangWSGI",
+                "formtuist.publisher.FormtuistBitBang",
                 side_effect=RuntimeError("adapter failed"),
             ),
             patch("formtuist.publisher._stop_process") as stop,
