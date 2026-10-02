@@ -1,6 +1,7 @@
 """Publish a local textual-serve form through a bitbang WebRTC tunnel."""
 
 import asyncio
+import contextlib
 import gzip
 import os
 import subprocess
@@ -63,139 +64,215 @@ BITBANG_PROGRAM_NAME = "formtuist"
 
 # admission-control tuning for the bitbang tunnel
 #
-# bitbang registers a peer when the signaling "offer" arrives but marks it
-# authenticated only once the SWSP "connect" message arrives over the data
-# channel. That window therefore spans the whole ICE/DTLS/SCTP setup, and at
+# bitbang registers a peer when the signaling offer arrives but marks it
+# authenticated only once the SWSP connect message arrives over the data
+# channel. That window spans the whole ICE, DTLS, and SCTP setup, and at
 # least RELAY_GRACE (8 seconds) whenever the TURN path is used. bitbang's own
-# _count_unauth_live() counts every in-flight peer against MAX_UNAUTH_PEERS
+# _count_unauth_live counts every in-flight peer against MAX_UNAUTH_PEERS
 # (10), so it behaves as an admission limit of ten concurrent connection
-# *setups* rather than ten visitors. A class opening one link at the same
+# setups rather than ten visitors. A class opening one link at the same
 # moment exceeds it immediately, and the rejection is silent: the adapter
 # returns without answering the offer, so the browser waits on "Loading..."
-# forever and never reaches textual-serve. Peers that never authenticate are
-# removed only on reconnect or adapter close, so ten abandoned loads then lock
-# out every later visitor for the life of the process.
+# forever. Peers are removed only on reconnect or adapter close, so ten
+# abandoned loads then lock out every later visitor for the life of the
+# process.
 #
-# Both behaviours are corrected here, inside formtuist, without modifying
-# bitbang: admission counts only sessions that are genuinely stuck, and a
-# reaper closes and forgets stale peers so a slot is never held indefinitely.
+# FormtuistBitBang corrects both behaviours without modifying bitbang.
+# Admission counts only peers that have stayed unauthenticated for
+# STUCK_SESSION_SECONDS, and a reaper forgets peers whose connection has
+# ended as well as handshakes that never connected within
+# STALE_HANDSHAKE_SECONDS. A connected peer that has not authenticated yet is
+# a visitor at the PIN prompt, so the reaper leaves it alone.
 STUCK_SESSION_SECONDS = 45.0
-STALE_SESSION_SECONDS = 120.0
+STALE_HANDSHAKE_SECONDS = 60.0
 REAP_INTERVAL_SECONDS = 10.0
 SEND_DEADLINE_SECONDS = 15.0
+SEND_POLL_SECONDS = 0.01
 
-# connection states that mean a peer can never authenticate
-DEAD_CONNECTION_STATES = ("closed", "failed", "disconnected")
+# keys and states that bitbang and aiortc use to describe each peer
+REQUEST_CLIENT_ID_KEY = "client_id"
+PEER_AUTHENTICATED_KEY = "authenticated"
+PEER_CONNECTION_KEY = "pc"
+PEER_RELAY_GATE_KEY = "relay_gate_task"
+CONNECTION_STATE_ATTRIBUTE = "connectionState"
+SCTP_FLIGHT_SIZE_ATTRIBUTE = "_flight_size"
+CONNECTED_STATE = "connected"
+CLOSED_STATE = "closed"
+FAILED_STATE = "failed"
+OPEN_CHANNEL_STATE = "open"
+
+# aiortc never leaves these states, and it has no "disconnected" state
+TERMINAL_CONNECTION_STATES = frozenset({CLOSED_STATE, FAILED_STATE})
+SEND_STALLED_MESSAGE = "peer did not drain its data channel within {:.0f}s"
+
+# bitbang keys a request that arrives without a client id under None
+ClientId = str | None
+
+
+class SendStalledError(TimeoutError):
+    """Signal that a peer stopped draining its data channel."""
+
+
+def _connection_state(peer: dict[str, Any]) -> str:
+    """Return a peer's connection state, treating a missing one as closed."""
+    state: str = getattr(
+        peer.get(PEER_CONNECTION_KEY),
+        CONNECTION_STATE_ATTRIBUTE,
+        CLOSED_STATE,
+    )
+    return state
 
 
 class FormtuistBitBang(BitBangWSGI):
-    """BitBangWSGI with stuck-session admission and stale-peer reaping.
-
-    A subclass, so bitbang itself stays untouched. Two changes:
-
-    - _count_unauth_live reports only sessions that have stayed
-      unauthenticated for stuck_after seconds, so visitors who are merely
-      mid-handshake no longer consume an admission slot.
-    - a reaper closes and forgets peers that are dead or have lingered
-      unauthenticated for stale_after seconds, so an abandoned load cannot
-      hold a slot for the life of the process.
-    """
+    """Admit bursts of visitors and reclaim peers that bitbang would leak."""
 
     stuck_after = STUCK_SESSION_SECONDS
-    stale_after = STALE_SESSION_SECONDS
+    stale_after = STALE_HANDSHAKE_SECONDS
     reap_interval = REAP_INTERVAL_SECONDS
     send_deadline = SEND_DEADLINE_SECONDS
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Create the adapter and its bookkeeping for session ages."""
         super().__init__(*args, **kwargs)
-        self._first_seen: dict[str, float] = {}
+        self._first_seen: dict[ClientId, float] = {}
         self._reaper: asyncio.Task[None] | None = None
         self.reaped_sessions = 0
 
+    def setup_peer_connection(self, pc: Any, client_id: ClientId) -> None:
+        """Stamp a peer at the moment bitbang admits and registers it."""
+        super().setup_peer_connection(pc, client_id)
+        # bitbang stores the peer right after this hook returns, with no
+        # await in between, so a stamp never outlives or predates its peer
+        self._first_seen[client_id] = time.monotonic()
+
     async def handle_request(self, ws: Any, message: dict[str, Any]) -> None:
-        """Record when a connection request arrived, then delegate."""
-        client_id = message.get("client_id")
-        if client_id:
-            self._first_seen[client_id] = time.monotonic()
+        """Retire a reconnecting client's old peer, then delegate."""
+        client_id = message.get(REQUEST_CLIENT_ID_KEY)
+        previous = self.peers.get(client_id)
+        # bitbang's own cleanup awaits the old close and then deletes by key,
+        # which raises KeyError if the reaper forgot the peer in the meantime
+        if previous is not None:
+            await self._drop_peer(client_id, previous)
         self._ensure_reaper()
         await super().handle_request(ws, message)
 
-    def _count_unauth_live(self) -> int:
-        """Count sessions stuck unauthenticated, not in-flight ones."""
-        now = time.monotonic()
-        stuck = 0
+    def _add_ice_candidate(self, data: dict[str, Any]) -> None:
+        """Add a browser's ICE candidate unless it cannot be parsed."""
+        # bitbang parses candidates inside its signaling loop with no error
+        # handling, so an empty end-of-candidates marker or any malformed
+        # candidate would drop the publisher off the signaling server, and
+        # every new visitor would see "Device not found" until it registered
+        # again; losing one candidate affects only the browser that sent it
+        with contextlib.suppress(Exception):
+            super()._add_ice_candidate(data)
+
+    async def close(self) -> None:
+        """Stop the reaper, then close and forget every peer."""
+        reaper, self._reaper = self._reaper, None
+        if reaper is not None and not reaper.done():
+            reaper.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await reaper
         for client_id, peer in list(self.peers.items()):
-            if peer.get("authenticated"):
-                continue
-            pc = peer.get("pc")
-            if pc is None or pc.connectionState in DEAD_CONNECTION_STATES:
-                continue
-            age = now - self._first_seen.get(client_id, now)
-            if age >= self.stuck_after:
-                stuck += 1
-        return stuck
+            await self._drop_peer(client_id, peer)
+        await super().close()
+        self._first_seen.clear()
+
+    def _count_unauth_live(self) -> int:
+        """Count unauthenticated peers stuck past the admission threshold."""
+        now = time.monotonic()
+        return sum(
+            1
+            for client_id, peer in list(self.peers.items())
+            if not peer.get(PEER_AUTHENTICATED_KEY)
+            and _connection_state(peer) not in TERMINAL_CONNECTION_STATES
+            and self._age(client_id, now) >= self.stuck_after
+        )
+
+    def _age(self, client_id: ClientId, now: float) -> float:
+        """Return how long a peer has been registered, stamping it if new."""
+        return now - self._first_seen.setdefault(client_id, now)
+
+    def _is_reapable(
+        self, client_id: ClientId, peer: dict[str, Any], now: float
+    ) -> bool:
+        """Report whether a peer can never be served again."""
+        state = _connection_state(peer)
+        if state in TERMINAL_CONNECTION_STATES:
+            return True
+        if peer.get(PEER_AUTHENTICATED_KEY) or state == CONNECTED_STATE:
+            return False
+        return self._age(client_id, now) >= self.stale_after
 
     def _ensure_reaper(self) -> None:
-        """Start the reaper once, on the event loop that serves us."""
+        """Start the reaper once, on the event loop that serves requests."""
         if self._reaper is None or self._reaper.done():
-            self._reaper = asyncio.ensure_future(self._reap_loop())
+            self._reaper = asyncio.create_task(self._reap_loop())
 
     async def _reap_loop(self) -> None:
-        """Periodically drop dead and stale peers."""
+        """Periodically forget peers that can never be served again."""
         while True:
             await asyncio.sleep(self.reap_interval)
             await self.reap_once()
 
     async def reap_once(self) -> int:
-        """Close and forget dead or stale peers; return how many went."""
+        """Close and forget unservable peers and return how many went."""
         now = time.monotonic()
+        doomed = [
+            (client_id, peer)
+            for client_id, peer in list(self.peers.items())
+            if self._is_reapable(client_id, peer, now)
+        ]
         dropped = 0
-        for client_id, peer in list(self.peers.items()):
-            if peer.get("authenticated"):
-                continue
-            age = now - self._first_seen.get(client_id, now)
-            state = getattr(peer.get("pc"), "connectionState", "closed")
-            if state in DEAD_CONNECTION_STATES or age >= self.stale_after:
-                await self._drop_peer(client_id)
+        for client_id, peer in doomed:
+            if await self._drop_peer(client_id, peer):
                 dropped += 1
+        # a stamp with no peer belongs to a request that never registered one
+        for client_id in set(self._first_seen) - set(self.peers):
+            del self._first_seen[client_id]
         self.reaped_sessions += dropped
         return dropped
 
-    async def _drop_peer(self, client_id: str) -> None:
-        """Close a peer connection and forget all of its bookkeeping."""
-        peer = self.peers.pop(client_id, None)
+    async def _drop_peer(
+        self, client_id: ClientId, peer: dict[str, Any]
+    ) -> bool:
+        """Close and forget a peer unless a newer one has replaced it."""
+        # the reaper awaits between drops, so a reconnect may have registered
+        # a fresh peer under the same client id, and that peer must survive
+        if self.peers.get(client_id) is not peer:
+            return False
+        del self.peers[client_id]
         self._first_seen.pop(client_id, None)
-        if peer is None:
-            return
-        gate = peer.get("relay_gate_task")
+        gate = peer.get(PEER_RELAY_GATE_KEY)
         if gate is not None and not gate.done():
             gate.cancel()
-        pc = peer.get("pc")
+        pc = peer.get(PEER_CONNECTION_KEY)
         if pc is not None:
-            try:
+            # closing is best effort because the peer is already forgotten
+            with contextlib.suppress(Exception):
                 await pc.close()
-            except Exception:
-                pass
+        return True
 
     async def _send_with_backpressure(
         self, channel: Any, frame: bytes, limit: int, sctp: Any
     ) -> None:
-        """Send a frame, but never wait on a stalled peer indefinitely."""
+        """Send a frame once the peer drains, failing loudly if it stalls."""
         deadline = time.monotonic() + self.send_deadline
         while True:
-            if channel.readyState != "open":
+            # a closed channel ends bitbang's send loop on its next check
+            if channel.readyState != OPEN_CHANNEL_STATE:
                 return
-            flight = getattr(sctp, "_flight_size", 0) if sctp else 0
+            flight = getattr(sctp, SCTP_FLIGHT_SIZE_ATTRIBUTE, 0)
             if channel.bufferedAmount + flight <= limit:
                 break
+            # skipping a frame would corrupt the stream, so raise and let
+            # bitbang finish the stream with an error response instead
             if time.monotonic() >= deadline:
-                return
-            await asyncio.sleep(0.01)
-        try:
-            channel.send(frame)
-        except Exception:
-            return
+                raise SendStalledError(
+                    SEND_STALLED_MESSAGE.format(self.send_deadline)
+                )
+            await asyncio.sleep(SEND_POLL_SECONDS)
+        channel.send(frame)
 
 
 class RewritingProxy:

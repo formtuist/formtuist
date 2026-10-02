@@ -16,7 +16,7 @@ dependencies = [
     "click>=8.0.0",
     "typer>=0.27.0",
     "platformdirs>=4.0.0",
-    "bitbang>=0.1.55",
+    "bitbang>=0.1.55,<0.2",
     "textual-timepiece>=0.7.0",
 ]
 
